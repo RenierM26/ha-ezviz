@@ -4,5 +4,5 @@
   "documentation": "https://www.home-assistant.io/integrations/ezviz",
   "dependencies": [],
   "codeowners": ["@baqs"],
-  "requirements": ["git+https://github.com/RenierM26/pyEzviz.git@master#pyEzviz==0.1.5.9"]
+  "requirements": ["git+https://github.com/RenierM26/pyEzviz.git@master#pyEzviz==0.1.6.0"]
 } 
