@@ -1,0 +1,9 @@
+{
+    "name": "ha-ezviz",
+    "hacs": "1.6.0",
+    "domains": [
+        "camera"
+    ],
+    "iot_class": "Cloud Polling",
+    "homeassistant": "0.118.0"
+}
