@@ -8,10 +8,4 @@ Install:
 
 camera:
   - platform: ha-ezviz     #<----------This part changes
-    username: YOUR_USERNAME
-    password: YOUR_PASSWORD
-    cameras:
-      D12345678:
-        username: YOUR_CAMERA_USERNAME
-        password: YOUR_CAMERA_PASSWORD
-
+  
