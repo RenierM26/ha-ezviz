@@ -105,6 +105,7 @@ class HassEzvizCamera(Camera):
         self._username = data["username"]
         self._password = data["password"]
         self._rtsp_stream = data["rtsp_stream"]
+        self._unique_id = data["serial"]
 
         self._ezviz_camera = data["ezviz_camera"]
         self._serial = data["serial"]
@@ -237,6 +238,11 @@ class HassEzvizCamera(Camera):
     def name(self):
         """Return the name of this camera."""
         return self._name
+
+    @property
+    def unique_id(self):
+        """Return the name of this camera."""
+        return self._unique_id
 
     async def async_camera_image(self):
         """Return a frame from the camera stream."""
