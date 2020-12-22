@@ -48,7 +48,6 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     try:
         ezviz_client = EzvizClient(account, password)
         ezviz_client.login()
-        camerainfo = ezviz_client._get_deviceinfo()
         cameras = ezviz_client.load_cameras()
 
     except PyEzvizError as exp:
@@ -89,7 +88,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         camera["password"] = camera_password
         camera["rtsp_stream"] = camera_rtsp_stream
 
-        camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial, camerainfo)
+        camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial)
 
         camera_entities.append(HassEzvizCamera(**camera))
 
@@ -118,6 +117,7 @@ class HassEzvizCamera(Camera):
         self._state_led = data["state_led"]
         self._follow_move = data["follow_move"]
         self._alarm_notify = data["alarm_notify"]
+        self._alarm_schedules_enabled = data["alarm_schedules_enabled"]
         self._alarm_sound_mod = data["alarm_sound_mod"]
         self._encrypted = data["encrypted"]
         self._local_ip = data["local_ip"]
@@ -144,6 +144,7 @@ class HassEzvizCamera(Camera):
         self._state_led = data["state_led"]
         self._follow_move = data["follow_move"]
         self._alarm_notify = data["alarm_notify"]
+        self._alarm_schedules_enabled = data["alarm_schedules_enabled"]
         self._alarm_sound_mod = data["alarm_sound_mod"]
         self._encrypted = data["encrypted"]
         self._local_ip = data["local_ip"]
@@ -185,6 +186,8 @@ class HassEzvizCamera(Camera):
             "follow_move": self._follow_move,
             # if true, if some movement is detected, the app is notified
             "alarm_notify": self._alarm_notify,
+            # if true, notification schedule(s) are configured
+            "alarm_schedules_enabled": self._alarm_schedules_enabled,
             # if true, if some movement is detected, the camera makes some sound
             "alarm_sound_mod": self._alarm_sound_mod,
             # are the camera's stored videos/images encrypted?
