@@ -9,7 +9,7 @@ ezviz_ptz:
       example: "up"
     speed:
       description: Speed of the movement (from 1 to 9).
-      example: 5
+      example: "5"
 
 ezviz_switch_audio:
   description: Switch the camera audio on.
