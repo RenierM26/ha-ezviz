@@ -100,7 +100,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         """Basicaly queries device to wake."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
-        
+
         ezviz_client.get_detection_sensibility(device_serial)
 
     def ezviz_switch_state(call):
@@ -108,7 +108,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
-        
+
         ezviz_client.switch_status(device_serial, DeviceSwitchType.LIGHT.value, device_cmd)
 
     def ezviz_switch_audio(call):
