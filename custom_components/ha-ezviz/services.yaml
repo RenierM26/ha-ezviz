@@ -1,109 +1,109 @@
-ezviz_alarm_notify: 
+ezviz_alarm_notify:
   description: "Enable/Disable alarm notification."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_alarm_sound: 
+ezviz_alarm_sound:
   description: "Enable/Disable movement warning sounds."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Sound level (2 is disabled, 1 intensive, 0 software)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_get_detection_sensibility: 
+ezviz_get_detection_sensibility:
   description: "Fetches detection sensibility. This can also be used to wake device from hibernation."
-  fields: 
-    serial: 
+  fields:
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_ptz: 
+ezviz_ptz:
   description: "Moves the camera to the direction, with defined speed"
-  fields: 
-    direction: 
+  fields:
+    direction:
       description: "Direction (up, down, left, right)."
       example: "up"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
-    speed: 
+    speed:
       description: "Speed of the movement (from 1 to 9)."
       example: "5"
 
-ezviz_switch_audio: 
+ezviz_switch_audio:
   description: "Switch the camera audio on."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
 ezviz_switch_follow_move: 
   description: "Switch the camera movement following on."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_switch_ir: 
+ezviz_switch_ir:
   description: "Switch the camera infra red led on."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_switch_privacy: 
+ezviz_switch_privacy:
   description: "Switch the camera privacy on."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_switch_sleep: 
+ezviz_switch_sleep:
   description: "Switch the camera movement following on."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-ezviz_switch_state: 
+ezviz_switch_state:
   description: "Switch the camera state led on/off."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Enter 1 or 0 (0=disable, 1=enable)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
 
-set_alarm_detection_sensibility: 
+set_alarm_detection_sensibility:
   description: "Sets the detection sensibility level."
-  fields: 
-    cmd: 
+  fields:
+    cmd:
       description: "Sensibility level (0-6)."
       example: "0"
-    serial: 
+    serial:
       description: "Enter serial of Camera."
       example: "D6666666"
