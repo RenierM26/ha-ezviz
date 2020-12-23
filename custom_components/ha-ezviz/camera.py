@@ -151,7 +151,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
         ezviz_client.switch_status(device_serial, DeviceSwitchType.MOBILE_TRACKING.value, device_cmd)
 
-     def ezviz_ptz(call):
+    def ezviz_ptz(call):
         """Set camera status led service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
