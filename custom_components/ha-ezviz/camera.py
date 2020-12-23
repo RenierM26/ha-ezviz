@@ -6,6 +6,7 @@ import logging
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
 from pyezviz.camera import EzvizCamera
 from pyezviz.client import EzvizClient, PyEzvizError
+from pyezviz.DeviceSwitchType import DeviceSwitchType
 import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
@@ -18,7 +19,7 @@ CONF_CAMERAS = "cameras"
 
 DEFAULT_CAMERA_USERNAME = "admin"
 DEFAULT_RTSP_PORT = "554"
-
+DOMAIN = "ha-ezviz"
 DATA_FFMPEG = "ffmpeg"
 
 EZVIZ_DATA = "ezviz"
@@ -94,6 +95,24 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
     add_entities(camera_entities)
 
+    """Set up the sync service."""
+    def ezviz_get_detection_sensibility(call):
+        """My first service."""
+        data = dict(call.data)
+        device_serial = str(data.pop('serial'))
+        
+        ezviz_client.get_detection_sensibility(device_serial)
+
+    def ezviz_switch_state(call):
+        """My first service."""
+        data = dict(call.data)
+        device_serial = str(data.pop('serial'))
+        device_cmd = str(data.pop('cmd'))
+        
+        ezviz_client.switch_status(device_serial, DeviceSwitchType.LIGHT.value, device_cmd)
+
+    hass.services.register(DOMAIN, "ezviz_get_detection_sensibility", ezviz_get_detection_sensibility)
+    hass.services.register(DOMAIN, "ezviz_switch_state", ezviz_switch_state)
 
 class HassEzvizCamera(Camera):
     """An implementation of a Foscam IP camera."""
