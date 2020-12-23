@@ -1,9 +1,9 @@
 ezviz_ptz:
   description: Moves the camera to the direction, with defined speed
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
     direction:
       description: Direction (up, down, left, right).
       example: "up"
@@ -11,48 +11,36 @@ ezviz_ptz:
       description: Speed of the movement (from 1 to 9).
       example: 5
 
-ezviz_switch_audio_on:
+ezviz_switch_audio:
   description: Switch the camera audio on.
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_audio_off:
-  description: Switch the camera audio off.
-  fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_ir_off:
-  description: Switch the camera infra red led off.
-  fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_ir_on:
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
+    cmd:
+      description: Enter 1 or 0.
+      example: "0"
+      
+ezviz_switch_ir:
   description: Switch the camera infra red led on.
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_privacy_on:
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
+    cmd:
+      description: Enter 1 or 0.
+      example: "0"
+      
+ezviz_switch_privacy:
   description: Switch the camera privacy on.
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_privacy_off:
-  description: Switch the camera privacy off.
-  fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
+    cmd:
+      description: Enter 1 or 0.
+      example: "0"
+      
 ezviz_switch_state:
   description: Switch the camera state led on/off.
   fields:
@@ -63,20 +51,26 @@ ezviz_switch_state:
       description: Enter 1 or 0.
       example: "0"
 
-ezviz_switch_follow_move_on:
+ezviz_switch_sleep:
   description: Switch the camera movement following on.
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
-ezviz_switch_follow_move_off:
-  description: Switch the camera movement following off.
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
+    cmd:
+      description: Enter 1 or 0.
+      example: "0"
+      
+ezviz_switch_follow_move:
+  description: Switch the camera movement following on.
   fields:
-    entity_id:
-      description: Entity id.
-      example: "camera.c6n_d12345678"
-
+    serial:
+      description: Enter serial of Camera.
+      example: "D6666666"
+    cmd:
+      description: Enter 1 or 0.
+      example: "0"
+      
 ezviz_get_detection_sensibility:
   description: Fetches detection sensibility. This can also be used to wake device from hibernation.
   fields:
