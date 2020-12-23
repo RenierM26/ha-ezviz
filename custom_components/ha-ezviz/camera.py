@@ -36,7 +36,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     }
 )
 
-
 def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the Ezviz IP Cameras."""
 
@@ -87,6 +86,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         camera["username"] = camera_username
         camera["password"] = camera_password
         camera["rtsp_stream"] = camera_rtsp_stream
+        camera["login"] = ezviz_client
 
         camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial)
 
@@ -106,7 +106,8 @@ class HassEzvizCamera(Camera):
         self._password = data["password"]
         self._rtsp_stream = data["rtsp_stream"]
         self._unique_id = data["serial"]
-
+        self._login = data["login"]
+        
         self._ezviz_camera = data["ezviz_camera"]
         self._serial = data["serial"]
         self._name = data["name"]
@@ -133,7 +134,7 @@ class HassEzvizCamera(Camera):
 
     def update(self):
         """Update the camera states."""
-
+        self._login.login()
         data = self._ezviz_camera.status()
 
         self._name = data["name"]
