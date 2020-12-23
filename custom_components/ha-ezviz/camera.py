@@ -112,7 +112,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         ezviz_client.switch_status(device_serial, DeviceSwitchType.LIGHT.value, device_cmd)
 
     def ezviz_switch_audio(call):
-        """Set camera status led service."""
+        """Set camera audio service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
@@ -120,7 +120,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         ezviz_client.switch_status(device_serial, DeviceSwitchType.SOUND.value, device_cmd)
 
     def ezviz_switch_ir(call):
-        """Set camera status led service."""
+        """Set camera ir led service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
@@ -128,7 +128,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         ezviz_client.switch_status(device_serial, DeviceSwitchType.INFRARED_LIGHT, device_cmd)
 
     def ezviz_switch_privacy(call):
-        """Set camera status led service."""
+        """Set camera privacy service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
@@ -136,7 +136,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         ezviz_client.switch_status(device_serial, DeviceSwitchType.PRIVACY.value, device_cmd)
 
     def ezviz_switch_sleep(call):
-        """Set camera status led service."""
+        """Set camera sleep service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
@@ -144,12 +144,36 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         ezviz_client.switch_status(device_serial, DeviceSwitchType.SLEEP.value, device_cmd)
 
     def ezviz_switch_follow_move(call):
-        """Set camera status led service."""
+        """Set camera enable follow movement service."""
         data = dict(call.data)
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
 
         ezviz_client.switch_status(device_serial, DeviceSwitchType.MOBILE_TRACKING.value, device_cmd)
+
+    def ezviz_alarm_notify(call):
+        """Enable/Disable alarm notification service."""
+        data = dict(call.data)
+        device_serial = str(data.pop('serial'))
+        device_cmd = str(data.pop('cmd'))
+
+        ezviz_client.data_report(device_serial, device_cmd)
+
+    def ezviz_alarm_sound(call):
+        """Enable/Disable movement sound alarm."""
+        data = dict(call.data)
+        device_serial = str(data.pop('serial'))
+        device_cmd = str(data.pop('cmd'))
+
+        ezviz_client.alarm_sound(device_serial, device_cmd, 1)
+
+    def set_alarm_detection_sensibility(call):
+        """Set camera detection sensibility level service."""
+        data = dict(call.data)
+        device_serial = str(data.pop('serial'))
+        device_cmd = str(data.pop('cmd'))
+
+        ezviz_client.detection_sensibility(device_serial, device_cmd)
 
     def ezviz_ptz(call):
         """Set camera status led service."""
@@ -169,6 +193,9 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     hass.services.register(DOMAIN, "ezviz_switch_sleep", ezviz_switch_sleep)
     hass.services.register(DOMAIN, "ezviz_switch_follow_move", ezviz_switch_follow_move)
     hass.services.register(DOMAIN, "ezviz_ptz", ezviz_ptz)
+    hass.services.register(DOMAIN, "ezviz_alarm_notify", ezviz_alarm_notify)
+    hass.services.register(DOMAIN, "ezviz_alarm_sound", ezviz_alarm_sound)
+    hass.services.register(DOMAIN, "set_alarm_detection_sensibility", set_alarm_detection_sensibility)
 
 class HassEzvizCamera(Camera):
     """An implementation of a Foscam IP camera."""
