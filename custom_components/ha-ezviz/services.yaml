@@ -20,7 +20,7 @@ ezviz_switch_audio:
     cmd:
       description: Enter 1 or 0.
       example: "0"
-      
+
 ezviz_switch_ir:
   description: Switch the camera infra red led on.
   fields:
@@ -30,7 +30,7 @@ ezviz_switch_ir:
     cmd:
       description: Enter 1 or 0.
       example: "0"
-      
+
 ezviz_switch_privacy:
   description: Switch the camera privacy on.
   fields:
@@ -40,7 +40,7 @@ ezviz_switch_privacy:
     cmd:
       description: Enter 1 or 0.
       example: "0"
-      
+
 ezviz_switch_state:
   description: Switch the camera state led on/off.
   fields:
@@ -60,7 +60,7 @@ ezviz_switch_sleep:
     cmd:
       description: Enter 1 or 0.
       example: "0"
-      
+
 ezviz_switch_follow_move:
   description: Switch the camera movement following on.
   fields:
@@ -70,7 +70,7 @@ ezviz_switch_follow_move:
     cmd:
       description: Enter 1 or 0.
       example: "0"
-      
+
 ezviz_get_detection_sensibility:
   description: Fetches detection sensibility. This can also be used to wake device from hibernation.
   fields:
