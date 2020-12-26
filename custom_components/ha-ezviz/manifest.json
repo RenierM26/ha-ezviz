@@ -5,4 +5,4 @@
   "dependencies": [],
   "codeowners": ["@baqs"],
   "requirements": ["git+https://github.com/RenierM26/pyEzviz.git@master#pyEzviz==0.1.6.4"]
-} 
+}
