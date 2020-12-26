@@ -89,7 +89,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         camera["rtsp_stream"] = camera_rtsp_stream
         camera["ezviz_client"] = ezviz_client
 
-#        camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial)
+        camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial)
 
         camera_entities.append(HassEzvizCamera(**camera))
 
@@ -210,7 +210,7 @@ class HassEzvizCamera(Camera):
         self._unique_id = data["serial"]
         self._ezviz_client = data["ezviz_client"]
 
-#        self._ezviz_camera = data["ezviz_camera"]
+        self._ezviz_camera = data["ezviz_camera"]
         self._serial = data["serial"]
         self._name = data["name"]
         self._status = data["status"]
@@ -236,9 +236,7 @@ class HassEzvizCamera(Camera):
 
     def update(self):
         """Update the camera states."""
-
         self._ezviz_client.login()
-        self._ezviz_camera = EzvizCamera(self._ezviz_client, self._serial)
         data = self._ezviz_camera.status()
 
         self._name = data["name"]
