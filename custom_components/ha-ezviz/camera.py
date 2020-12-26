@@ -151,14 +151,6 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
         ezviz_client.switch_status(device_serial, DeviceSwitchType.MOBILE_TRACKING.value, device_cmd)
 
-    def ezviz_alarm_notify(call):
-        """Enable/Disable alarm notification service."""
-        data = dict(call.data)
-        device_serial = str(data.pop('serial'))
-        device_cmd = str(data.pop('cmd'))
-
-        ezviz_client.data_report(device_serial, device_cmd)
-
     def ezviz_alarm_sound(call):
         """Enable/Disable movement sound alarm."""
         data = dict(call.data)
@@ -193,7 +185,6 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     hass.services.register(DOMAIN, "ezviz_switch_sleep", ezviz_switch_sleep)
     hass.services.register(DOMAIN, "ezviz_switch_follow_move", ezviz_switch_follow_move)
     hass.services.register(DOMAIN, "ezviz_ptz", ezviz_ptz)
-    hass.services.register(DOMAIN, "ezviz_alarm_notify", ezviz_alarm_notify)
     hass.services.register(DOMAIN, "ezviz_alarm_sound", ezviz_alarm_sound)
     hass.services.register(DOMAIN, "set_alarm_detection_sensibility", set_alarm_detection_sensibility)
 
@@ -288,8 +279,6 @@ class HassEzvizCamera(Camera):
             "state_led": self._state_led,
             # if true, the camera will move automatically to follow movements
             "follow_move": self._follow_move,
-            # if true, if some movement is detected, the app is notified
-            "alarm_notify": self._alarm_notify,
             # if true, notification schedule(s) are configured
             "alarm_schedules_enabled": self._alarm_schedules_enabled,
             # if true, if some movement is detected, the camera makes some sound
@@ -336,6 +325,33 @@ class HassEzvizCamera(Camera):
     def is_on(self):
         """Return true if on."""
         return self._status
+
+    @property
+    def motion_detection_enabled(self):
+        """Camera Motion Detection Status."""
+        return self._alarm_notify
+
+    def enable_motion_detection(self):
+        """Enable motion detection in camera."""
+        try:
+            ret = self._ezviz_client.data_report(self._serial, 1)
+            if ret != True:
+                return
+
+            self._alarm_notify = True
+        except TypeError:
+            _LOGGER.debug("Communication problem")
+
+    def disable_motion_detection(self):
+        """Disable motion detection."""
+        try:
+            ret = self._ezviz_client.data_report(self._serial, 0)
+            if ret != True:
+                return
+
+            self._alarm_notify = False
+        except TypeError:
+            _LOGGER.debug("Communication problem")
 
     @property
     def name(self):

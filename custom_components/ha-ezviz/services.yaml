@@ -1,13 +1,3 @@
-ezviz_alarm_notify:
-  description: "Enable/Disable alarm notification."
-  fields:
-    cmd:
-      description: "Enter 1 or 0 (0=disable, 1=enable)."
-      example: "0"
-    serial:
-      description: "Enter serial of Camera."
-      example: "D6666666"
-
 ezviz_alarm_sound:
   description: "Enable/Disable movement warning sounds."
   fields:
