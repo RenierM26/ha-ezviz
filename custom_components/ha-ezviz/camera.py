@@ -125,7 +125,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         device_serial = str(data.pop('serial'))
         device_cmd = str(data.pop('cmd'))
 
-        ezviz_client.switch_status(device_serial, DeviceSwitchType.INFRARED_LIGHT, device_cmd)
+        ezviz_client.switch_status(device_serial, DeviceSwitchType.INFRARED_LIGHT.value, device_cmd)
 
     def ezviz_switch_privacy(call):
         """Set camera privacy service."""
