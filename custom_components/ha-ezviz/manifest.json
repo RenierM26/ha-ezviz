@@ -3,6 +3,6 @@
   "name": "ha-ezviz",
   "documentation": "https://www.home-assistant.io/integrations/ezviz",
   "dependencies": [],
-  "codeowners": ["@baqs"],
-  "requirements": ["git+https://github.com/RenierM26/pyEzviz.git@master#pyEzviz==0.1.6.4"]
+  "codeowners": ["@RenierM26"],
+  "requirements": ["py-Ezviz==0.1.6.8"]
 }
