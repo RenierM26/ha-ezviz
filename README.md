@@ -1,4 +1,4 @@
-***Name changed to Ezviz Cloud. (hassio domain : ezviz_cloud). Fixes a few weird issues with hassio, and allowed me to submit an official pull request.
+***Name changed to Ezviz Cloud. (hassio domain : ezviz_cloud). Fixes a few weird issues with hassio, and allowed me to submit an official pull request.***
 
 ezviz component for HASSIO, based on my fork of pyezviz
 
@@ -8,7 +8,7 @@ Install:
 2) **Rewrote integration based on latest framework. Please install via hassio integration after copying your config to the "custom_components" folder.
 3) Add camera username/password under ha-ezviz domain. Please see example below.
 
-
+```yaml
 stream:
 ffmpeg:
 camera:
@@ -24,3 +24,4 @@ ezviz_cloud:
     D66666648:
       username: admin
       password: Password_from_camera_sticker.
+```
