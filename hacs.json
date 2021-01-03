@@ -1,5 +1,5 @@
 {
-    "name": "ha-ezviz",
+    "name": "Ezviz Cloud",
     "hacs": "1.6.0",
     "domains": [
         "camera"
