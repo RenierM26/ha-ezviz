@@ -1,4 +1,4 @@
-"""Config flow for ha-ezviz."""
+"""Config flow for ezviz_cloud."""
 import logging
 from typing import Any, Dict, Optional
 
@@ -11,9 +11,10 @@ from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_U
 from homeassistant.core import callback
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
-from .const import DEFAULT_TIMEOUT, DOMAIN, DEFAULT_REGION
+from .const import DEFAULT_REGION, DEFAULT_TIMEOUT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def validate_input(hass: HomeAssistantType, data: dict) -> Dict[str, Any]:
     """Validate the user input allows us to connect.
@@ -25,7 +26,7 @@ def validate_input(hass: HomeAssistantType, data: dict) -> Dict[str, Any]:
         data[CONF_USERNAME],
         data[CONF_PASSWORD],
         data[CONF_REGION],
-        data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
     )
 
     return True

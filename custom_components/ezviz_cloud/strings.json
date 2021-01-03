@@ -1,13 +1,13 @@
 {
   "config": {
-    "flow_title": "ha-ezviz: {name}",
+    "flow_title": "ezviz_cloud: {name}",
     "step": {
       "user": {
-        "title": "Connect to EzvizCloud",
+        "title": "Connect to Ezviz Cloud",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
-          "region": "[%key:common::config_flow::data::region%]"
+          "region": "Account region code (eu is for eurpose as example)"
         }
       }
     },

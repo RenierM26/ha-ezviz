@@ -1,4 +1,4 @@
-"""Support for Ezviz camera."""
+"""Support ezviz_cloud camera devices."""
 import asyncio
 from datetime import timedelta
 import logging
@@ -216,9 +216,6 @@ class EzvizCamera(CoordinatorEntity, Camera):
             "Last alarm triggered": self.coordinator.data[self._idx]["last_alarm_time"],
             # image of last event that triggered alarm
             "Last alarm image url": self.coordinator.data[self._idx]["last_alarm_pic"],
-            "username": self._username,
-            "password": self._password,
-            "rstp": self._rtsp_stream,
         }
 
     @property
@@ -317,7 +314,7 @@ class EzvizCamera(CoordinatorEntity, Camera):
         return
 
     def perform_ezviz_switch_set(self, switch, enable):
-        """Changes a device switch on the camera."""
+        """Change a device switch on the camera."""
         _LOGGER.debug("Set EZVIZ Switch '%s' on %s", switch, self._name)
         service_switch = getattr(DeviceSwitchType, switch)
 

@@ -1,11 +1,11 @@
-"""Constants for the ha-ezviz integration."""
+"""Constants for the ezviz_cloud integration."""
 
-DOMAIN = "ha-ezviz"
+DOMAIN = "ezviz_cloud"
 MANUFACTURER = "Ezviz"
 ACC_USERNAME = "username"
 ACC_PASSWORD = "password"
 
-#Configuration
+# Configuration
 ATTR_CAMERAS = "cameras"
 ATTR_SWITCH = "switch"
 ATTR_ENABLE = "enable"
@@ -24,7 +24,7 @@ ATTR_PRIVACY = "PRIVACY"
 ATTR_SLEEP = "SLEEP"
 ATTR_MOBILE_TRACKING = "MOBILE_TRACKING"
 
-#Defaults
+# Defaults
 DEFAULT_REGION = "eu"
 DEFAULT_CAMERA_USERNAME = "admin"
 DEFAULT_RTSP_PORT = "554"

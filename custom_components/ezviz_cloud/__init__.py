@@ -1,4 +1,4 @@
-"""Support for Ezviz devices."""
+"""Support for Ezviz camera."""
 import asyncio
 from datetime import timedelta
 import logging
@@ -8,7 +8,7 @@ from requests import ConnectTimeout, HTTPError
 import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import HomeAssistantType
@@ -20,37 +20,33 @@ from .const import (
     DATA_COORDINATOR,
     DATA_UNDO_UPDATE_LISTENER,
     DEFAULT_REGION,
-    DEFAULT_TIMEOUT,
     DOMAIN,
 )
+from .coordinator import EzvizDataUpdateCoordinator
 
 CAMERA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string
-    }
+    {vol.Required(CONF_USERNAME): cv.string, vol.Required(CONF_PASSWORD): cv.string}
 )
 
 EZVIZ_SCHEMA = vol.All(
     vol.Schema(
-    {
-        vol.Optional(ACC_USERNAME): cv.string,
-        vol.Optional(ACC_PASSWORD): cv.string,
-        vol.Optional(CONF_REGION, default=DEFAULT_REGION): cv.string,
-        vol.Optional(ATTR_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA}
-    }
-)
+        {
+            vol.Optional(ACC_USERNAME): cv.string,
+            vol.Optional(ACC_PASSWORD): cv.string,
+            vol.Optional(CONF_REGION, default=DEFAULT_REGION): cv.string,
+            vol.Optional(ATTR_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA},
+        }
+    )
 )
 
 CONFIG_SCHEMA = vol.Schema({DOMAIN: EZVIZ_SCHEMA}, extra=vol.ALLOW_EXTRA)
-
-from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=30)
 
 PLATFORMS = "camera"
+
 
 async def async_setup(hass: HomeAssistantType, config: dict) -> bool:
     """Set up the Ezviz integration."""
@@ -75,11 +71,14 @@ async def async_setup(hass: HomeAssistantType, config: dict) -> bool:
 
     return True
 
+
 async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool:
     """Set up Ezviz from a config entry."""
 
     try:
-        ezviz_client = await hass.async_add_executor_job(_get_ezviz_client_instance, entry)
+        ezviz_client = await hass.async_add_executor_job(
+            _get_ezviz_client_instance, entry
+        )
     except (ConnectTimeout, HTTPError) as error:
         _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
         raise ConfigEntryNotReady from error
@@ -99,14 +98,14 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool
 
     if len(PLATFORMS) == 1:
         hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
+            hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
         )
 
     if len(PLATFORMS) != 1:
         for component in PLATFORMS:
             hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
-        )
+                hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
+            )
 
     return True
 
@@ -136,7 +135,9 @@ async def _async_update_listener(hass: HomeAssistantType, entry: ConfigEntry) ->
 
 def _get_ezviz_client_instance(entry: ConfigEntry) -> EzvizClient:
     """Initialize a new instance of EzvizClientApi."""
-    ezviz_client = EzvizClient(entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], entry.data[CONF_REGION])
-    #, entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+    ezviz_client = EzvizClient(
+        entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], entry.data[CONF_REGION]
+    )
+    # , entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
     ezviz_client.login()
     return ezviz_client
