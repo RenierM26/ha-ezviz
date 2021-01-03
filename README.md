@@ -4,19 +4,22 @@ ezviz component for HASSIO, based on my fork of pyezviz
 Install:
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
-2) Setup configu using instruction from https://www.home-assistant.io/integrations/ezviz/. NOTE: You'll need to rename the integration as follows:
+2) **Rewrote integration based on latest framework. Please install via hassio integration after copying your config to the "custom_components" folder.
+3) Add camera username/password under ha-ezviz domain. Please see example below.
 
-Example configuration.yaml with deviation from official broken integration.
 
 stream:
 ffmpeg:
 camera:
-  - platform: ha-ezviz						<----Platform name.
-    username: !secret ezviz_username
-    password: !secret ezviz_password
-    region: eu								<----Region code (Optional, defaults to EU).
-    cameras:
-     D666666666:
+
+ha-ezviz:
+  cameras:
+    D6666660:
       username: admin
-      password: STUABC
-  
+      password: Password_from_camera_sticker.
+    D666678:
+      username: admin
+      password: Password_from_camera_sticker.
+    D66666648:
+      username: admin
+      password: Password_from_camera_sticker.
