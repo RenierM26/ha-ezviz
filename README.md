@@ -14,12 +14,12 @@ camera:
 
 ha-ezviz:
   cameras:
-    D78293450:
+    D6666660:
       username: admin
       password: Password_from_camera_sticker.
-    D78293478:
+    D666678:
       username: admin
       password: Password_from_camera_sticker.
-    D78293648:
+    D66666648:
       username: admin
       password: Password_from_camera_sticker.
