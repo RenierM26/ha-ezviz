@@ -1,4 +1,5 @@
-# ha-ezviz
+***Name changed to Ezviz Cloud. (hassio domain : ezviz_cloud). Fixes a few weird issues with hassio, and allowed me to submit an official pull request.
+
 ezviz component for HASSIO, based on my fork of pyezviz
 
 Install:
@@ -12,7 +13,7 @@ stream:
 ffmpeg:
 camera:
 
-ha-ezviz:
+ezviz_cloud:
   cameras:
     D6666660:
       username: admin
