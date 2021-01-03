@@ -2,7 +2,8 @@
   "domain": "ha-ezviz",
   "name": "ha-ezviz",
   "documentation": "https://www.home-assistant.io/integrations/ezviz",
-  "dependencies": [],
+  "dependencies": ["ffmpeg"],
   "codeowners": ["@RenierM26"],
-  "requirements": ["py-Ezviz==0.1.6.8"]
+  "requirements": ["py-ezviz==0.1.6.8"],
+  "config_flow": true
 }

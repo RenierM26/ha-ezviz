@@ -1,302 +1,230 @@
-"""This component provides basic support for Ezviz IP cameras."""
+"""Support for Ezviz camera."""
 import asyncio
+from datetime import timedelta
 import logging
+from typing import Callable, List
 
-# pylint: disable=import-error
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
-from pyezviz.camera import EzvizCamera
-from pyezviz.client import EzvizClient, PyEzvizError
 from pyezviz.DeviceSwitchType import DeviceSwitchType
 import voluptuous as vol
 
-from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
+from homeassistant.components.camera import SUPPORT_STREAM, Camera
 from homeassistant.components.ffmpeg import DATA_FFMPEG
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, CONF_REGION
-from homeassistant.helpers import config_validation as cv
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_CAMERAS,
-    ATTR_SERIAL,
-    ATTR_SWITCH,
-    ATTR_ENABLE,
     ATTR_DIRECTION,
+    ATTR_ENABLE,
+    ATTR_INFRARED_LIGHT,
+    ATTR_LEVEL,
+    ATTR_LIGHT,
+    ATTR_MOBILE_TRACKING,
+    ATTR_PRIVACY,
+    ATTR_SLEEP,
+    ATTR_SOUND,
     ATTR_SPEED,
-    DEFAULT_REGION,
-    MANUFACTURER,
+    ATTR_SWITCH,
+    ATTR_TYPE,
+    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_RTSP_PORT,
+    DIR_DOWN,
+    DIR_LEFT,
+    DIR_RIGHT,
+    DIR_UP,
     DOMAIN,
+    MANUFACTURER,
 )
+from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-DIR_UP = "up"
-DIR_DOWN = "down"
-DIR_LEFT = "left"
-DIR_RIGHT = "right"
+MIN_TIME_BETWEEN_SESSION_RENEW = timedelta(seconds=90)
 
-ATTR_LIGHT = "LIGHT"
-ATTR_SOUND = "SOUND"
-ATTR_INFRARED_LIGHT = "INFRARED_LIGHT"
-ATTR_PRIVACY = "PRIVACY"
-ATTR_SLEEP = "SLEEP"
-ATTR_MOBILE_TRACKING = "MOBILE_TRACKING" 
 
-CAMERA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): cv.string, 
-        vol.Required(CONF_PASSWORD): cv.string
-    }
-)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_REGION, default=DEFAULT_REGION): cv.string,
-        vol.Optional(ATTR_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA}
-    }
-)
-
-SERVICE_SET_SWITCH_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_SERIAL): cv.string,
-        vol.Required(ATTR_SWITCH): vol.In(
-            [
-                ATTR_LIGHT,
-                ATTR_SOUND,
-                ATTR_INFRARED_LIGHT,
-                ATTR_PRIVACY,
-                ATTR_SLEEP,
-                ATTR_MOBILE_TRACKING
-            ]
-        ),
-        vol.Optional(ATTR_ENABLE): cv.positive_int
-    }
-)
-
-SERVICE_PTZ_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_SERIAL): cv.string,
-        vol.Required(ATTR_DIRECTION): vol.In(
-            [
-                DIR_UP,
-                DIR_DOWN,
-                DIR_LEFT,
-                DIR_RIGHT
-            ]
-        ),
-        vol.Required(ATTR_SPEED): cv.positive_int
-    }
-)
-
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the Ezviz IP Cameras."""
-
-    conf_cameras = config[ATTR_CAMERAS]
-
-    account = config[CONF_USERNAME]
-    password = config[CONF_PASSWORD]
-    region = config[CONF_REGION]
-
-    try:
-        ezviz_client = EzvizClient(account, password, region)
-        ezviz_client.login()
-        cameras = ezviz_client.load_cameras()
-
-    except PyEzvizError as exp:
-        _LOGGER.error(exp)
-        return
-
-    # now, let's build the HASS devices
+async def async_setup_entry(
+    hass, entry, async_add_entities: Callable[[List[Entity], bool], None]
+) -> None:
+    """Set up Ezviz cameras based on a config entry."""
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        DATA_COORDINATOR
+    ]
+    conf_cameras = hass.data[DOMAIN]["config"][ATTR_CAMERAS]
     camera_entities = []
 
-    # Add the cameras as devices in HASS
-    for camera in cameras:
+    """Setup Services"""
 
-        camera_username = DEFAULT_CAMERA_USERNAME
-        camera_password = ""
-        camera_rtsp_stream = ""
-        camera_serial = camera["serial"]
+    platform = entity_platform.current_platform.get()
+
+    platform.async_register_entity_service(
+        "ezviz_ptz",
+        {
+            vol.Required(ATTR_DIRECTION): vol.In(
+                [DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT]
+            ),
+            vol.Required(ATTR_SPEED): cv.positive_int,
+        },
+        "perform_ezviz_ptz",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_switch_set",
+        {
+            vol.Required(ATTR_SWITCH): vol.In(
+                [
+                    ATTR_LIGHT,
+                    ATTR_SOUND,
+                    ATTR_INFRARED_LIGHT,
+                    ATTR_PRIVACY,
+                    ATTR_SLEEP,
+                    ATTR_MOBILE_TRACKING,
+                ]
+            ),
+            vol.Required(ATTR_ENABLE): cv.positive_int,
+        },
+        "perform_ezviz_switch_set",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_wake_device", {}, "perform_ezviz_wake_device"
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_alarm_sound",
+        {vol.Required(ATTR_LEVEL): cv.positive_int},
+        "perform_ezviz_alarm_sound",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_set_alarm_detection_sensibility",
+        {
+            vol.Required(ATTR_LEVEL): cv.positive_int,
+            vol.Required(ATTR_TYPE): cv.positive_int,
+        },
+        "perform_ezviz_set_alarm_detection_sensibility",
+    )
+
+    for idx, camera in enumerate(coordinator.data):
 
         # There seem to be a bug related to localRtspPort in Ezviz API...
         local_rtsp_port = DEFAULT_RTSP_PORT
-        if camera["local_rtsp_port"] and camera["local_rtsp_port"] != 0:
+        if camera["local_rtsp_port"] != 0:
             local_rtsp_port = camera["local_rtsp_port"]
 
-        if camera_serial in conf_cameras:
-            camera_username = conf_cameras[camera_serial][CONF_USERNAME]
-            camera_password = conf_cameras[camera_serial][CONF_PASSWORD]
+        if camera["serial"] in conf_cameras:
+            camera_username = conf_cameras[camera["serial"]][CONF_USERNAME]
+            camera_password = conf_cameras[camera["serial"]][CONF_PASSWORD]
             camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{camera['local_ip']}:{local_rtsp_port}"
             _LOGGER.debug(
                 "Camera %s source stream: %s", camera["serial"], camera_rtsp_stream
             )
 
         else:
+            camera_username = DEFAULT_CAMERA_USERNAME
+            camera_password = ""
+            camera_rtsp_stream = ""
             _LOGGER.info(
                 "Found camera with serial %s without configuration. Add it to configuration.yaml to see the camera stream",
-                camera_serial,
+                camera["serial"],
             )
 
-        camera["username"] = camera_username
-        camera["password"] = camera_password
-        camera["rtsp_stream"] = camera_rtsp_stream
-        camera["ezviz_client"] = ezviz_client
+        camera_entities.append(
+            EzvizCamera(
+                hass,
+                coordinator,
+                idx,
+                camera_username,
+                camera_password,
+                camera_rtsp_stream,
+                local_rtsp_port,
+            )
+        )
 
-        camera["ezviz_camera"] = EzvizCamera(ezviz_client, camera_serial)
+    async_add_entities(camera_entities, True)
 
-        camera_entities.append(HassEzvizCamera(hass, **camera))
 
-    add_entities(camera_entities)
+class EzvizCamera(CoordinatorEntity, Camera):
+    """An implementation of a Ezviz security camera."""
 
-    """Setup Services"""
-    def ezviz_wake_device(service):
-        """Basicaly queries device to wake."""
-        ezviz_client.get_detection_sensibility(str(service.data['serial']))
-
-    def ezviz_switch_set(service):
-        """Set camera switch service."""
-        service_switch = getattr(DeviceSwitchType, service.data[ATTR_SWITCH])
-        
-        ezviz_client.switch_status(service.data[ATTR_SERIAL], service_switch.value, service.data[ATTR_ENABLE])
-
-    def ezviz_alarm_sound(service):
-        """Enable/Disable movement sound alarm."""
-        ezviz_client.alarm_sound(str(service.data[ATTR_SERIAL]), int(service.data['level']), 1)
-
-    def ezviz_set_alarm_detection_sensibility(service):
-        """Set camera detection sensibility level service."""
-        ezviz_client.detection_sensibility(str(service.data[ATTR_SERIAL]), int(service.data['level']), int(service.data['type']))
-
-    def ezviz_ptz(service):
-        """Camera PTZ service."""
-        ezviz_client.ptzControl(str(service.data[ATTR_DIRECTION]).upper(), service.data[ATTR_SERIAL], 'START', service.data[ATTR_SPEED])
-        ezviz_client.ptzControl(str(service.data[ATTR_DIRECTION]).upper(), service.data[ATTR_SERIAL], 'STOP', service.data[ATTR_SPEED])
-
-    hass.services.register(DOMAIN, "ezviz_wake_device", ezviz_wake_device)
-    hass.services.register(DOMAIN, "ezviz_switch_set", ezviz_switch_set, schema=SERVICE_SET_SWITCH_SCHEMA)
-    hass.services.register(DOMAIN, "ezviz_ptz", ezviz_ptz, SERVICE_PTZ_SCHEMA)
-    hass.services.register(DOMAIN, "ezviz_alarm_sound", ezviz_alarm_sound)
-    hass.services.register(DOMAIN, "ezviz_set_alarm_detection_sensibility", ezviz_set_alarm_detection_sensibility)
-
-class HassEzvizCamera(Camera):
-    """An implementation of a Foscam IP camera."""
-
-    def __init__(self, hass, **data):
-        """Initialize an Ezviz camera."""
-        super().__init__()
-
-        self._username = data["username"]
-        self._password = data["password"]
-        self._rtsp_stream = data["rtsp_stream"]
-        self._ezviz_client = data["ezviz_client"]
-
-        self._ezviz_camera = data["ezviz_camera"]
-        self._serial = data["serial"]
-        self._name = data["name"]
-        self._version = data["version"]
-        self._upgrade_available = data["upgrade_available"]
-        self._status = data["status"]
-        self._privacy = data["privacy"]
-        self._sleep = data["sleep"]
-        self._audio = data["audio"]
-        self._ir_led = data["ir_led"]
-        self._state_led = data["state_led"]
-        self._follow_move = data["follow_move"]
-        self._alarm_notify = data["alarm_notify"]
-        self._alarm_schedules_enabled = data["alarm_schedules_enabled"]
-        self._alarm_sound_mod = data["alarm_sound_mod"]
-        self._encrypted = data["encrypted"]
-        self._local_ip = data["local_ip"]
-        self._battery_level = data["battery_level"]
-        self._PIR_Status = data["PIR_Status"]    
-        self._detection_sensibility = data["detection_sensibility"]
-        self._device_sub_category = data["device_sub_category"]
-        self._local_rtsp_port = data["local_rtsp_port"]
-        self._last_alarm_time = data["last_alarm_time"]
-        self._last_alarm_pic = data["last_alarm_pic"]
+    def __init__(
+        self,
+        hass,
+        coordinator,
+        idx,
+        camera_username,
+        camera_password,
+        camera_rtsp_stream,
+        local_rtsp_port,
+    ):
+        """Initialize a Ezviz security camera."""
+        super().__init__(coordinator)
+        Camera.__init__(self)
+        self._username = camera_username
+        self._password = camera_password
+        self._rtsp_stream = camera_rtsp_stream
+        self._idx = idx
         self._ffmpeg = hass.data[DATA_FFMPEG]
+        self._local_rtsp_port = local_rtsp_port
 
-    def update(self):
-        """Update the camera states."""
-        self._ezviz_client.login()
-        data = self._ezviz_camera.status()
-
-        self._name = data["name"]
-        self._version = data["version"]
-        self._upgrade_available = data["upgrade_available"]
-        self._status = data["status"]
-        self._privacy = data["privacy"]
-        self._sleep = data["sleep"]
-        self._audio = data["audio"]
-        self._ir_led = data["ir_led"]
-        self._state_led = data["state_led"]
-        self._follow_move = data["follow_move"]
-        self._alarm_notify = data["alarm_notify"]
-        self._alarm_schedules_enabled = data["alarm_schedules_enabled"]
-        self._alarm_sound_mod = data["alarm_sound_mod"]
-        self._encrypted = data["encrypted"]
-        self._local_ip = data["local_ip"]
-        self._battery_level = data["battery_level"]
-        self._PIR_Status = data["PIR_Status"]  
-        self._detection_sensibility = data["detection_sensibility"]
-        self._device_sub_category = data["device_sub_category"]
-        self._local_rtsp_port = data["local_rtsp_port"]
-        self._last_alarm_time = data["last_alarm_time"]
-        self._last_alarm_pic = data["last_alarm_pic"]
-
-    @property
-    def should_poll(self) -> bool:
-        """Return True if entity has to be polled for state.
-
-        False if entity pushes its state to HA.
-        """
-        return True
+        self._serial = self.coordinator.data[self._idx]["serial"]
+        self._name = self.coordinator.data[self._idx]["name"]
+        self._local_ip = self.coordinator.data[self._idx]["local_ip"]
 
     @property
     def device_state_attributes(self):
         """Return the Ezviz-specific camera state attributes."""
         return {
-            #Camera firmware version
-            "sw_version" : self._version,
-            #Camera firmware version update available?
-            "upgrade_available" : self._upgrade_available,
-            # if privacy == true, the device closed the lid or did a 180° tilt
-            "privacy": self._privacy,
+            # Camera firmware version
+            "sw_version": self.coordinator.data[self._idx]["version"],
+            # Camera firmware version update available?
+            "upgrade_available": self.coordinator.data[self._idx]["upgrade_available"],
+            # if privacy == true, the device closed the lid or did a 180� tilt
+            "privacy": self.coordinator.data[self._idx]["privacy"],
             # if sleep == true, the device is sleeping?
-            "sleep": self._sleep,
+            "sleep": self.coordinator.data[self._idx]["sleep"],
             # is the camera listening ?
-            "audio": self._audio,
+            "audio": self.coordinator.data[self._idx]["audio"],
             # infrared led on ?
-            "ir_led": self._ir_led,
+            "ir_led": self.coordinator.data[self._idx]["ir_led"],
             # state led on  ?
-            "state_led": self._state_led,
+            "state_led": self.coordinator.data[self._idx]["state_led"],
             # if true, the camera will move automatically to follow movements
-            "follow_move": self._follow_move,
+            "follow_move": self.coordinator.data[self._idx]["follow_move"],
             # if true, notification schedule(s) are configured
-            "alarm_schedules_enabled": self._alarm_schedules_enabled,
+            "alarm_schedules_enabled": self.coordinator.data[self._idx][
+                "alarm_schedules_enabled"
+            ],
             # if true, if some movement is detected, the camera makes some sound
-            "alarm_sound_mod": self._alarm_sound_mod,
+            "alarm_sound_mod": self.coordinator.data[self._idx]["alarm_sound_mod"],
             # are the camera's stored videos/images encrypted?
-            "encrypted": self._encrypted,
+            "encrypted": self.coordinator.data[self._idx]["encrypted"],
             # camera's local ip on local network
-            "local_ip": self._local_ip,
+            "local_ip": self.coordinator.data[self._idx]["local_ip"],
             # camera's battery level if battery camera
-            "battery_level": self._battery_level,
+            "battery_level": self.coordinator.data[self._idx]["battery_level"],
             # PIR sensor of camera. 0=open ir, and 1=closed ir
-            "PIR_Status" : self._PIR_Status,  
+            "PIR_Status": self.coordinator.data[self._idx]["PIR_Status"],
             # from 1 to 6 or 1-100, the higher is the sensibility, the more it will detect small movements
-            "detection_sensibility": self._detection_sensibility,
+            "detection_sensibility": self.coordinator.data[self._idx][
+                "detection_sensibility"
+            ],
             # last alarm trigger date and time
-            "Last alarm triggered" : self._last_alarm_time,
+            "Last alarm triggered": self.coordinator.data[self._idx]["last_alarm_time"],
             # image of last event that triggered alarm
-            "Last alarm image url": self._last_alarm_pic,
+            "Last alarm image url": self.coordinator.data[self._idx]["last_alarm_pic"],
+            "username": self._username,
+            "password": self._password,
+            "rstp": self._rtsp_stream,
         }
 
     @property
     def available(self):
         """Return True if entity is available."""
-        return self._status
+        return self.coordinator.data[self._idx]["status"]
 
     @property
     def supported_features(self):
@@ -313,53 +241,36 @@ class HassEzvizCamera(Camera):
     @property
     def model(self):
         """Return the model of this device."""
-        return self._device_sub_category
+        return self.coordinator.data[self._idx]["device_sub_category"]
 
     @property
-    def manufacturer(self):
+    def brand(self):
         """Return the manufacturer of this device."""
         return MANUFACTURER
 
     @property
-    def device_info(self):
-        """Return the device_info of the device."""
-        return {
-            "identifiers": {(DOMAIN, self._serial)},
-            "name": self._name,
-            "model": self._device_sub_category,
-            "manufacturer": MANUFACTURER,
-            "sw_version" : self._version
-        }
-
-    @property
     def is_on(self):
         """Return true if on."""
-        return self._status
+        return self.coordinator.data[self._idx]["status"]
 
     @property
     def motion_detection_enabled(self):
         """Camera Motion Detection Status."""
-        return self._alarm_notify
+        return self.coordinator.data[self._idx]["alarm_notify"]
 
     def enable_motion_detection(self):
         """Enable motion detection in camera."""
         try:
-            ret = self._ezviz_client.data_report(self._serial, 1)
-            if ret != True:
-                return
+            self.coordinator.EzvizClient.data_report(self._serial, 1)
 
-            self._alarm_notify = True
         except TypeError:
             _LOGGER.debug("Communication problem")
 
     def disable_motion_detection(self):
         """Disable motion detection."""
         try:
-            ret = self._ezviz_client.data_report(self._serial, 0)
-            if ret != True:
-                return
+            self.coordinator.EzvizClient.data_report(self._serial, 0)
 
-            self._alarm_notify = False
         except TypeError:
             _LOGGER.debug("Communication problem")
 
@@ -379,10 +290,11 @@ class HassEzvizCamera(Camera):
 
     async def stream_source(self):
         """Return the stream source."""
+        local_ip = self.coordinator.data[self._idx]["local_ip"]
         if self._local_rtsp_port:
             rtsp_stream_source = (
                 f"rtsp://{self._username}:{self._password}@"
-                f"{self._local_ip}:{self._local_rtsp_port}"
+                f"{local_ip}:{self._local_rtsp_port}"
             )
             _LOGGER.debug(
                 "Camera %s source stream: %s", self._serial, rtsp_stream_source
@@ -390,3 +302,53 @@ class HassEzvizCamera(Camera):
             self._rtsp_stream = rtsp_stream_source
             return rtsp_stream_source
         return None
+
+    def perform_ezviz_ptz(self, direction, speed):
+        """Perform a PTZ action on the camera."""
+        _LOGGER.debug("PTZ action '%s' on %s", direction, self._name)
+
+        self.coordinator.EzvizClient.ptzControl(
+            str(direction).upper(), self._serial, "START", speed
+        )
+        self.coordinator.EzvizClient.ptzControl(
+            str(direction).upper(), self._serial, "STOP", speed
+        )
+
+        return
+
+    def perform_ezviz_switch_set(self, switch, enable):
+        """Changes a device switch on the camera."""
+        _LOGGER.debug("Set EZVIZ Switch '%s' on %s", switch, self._name)
+        service_switch = getattr(DeviceSwitchType, switch)
+
+        self.coordinator.EzvizClient.switch_status(
+            self._serial, service_switch.value, enable
+        )
+
+        return
+
+    def perform_ezviz_wake_device(self):
+        """Basically wakes the camera by querying the device."""
+        _LOGGER.debug("Wake camera '%s' on %s", self._name)
+
+        self.coordinator.EzvizClient.get_detection_sensibility(self._serial)
+
+        return
+
+    def perform_ezviz_alarm_sound(self, level):
+        """Enable/Disable movement sound alarm."""
+        _LOGGER.debug("Set alarm sound on camera '%s' on %s", self._name)
+
+        self.coordinator.EzvizClient.alarm_sound(self._serial, level, 1)
+
+        return
+
+    def perform_ezviz_set_alarm_detection_sensibility(self, level, type):
+        """Set camera detection sensibility level service."""
+        _LOGGER.debug(
+            "Set detection sensibility level on camera '%s' on %s", self._name
+        )
+
+        self.coordinator.EzvizClient.detection_sensibility(self._serial, level, type)
+
+        return
