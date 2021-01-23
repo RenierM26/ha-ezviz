@@ -5,8 +5,7 @@ on:
   push:
     branches:
       - dev
-      - rc
-      - master
+      - main
   pull_request: ~
 
 env:
