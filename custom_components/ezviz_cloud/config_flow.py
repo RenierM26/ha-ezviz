@@ -11,7 +11,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_U
 from homeassistant.core import callback
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
-from .const import DEFAULT_REGION, DEFAULT_TIMEOUT, DOMAIN
+from .const import DEFAULT_REGION, DEFAULT_TIMEOUT, DOMAIN, CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,7 +110,13 @@ class EzvizOptionsFlowHandler(OptionsFlow):
             vol.Optional(
                 CONF_TIMEOUT,
                 default=self.config_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
-            ): int
+            ): int,
+            vol.Optional(
+                CONF_FFMPEG_ARGUMENTS,
+                default=self.config_entry.options.get(
+                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                ),
+            ): str,
         }
 
         return self.async_show_form(step_id="init", data_schema=vol.Schema(options))

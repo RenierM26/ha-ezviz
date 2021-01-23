@@ -4,6 +4,6 @@
   "documentation": "https://www.home-assistant.io/integrations/ezviz_cloud",
   "dependencies": ["ffmpeg"],
   "codeowners": ["@RenierM26"],
-  "requirements": ["py-ezviz==0.1.7.0"],
+  "requirements": ["py-ezviz==0.1.7.1"],
   "config_flow": true
 }

@@ -35,7 +35,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict:
         """Fetch data from Ezviz."""
         try:
-            async with timeout(15):
+            async with timeout(35):
                 return await self.hass.async_add_executor_job(self._update_data)
 
         except (ConnectTimeout, HTTPError) as error:

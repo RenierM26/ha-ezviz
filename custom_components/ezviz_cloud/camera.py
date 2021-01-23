@@ -8,8 +8,11 @@ from haffmpeg.tools import IMAGE_JPEG, ImageFrame
 from pyezviz.DeviceSwitchType import DeviceSwitchType
 import voluptuous as vol
 
-from homeassistant.components.camera import SUPPORT_STREAM, Camera
+from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.ffmpeg import DATA_FFMPEG
+
+# from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import Entity
@@ -32,6 +35,8 @@ from .const import (
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_RTSP_PORT,
+    CONF_FFMPEG_ARGUMENTS,
+    DEFAULT_FFMPEG_ARGUMENTS,
     DIR_DOWN,
     DIR_LEFT,
     DIR_RIGHT,
@@ -45,6 +50,17 @@ _LOGGER = logging.getLogger(__name__)
 
 MIN_TIME_BETWEEN_SESSION_RENEW = timedelta(seconds=90)
 
+PLATFORM_SCHEMA = vol.All(
+    cv.deprecated(CONF_FFMPEG_ARGUMENTS),
+    PLATFORM_SCHEMA.extend(
+        {
+            vol.Optional(
+                CONF_FFMPEG_ARGUMENTS, default=DEFAULT_FFMPEG_ARGUMENTS
+            ): cv.string
+        }
+    ),
+)
+
 
 async def async_setup_entry(
     hass, entry, async_add_entities: Callable[[List[Entity], bool], None]
@@ -54,6 +70,9 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
     conf_cameras = hass.data[DOMAIN]["config"][ATTR_CAMERAS]
+    ffmpeg_arguments = entry.options.get(
+        CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+    )
     camera_entities = []
 
     """Setup Services"""
@@ -118,7 +137,7 @@ async def async_setup_entry(
         if camera["serial"] in conf_cameras:
             camera_username = conf_cameras[camera["serial"]][CONF_USERNAME]
             camera_password = conf_cameras[camera["serial"]][CONF_PASSWORD]
-            camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{camera['local_ip']}:{local_rtsp_port}"
+            camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{camera['local_ip']}:{local_rtsp_port}{ffmpeg_arguments}"
             _LOGGER.debug(
                 "Camera %s source stream: %s", camera["serial"], camera_rtsp_stream
             )
@@ -141,13 +160,14 @@ async def async_setup_entry(
                 camera_password,
                 camera_rtsp_stream,
                 local_rtsp_port,
+                ffmpeg_arguments,
             )
         )
 
-    async_add_entities(camera_entities, True)
+    async_add_entities(camera_entities)
 
 
-class EzvizCamera(CoordinatorEntity, Camera):
+class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     """An implementation of a Ezviz security camera."""
 
     def __init__(
@@ -159,6 +179,7 @@ class EzvizCamera(CoordinatorEntity, Camera):
         camera_password,
         camera_rtsp_stream,
         local_rtsp_port,
+        ffmpeg_arguments,
     ):
         """Initialize a Ezviz security camera."""
         super().__init__(coordinator)
@@ -169,10 +190,21 @@ class EzvizCamera(CoordinatorEntity, Camera):
         self._idx = idx
         self._ffmpeg = hass.data[DATA_FFMPEG]
         self._local_rtsp_port = local_rtsp_port
+        self._ffmpeg_arguments = ffmpeg_arguments
 
         self._serial = self.coordinator.data[self._idx]["serial"]
         self._name = self.coordinator.data[self._idx]["name"]
         self._local_ip = self.coordinator.data[self._idx]["local_ip"]
+
+    async def async_added_to_hass(self):
+        """Handle entity addition to hass."""
+        await super().async_added_to_hass()
+        device_state_attributes = await self.async_get_last_state()
+        available = await self.async_get_last_state()
+        model = await self.async_get_last_state()
+        is_on = await self.async_get_last_state()
+        is_recording = await self.async_get_last_state()
+        motion_detection_enabled = await self.async_get_last_state()
 
     @property
     def device_state_attributes(self):
@@ -216,6 +248,8 @@ class EzvizCamera(CoordinatorEntity, Camera):
             "Last alarm triggered": self.coordinator.data[self._idx]["last_alarm_time"],
             # image of last event that triggered alarm
             "Last alarm image url": self.coordinator.data[self._idx]["last_alarm_pic"],
+            # RTSP Stream
+            "RTSP stream": self._rtsp_stream,
         }
 
     @property
@@ -248,7 +282,15 @@ class EzvizCamera(CoordinatorEntity, Camera):
     @property
     def is_on(self):
         """Return true if on."""
-        return self.coordinator.data[self._idx]["status"]
+        if self.coordinator.data[self._idx]["status"] == "1":
+            return True
+        else:
+            return False
+
+    @property
+    def is_recording(self):
+        """Return true if the device is recording."""
+        return self.coordinator.data[self._idx]["alarm_notify"]
 
     @property
     def motion_detection_enabled(self):
@@ -281,7 +323,11 @@ class EzvizCamera(CoordinatorEntity, Camera):
         ffmpeg = ImageFrame(self._ffmpeg.binary)
 
         image = await asyncio.shield(
-            ffmpeg.get_image(self._rtsp_stream, output_format=IMAGE_JPEG)
+            ffmpeg.get_image(
+                self._rtsp_stream,
+                output_format=IMAGE_JPEG,
+                extra_cmd=self._ffmpeg_arguments,
+            )
         )
         return image
 
@@ -291,7 +337,7 @@ class EzvizCamera(CoordinatorEntity, Camera):
         if self._local_rtsp_port:
             rtsp_stream_source = (
                 f"rtsp://{self._username}:{self._password}@"
-                f"{local_ip}:{self._local_rtsp_port}"
+                f"{local_ip}:{self._local_rtsp_port}{self._ffmpeg_arguments}"
             )
             _LOGGER.debug(
                 "Camera %s source stream: %s", self._serial, rtsp_stream_source

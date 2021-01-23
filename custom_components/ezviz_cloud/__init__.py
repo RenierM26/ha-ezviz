@@ -8,7 +8,7 @@ from requests import ConnectTimeout, HTTPError
 import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME, CONF_TIMEOUT
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import HomeAssistantType
@@ -17,6 +17,9 @@ from .const import (
     ACC_PASSWORD,
     ACC_USERNAME,
     ATTR_CAMERAS,
+    DEFAULT_TIMEOUT,
+    CONF_FFMPEG_ARGUMENTS,
+    DEFAULT_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DATA_UNDO_UPDATE_LISTENER,
     DEFAULT_REGION,
@@ -75,6 +78,15 @@ async def async_setup(hass: HomeAssistantType, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool:
     """Set up Ezviz from a config entry."""
 
+    if not entry.options:
+        options = {
+            CONF_FFMPEG_ARGUMENTS: entry.data.get(
+                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            ),
+            CONF_TIMEOUT: entry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+        }
+        hass.config_entries.async_update_entry(entry, options=options)
+
     try:
         ezviz_client = await hass.async_add_executor_job(
             _get_ezviz_client_instance, entry
@@ -96,16 +108,9 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool
         DATA_UNDO_UPDATE_LISTENER: undo_listener,
     }
 
-    if len(PLATFORMS) == 1:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
-        )
-
-    if len(PLATFORMS) != 1:
-        for component in PLATFORMS:
-            hass.async_create_task(
-                hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
-            )
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(entry, PLATFORMS)
+    )
 
     return True
 
@@ -114,10 +119,7 @@ async def async_unload_entry(hass: HomeAssistantType, entry: ConfigEntry) -> boo
     """Unload a config entry."""
     unload_ok = all(
         await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, component)
-                for component in PLATFORMS
-            ]
+            *[hass.config_entries.async_forward_entry_unload(entry, PLATFORMS)]
         )
     )
 
@@ -136,8 +138,10 @@ async def _async_update_listener(hass: HomeAssistantType, entry: ConfigEntry) ->
 def _get_ezviz_client_instance(entry: ConfigEntry) -> EzvizClient:
     """Initialize a new instance of EzvizClientApi."""
     ezviz_client = EzvizClient(
-        entry.data[CONF_USERNAME], entry.data[CONF_PASSWORD], entry.data[CONF_REGION]
+        entry.data[CONF_USERNAME],
+        entry.data[CONF_PASSWORD],
+        entry.data[CONF_REGION],
+        entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
     )
-    # , entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
     ezviz_client.login()
     return ezviz_client
