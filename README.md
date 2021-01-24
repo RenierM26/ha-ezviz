@@ -25,3 +25,8 @@ ezviz_cloud:
       username: admin
       password: Password_from_camera_sticker.
 ```
+
+Notes:
+
+1) Please use your main account. It doesn't seem to be working with shared accounts at the moment.
+2) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
