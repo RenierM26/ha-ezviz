@@ -11,7 +11,13 @@ from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_U
 from homeassistant.core import callback
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
-from .const import DEFAULT_REGION, DEFAULT_TIMEOUT, DOMAIN, CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+from .const import (
+    DEFAULT_REGION,
+    DEFAULT_TIMEOUT,
+    DOMAIN,
+    CONF_FFMPEG_ARGUMENTS,
+    DEFAULT_FFMPEG_ARGUMENTS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,7 +108,7 @@ class EzvizOptionsFlowHandler(OptionsFlow):
         self.config_entry = config_entry
 
     async def async_step_init(self, user_input: Optional[ConfigType] = None):
-        """Manage Canary options."""
+        """Manage Ezviz options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 

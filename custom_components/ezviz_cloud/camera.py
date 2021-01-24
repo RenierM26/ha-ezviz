@@ -246,6 +246,12 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
             ],
             # last alarm trigger date and time
             "Last alarm triggered": self.coordinator.data[self._idx]["last_alarm_time"],
+            # Seconds from alarm last trigger
+            "Seconds_last_trigger": self.coordinator.data[self._idx][
+                "Seconds_Last_Trigger"
+            ],
+            # Calculated motion trigger from alarm last trigger
+            "motion_sensor": self.coordinator.data[self._idx]["Motion_Trigger"],
             # image of last event that triggered alarm
             "Last alarm image url": self.coordinator.data[self._idx]["last_alarm_pic"],
             # RTSP Stream
