@@ -288,10 +288,10 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     @property
     def is_on(self):
         """Return true if on."""
-        if self.coordinator.data[self._idx]["status"] == "1":
-            return True
-        else:
+        if self.coordinator.data[self._idx]["status"] == "0":
             return False
+        else:
+            return True
 
     @property
     def is_recording(self):
