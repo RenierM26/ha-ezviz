@@ -10,8 +10,6 @@ import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
 from homeassistant.components.ffmpeg import DATA_FFMPEG
-
-# from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import Entity
@@ -74,8 +72,6 @@ async def async_setup_entry(
         CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
     )
     camera_entities = []
-
-    """Setup Services"""
 
     platform = entity_platform.current_platform.get()
 
@@ -278,10 +274,7 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     @property
     def is_on(self):
         """Return true if on."""
-        if self.coordinator.data[self._idx]["status"] == "1":
-            return True
-        else:
-            return False
+        return bool(self.coordinator.data[self._idx]["status"])
 
     @property
     def is_recording(self):
@@ -296,7 +289,7 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     def enable_motion_detection(self):
         """Enable motion detection in camera."""
         try:
-            self.coordinator.EzvizClient.data_report(self._serial, 1)
+            self.coordinator.ezviz_client.data_report(self._serial, 1)
 
         except TypeError:
             _LOGGER.debug("Communication problem")
@@ -304,7 +297,7 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     def disable_motion_detection(self):
         """Disable motion detection."""
         try:
-            self.coordinator.EzvizClient.data_report(self._serial, 0)
+            self.coordinator.ezviz_client.data_report(self._serial, 0)
 
         except TypeError:
             _LOGGER.debug("Communication problem")
@@ -346,38 +339,43 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         """Perform a PTZ action on the camera."""
         _LOGGER.debug("PTZ action '%s' on %s", direction, self._name)
 
-        self.coordinator.EzvizClient.ptzControl(
+        self.coordinator.ezviz_client.ptzControl(
             str(direction).upper(), self._serial, "START", speed
         )
-        self.coordinator.EzvizClient.ptzControl(
+        self.coordinator.ezviz_client.ptzControl(
             str(direction).upper(), self._serial, "STOP", speed
         )
 
     def perform_ezviz_switch_set(self, switch, enable):
         """Change a device switch on the camera."""
-        _LOGGER.debug("Set EZVIZ Switch '%s' on %s", switch, self._name)
+        _LOGGER.debug("Set EZVIZ Switch '%s' to %s", switch, enable)
         service_switch = getattr(DeviceSwitchType, switch)
 
-        self.coordinator.EzvizClient.switch_status(
+        self.coordinator.ezviz_client.switch_status(
             self._serial, service_switch.value, enable
         )
 
     def perform_ezviz_wake_device(self):
         """Basically wakes the camera by querying the device."""
-        _LOGGER.debug("Wake camera '%s' on %s", self._name)
+        _LOGGER.debug("Wake camera '%s' with serial %s", self._name, self._serial)
 
-        self.coordinator.EzvizClient.get_detection_sensibility(self._serial)
+        self.coordinator.ezviz_client.get_detection_sensibility(self._serial)
 
     def perform_ezviz_alarm_sound(self, level):
         """Enable/Disable movement sound alarm."""
-        _LOGGER.debug("Set alarm sound on camera '%s' on %s", self._name)
+        _LOGGER.debug("Set alarm sound on camera '%s' on %s", self._name, level)
 
-        self.coordinator.EzvizClient.alarm_sound(self._serial, level, 1)
+        self.coordinator.ezviz_client.alarm_sound(self._serial, level, 1)
 
-    def perform_ezviz_set_alarm_detection_sensibility(self, level, type):
+    def perform_ezviz_set_alarm_detection_sensibility(self, level, type_value):
         """Set camera detection sensibility level service."""
         _LOGGER.debug(
-            "Set detection sensibility level on camera '%s' on %s", self._name
+            "Set detection sensibility level '%s' on camera '%s' using type %s",
+            level,
+            self._name,
+            type_value,
         )
 
-        self.coordinator.EzvizClient.detection_sensibility(self._serial, level, type)
+        self.coordinator.ezviz_client.detection_sensibility(
+            self._serial, level, type_value
+        )
