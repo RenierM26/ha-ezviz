@@ -7,7 +7,7 @@
         "error": {
             "cannot_connect": "Failed to connect"
         },
-        "flow_title": "ezviz_cloud: {name}",
+        "flow_title": "ezviz: {name}",
         "step": {
             "user": {
                 "data": {

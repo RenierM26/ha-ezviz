@@ -1,9 +1,9 @@
 {
   "domain": "ezviz_cloud",
-  "name": "Ezviz Cloud",
-  "documentation": "https://www.home-assistant.io/integrations/ezviz_cloud",
+  "name": "Ezviz",
+  "documentation": "https://www.home-assistant.io/integrations/ezviz",
   "dependencies": ["ffmpeg"],
-  "codeowners": ["@RenierM26"],
-  "requirements": ["py-ezviz==0.1.7.4"],
+  "codeowners": ["@RenierM26","@baqs"],
+  "requirements": ["pyezviz==0.1.6.1"],
   "config_flow": true
 }

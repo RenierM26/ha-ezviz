@@ -8,7 +8,7 @@ from requests import ConnectTimeout, HTTPError
 import voluptuous as vol
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME, CONF_TIMEOUT
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_USERNAME
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import HomeAssistantType
@@ -17,12 +17,12 @@ from .const import (
     ACC_PASSWORD,
     ACC_USERNAME,
     ATTR_CAMERAS,
-    DEFAULT_TIMEOUT,
     CONF_FFMPEG_ARGUMENTS,
-    DEFAULT_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DATA_UNDO_UPDATE_LISTENER,
+    DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_REGION,
+    DEFAULT_TIMEOUT,
     DOMAIN,
 )
 from .coordinator import EzvizDataUpdateCoordinator

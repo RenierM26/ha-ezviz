@@ -1,4 +1,4 @@
-"""Support ezviz_cloud camera devices."""
+"""Support ezviz camera devices."""
 import asyncio
 from datetime import timedelta
 import logging
@@ -9,13 +9,13 @@ from pyezviz.DeviceSwitchType import DeviceSwitchType
 import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 
 # from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -32,11 +32,11 @@ from .const import (
     ATTR_SPEED,
     ATTR_SWITCH,
     ATTR_TYPE,
+    CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
-    DEFAULT_RTSP_PORT,
-    CONF_FFMPEG_ARGUMENTS,
     DEFAULT_FFMPEG_ARGUMENTS,
+    DEFAULT_RTSP_PORT,
     DIR_DOWN,
     DIR_LEFT,
     DIR_RIGHT,
@@ -196,16 +196,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         self._name = self.coordinator.data[self._idx]["name"]
         self._local_ip = self.coordinator.data[self._idx]["local_ip"]
 
-    async def async_added_to_hass(self):
-        """Handle entity addition to hass."""
-        await super().async_added_to_hass()
-        device_state_attributes = await self.async_get_last_state()
-        available = await self.async_get_last_state()
-        model = await self.async_get_last_state()
-        is_on = await self.async_get_last_state()
-        is_recording = await self.async_get_last_state()
-        motion_detection_enabled = await self.async_get_last_state()
-
     @property
     def device_state_attributes(self):
         """Return the Ezviz-specific camera state attributes."""
@@ -363,8 +353,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
             str(direction).upper(), self._serial, "STOP", speed
         )
 
-        return
-
     def perform_ezviz_switch_set(self, switch, enable):
         """Change a device switch on the camera."""
         _LOGGER.debug("Set EZVIZ Switch '%s' on %s", switch, self._name)
@@ -374,23 +362,17 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
             self._serial, service_switch.value, enable
         )
 
-        return
-
     def perform_ezviz_wake_device(self):
         """Basically wakes the camera by querying the device."""
         _LOGGER.debug("Wake camera '%s' on %s", self._name)
 
         self.coordinator.EzvizClient.get_detection_sensibility(self._serial)
 
-        return
-
     def perform_ezviz_alarm_sound(self, level):
         """Enable/Disable movement sound alarm."""
         _LOGGER.debug("Set alarm sound on camera '%s' on %s", self._name)
 
         self.coordinator.EzvizClient.alarm_sound(self._serial, level, 1)
-
-        return
 
     def perform_ezviz_set_alarm_detection_sensibility(self, level, type):
         """Set camera detection sensibility level service."""
@@ -399,5 +381,3 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         )
 
         self.coordinator.EzvizClient.detection_sensibility(self._serial, level, type)
-
-        return

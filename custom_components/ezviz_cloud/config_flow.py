@@ -1,4 +1,4 @@
-"""Config flow for ezviz_cloud."""
+"""Config flow for ezviz."""
 import logging
 from typing import Any, Dict, Optional
 
@@ -12,11 +12,11 @@ from homeassistant.core import callback
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
 from .const import (
+    CONF_FFMPEG_ARGUMENTS,
+    DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_REGION,
     DEFAULT_TIMEOUT,
     DOMAIN,
-    CONF_FFMPEG_ARGUMENTS,
-    DEFAULT_FFMPEG_ARGUMENTS,
 )
 
 _LOGGER = logging.getLogger(__name__)

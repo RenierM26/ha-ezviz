@@ -1,4 +1,4 @@
-"""Provides the ezviz_cloud DataUpdateCoordinator."""
+"""Provides the ezviz DataUpdateCoordinator."""
 from datetime import timedelta
 import logging
 

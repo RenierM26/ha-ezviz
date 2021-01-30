@@ -1,4 +1,4 @@
-"""Constants for the ezviz_cloud integration."""
+"""Constants for the ezviz integration."""
 
 DOMAIN = "ezviz_cloud"
 MANUFACTURER = "Ezviz"
@@ -30,7 +30,7 @@ DEFAULT_REGION = "eu"
 DEFAULT_CAMERA_USERNAME = "admin"
 DEFAULT_RTSP_PORT = "554"
 DEFAULT_TIMEOUT = 15
-DEFAULT_FFMPEG_ARGUMENTS = None
+DEFAULT_FFMPEG_ARGUMENTS = "/H.264"
 
 # Data
 DATA_COORDINATOR = "coordinator"
