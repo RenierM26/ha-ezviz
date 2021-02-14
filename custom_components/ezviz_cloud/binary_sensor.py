@@ -1,8 +1,8 @@
-"""Support for Ezviz sensors."""
+"""Support for Ezviz binary sensors."""
 import logging
 from typing import Callable, List
 
-from pyezviz.constants import SensorType
+from pyezviz.constants import BinarySensorType, DeviceSwitchType
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity import Entity
@@ -29,14 +29,29 @@ async def async_setup_entry(
 
     for idx, camera in enumerate(coordinator.data):
         for name in camera:
-            if name in SensorType.__members__:
-                sensor_type_name = getattr(SensorType, name).value
-                sensors.append(EzvizSensor(coordinator, idx, name, sensor_type_name))
+
+            if name in BinarySensorType.__members__:
+                sensor_type_name = getattr(BinarySensorType, name).value
+                sensors.append(
+                    EzvizBinaryensor(coordinator, idx, name, sensor_type_name)
+                )
+
+            if name == "switches":
+                for switch in camera.get(name):
+                    if switch in DeviceSwitchType.__members__:
+                        switch_name = str(DeviceSwitchType(switch))
+                        _LOGGER.info(str(DeviceSwitchType(switch)))
+                        sensor_type_name = "None"
+                        sensors.append(
+                            EzvizBinaryensor(
+                                coordinator, idx, switch_name, sensor_type_name
+                            )
+                        )
 
     async_add_entities(sensors)
 
 
-class EzvizSensor(CoordinatorEntity, Entity):
+class EzvizBinaryensor(CoordinatorEntity, Entity):
     """Representation of a Ezviz sensor."""
 
     def __init__(self, coordinator, idx, name, sensor_type_name):
