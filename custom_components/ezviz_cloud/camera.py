@@ -309,6 +309,16 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         )
         return image
 
+    @property
+    def device_info(self):
+        """Return the device_info of the device."""
+        return {
+            "identifiers": {(DOMAIN, self._serial)},
+            "name": self.coordinator.data[self._idx]["name"],
+            "model": self.coordinator.data[self._idx]["device_sub_category"],
+            "manufacturer": MANUFACTURER,
+        }
+
     async def stream_source(self):
         """Return the stream source."""
         local_ip = self.coordinator.data[self._idx]["local_ip"]

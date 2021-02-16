@@ -4,9 +4,9 @@ from typing import Callable, List
 
 from pyezviz.constants import BinarySensorType
 
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity import Entity
-from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
