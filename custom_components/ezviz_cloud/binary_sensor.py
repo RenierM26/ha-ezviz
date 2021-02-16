@@ -2,10 +2,11 @@
 import logging
 from typing import Callable, List
 
-from pyezviz.constants import BinarySensorType, DeviceSwitchType
+from pyezviz.constants import BinarySensorType
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity import Entity
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -33,24 +34,13 @@ async def async_setup_entry(
             if name in BinarySensorType.__members__:
                 sensor_type_name = getattr(BinarySensorType, name).value
                 sensors.append(
-                    EzvizBinaryensor(coordinator, idx, name, sensor_type_name)
+                    EzvizBinarySensor(coordinator, idx, name, sensor_type_name)
                 )
-
-            if name == "switches":
-                if camera.get(name):
-                    for switch in camera.get(name):
-                        if switch in DeviceSwitchType._value2member_map_:
-                            sensor_type_name = "None"
-                            sensors.append(
-                                EzvizBinaryensor(
-                                    coordinator, idx, switch, sensor_type_name
-                                )
-                            )
 
     async_add_entities(sensors)
 
 
-class EzvizBinaryensor(CoordinatorEntity, Entity):
+class EzvizBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Representation of a Ezviz sensor."""
 
     def __init__(self, coordinator, idx, name, sensor_type_name):
@@ -66,17 +56,11 @@ class EzvizBinaryensor(CoordinatorEntity, Entity):
     @property
     def name(self):
         """Return the name of the Ezviz sensor."""
-        if self._name in DeviceSwitchType._value2member_map_:
-            return f"{self._camera_name}.{str(DeviceSwitchType(self._name))}"
-
         return self._sensor_name
 
     @property
-    def state(self):
+    def is_on(self):
         """Return the state of the sensor."""
-        if self._name in DeviceSwitchType._value2member_map_:
-            return self.coordinator.data[self._idx]["switches"][self._name]
-
         return self.coordinator.data[self._idx][self._name]
 
     @property
