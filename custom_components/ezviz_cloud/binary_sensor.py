@@ -76,6 +76,7 @@ class EzvizBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "name": self.coordinator.data[self._idx]["name"],
             "model": self.coordinator.data[self._idx]["device_sub_category"],
             "manufacturer": MANUFACTURER,
+            "sw_version": self.coordinator.data[self._idx]["version"],
         }
 
     @property

@@ -26,18 +26,15 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
     switch_entities = []
-    sensor_type_name = "None"
 
     for idx, camera in enumerate(coordinator.data):
         for name in camera:
-
             if name == "switches":
                 if camera.get(name):
                     for switch in camera.get(name):
                         if switch in DeviceSwitchType._value2member_map_:
-                            sensor_type_name = "None"
                             switch_entities.append(
-                                EzvizSwitch(coordinator, idx, switch, sensor_type_name)
+                                EzvizSwitch(coordinator, idx, switch)
                             )
 
     async_add_entities(switch_entities)
@@ -46,31 +43,24 @@ async def async_setup_entry(
 class EzvizSwitch(CoordinatorEntity, SwitchEntity):
     """Representation of a Ezviz sensor."""
 
-    def __init__(self, coordinator, idx, switch, sensor_type_name):
+    def __init__(self, coordinator, idx, switch):
         """Initialize the switch."""
         super().__init__(coordinator)
         self._idx = idx
         self._camera_name = self.coordinator.data[self._idx]["name"]
         self._name = switch
-        self._sensor_name = f"{self._camera_name}.{self._name}"
-        self.sensor_type_name = sensor_type_name
+        self._sensor_name = f"{self._camera_name}.{DeviceSwitchType(self._name).name}"
         self._serial = self.coordinator.data[self._idx]["serial"]
 
     @property
     def name(self):
         """Return the name of the Ezviz switch."""
-        if self._name in DeviceSwitchType._value2member_map_:
-            return f"{self._camera_name}.{str(DeviceSwitchType(self._name))}"
-
-        return self._sensor_name
+        return f"{self._camera_name}.{DeviceSwitchType(self._name).name}"
 
     @property
     def is_on(self):
         """Return the state of the switch."""
-        if self._name in DeviceSwitchType._value2member_map_:
-            return self.coordinator.data[self._idx]["switches"][self._name]
-
-        return self.coordinator.data[self._idx][self._name]
+        return self.coordinator.data[self._idx]["switches"][self._name]
 
     @property
     def unique_id(self):
@@ -80,20 +70,14 @@ class EzvizSwitch(CoordinatorEntity, SwitchEntity):
     def turn_on(self):
         """Change a device switch on the camera."""
         _LOGGER.debug("Set EZVIZ Switch '%s' to %s", self._name, 1)
-        service_switch = getattr(DeviceSwitchType, self._name)
 
-        self.coordinator.ezviz_client.switch_status(
-            self._serial, service_switch.value, 1
-        )
+        self.coordinator.ezviz_client.switch_status(self._serial, self._name, 1)
 
     def turn_off(self):
         """Change a device switch on the camera."""
         _LOGGER.debug("Set EZVIZ Switch '%s' to %s", self._name, 0)
-        service_switch = getattr(DeviceSwitchType, self._name)
 
-        self.coordinator.ezviz_client.switch_status(
-            self._serial, service_switch.value, 0
-        )
+        self.coordinator.ezviz_client.switch_status(self._serial, self._name, 0)
 
     @property
     def device_info(self):
@@ -103,9 +87,10 @@ class EzvizSwitch(CoordinatorEntity, SwitchEntity):
             "name": self.coordinator.data[self._idx]["name"],
             "model": self.coordinator.data[self._idx]["device_sub_category"],
             "manufacturer": MANUFACTURER,
+            "sw_version": self.coordinator.data[self._idx]["version"],
         }
 
     @property
     def device_class(self):
         """Device class for the sensor."""
-        return self.sensor_type_name
+        return "switch"
