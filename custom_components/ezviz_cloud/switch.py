@@ -4,7 +4,7 @@ from typing import Callable, List
 
 from pyezviz.constants import DeviceSwitchType
 
-from homeassistant.components.switch import SwitchEntity, DEVICE_CLASS_SWITCH
+from homeassistant.components.switch import DEVICE_CLASS_SWITCH, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import HomeAssistantType
