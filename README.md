@@ -26,6 +26,11 @@ ezviz_cloud:
       password: Password_from_camera_sticker.
 ```
 
+4) Go to Configuration > Integrations, add and find the "Ezviz" integration.
+5) Type in your ezviz account username and password.
+6) You might have to change the region. (Integration options).
+7) Your camera(s) should now be present on Hass
+
 Notes:
 
 1) Please use your main account. It doesn't seem to be working with shared accounts at the moment.
