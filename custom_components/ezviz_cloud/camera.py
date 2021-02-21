@@ -383,7 +383,7 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         _LOGGER.debug("EZVIZ Defence mode to %s", type)
         service_switch = getattr(DefenseModeType, defence_type)
 
-        self.coordinator.ezviz_client.api_set_defence_mode(service_switch)
+        self.coordinator.ezviz_client.api_set_defence_mode(service_switch.value)
 
     def perform_ezviz_wake_device(self):
         """Basically wakes the camera by querying the device."""
