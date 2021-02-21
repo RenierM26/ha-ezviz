@@ -5,7 +5,7 @@ import logging
 from typing import Callable, List
 
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
-from pyezviz import DefenseModeType, DeviceSwitchType
+from pyezviz import DefenseModeType
 import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
@@ -25,13 +25,7 @@ from .const import (
     ATTR_DIRECTION,
     ATTR_ENABLE,
     ATTR_HOME,
-    ATTR_INFRARED_LIGHT,
     ATTR_LEVEL,
-    ATTR_LIGHT,
-    ATTR_MOBILE_TRACKING,
-    ATTR_PRIVACY,
-    ATTR_SLEEP,
-    ATTR_SOUND,
     ATTR_SPEED,
     ATTR_SWITCH,
     ATTR_TYPE,
@@ -109,24 +103,6 @@ async def async_setup_entry(
             vol.Required(ATTR_SPEED): cv.positive_int,
         },
         "perform_ezviz_ptz",
-    )
-
-    platform.async_register_entity_service(
-        "ezviz_switch_set",
-        {
-            vol.Required(ATTR_SWITCH): vol.In(
-                [
-                    ATTR_LIGHT,
-                    ATTR_SOUND,
-                    ATTR_INFRARED_LIGHT,
-                    ATTR_PRIVACY,
-                    ATTR_SLEEP,
-                    ATTR_MOBILE_TRACKING,
-                ]
-            ),
-            vol.Required(ATTR_ENABLE): cv.positive_int,
-        },
-        "perform_ezviz_switch_set",
     )
 
     platform.async_register_entity_service(
@@ -361,15 +337,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         )
         self.coordinator.ezviz_client.ptz_control(
             str(direction).upper(), self._serial, "STOP", speed
-        )
-
-    def perform_ezviz_switch_set(self, switch, enable):
-        """Change a device switch on the camera."""
-        _LOGGER.debug("Set EZVIZ Switch '%s' to %s", switch, enable)
-        service_switch = getattr(DeviceSwitchType, switch)
-
-        self.coordinator.ezviz_client.switch_status(
-            self._serial, service_switch.value, enable
         )
 
     def perform_ezviz_sound_alarm(self, enable):
