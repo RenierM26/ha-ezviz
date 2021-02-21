@@ -8,6 +8,30 @@ Install:
 2) **Rewrote integration based on latest framework. Please install via hassio integration after copying your config to the "custom_components" folder.
 3) Add camera username/password under ezviz_cloud domain. Please see example below.
 
+From 0.0.4.0 onwards:
+
+```yaml
+ffmpeg:
+stream:
+camera:
+  - platform: ezviz_cloud
+    username: "Ezviz account username"
+    password: "Ezviz account password"
+    cameras:
+      D666321311:
+        username: admin
+        password: Password_from_camera_sticker
+      D666321312:
+        username: admin
+        password: Password_from_camera_sticker
+      E666321313:
+        username: admin
+        password: Password_from_camera_sticker
+
+```
+
+
+"Pre 0.0.4.0"
 ```yaml
 stream:
 ffmpeg:
