@@ -26,10 +26,11 @@ ezviz_cloud:
       password: Password_from_camera_sticker.
 ```
 
-4) Go to Configuration > Integrations, add and find the "Ezviz" integration.
-5) Type in your ezviz account username and password.
-6) You might have to change the region. (Integration options).
-7) Your camera(s) should now be present on Hass
+4) RESTART Home Assistant
+5) Go to Configuration > Integrations, add and find the "Ezviz" integration.
+6) Type in your ezviz account username and password.
+7) You might have to change the region. (Integration options).
+8) Your camera(s) should now be present on Hass
 
 Notes:
 
