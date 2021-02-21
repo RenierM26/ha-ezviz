@@ -5,26 +5,41 @@ import logging
 from typing import Callable, List
 
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
+from pyezviz import DefenseModeType, DeviceSwitchType
 import voluptuous as vol
 
-from homeassistant.components.camera import SUPPORT_STREAM, Camera
+from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
 from homeassistant.components.ffmpeg import DATA_FFMPEG
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ACC_PASSWORD,
+    ACC_USERNAME,
+    ATTR_AWAY,
     ATTR_CAMERAS,
     ATTR_DIRECTION,
+    ATTR_ENABLE,
+    ATTR_HOME,
+    ATTR_INFRARED_LIGHT,
     ATTR_LEVEL,
+    ATTR_LIGHT,
+    ATTR_MOBILE_TRACKING,
+    ATTR_PRIVACY,
+    ATTR_SLEEP,
+    ATTR_SOUND,
     ATTR_SPEED,
+    ATTR_SWITCH,
     ATTR_TYPE,
     CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
+    DEFAULT_REGION,
     DEFAULT_RTSP_PORT,
     DIR_DOWN,
     DIR_LEFT,
@@ -35,19 +50,49 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 
+CAMERA_SCHEMA = vol.Schema(
+    {vol.Required(CONF_USERNAME): cv.string, vol.Required(CONF_PASSWORD): cv.string}
+)
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Required(ACC_USERNAME): cv.string,
+        vol.Required(ACC_PASSWORD): cv.string,
+        vol.Optional(CONF_REGION, default=DEFAULT_REGION): cv.string,
+        vol.Optional(ATTR_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA},
+    }
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 MIN_TIME_BETWEEN_SESSION_RENEW = timedelta(seconds=90)
+
+
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up a Ezviz IP Camera from platform config."""
+    _LOGGER.warning(
+        "Loading ezviz via platform config is deprecated, it will be automatically imported. Please remove it afterwards."
+    )
+
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_IMPORT},
+            data=config,
+        )
+    )
 
 
 async def async_setup_entry(
     hass, entry, async_add_entities: Callable[[List[Entity], bool], None]
 ) -> None:
     """Set up Ezviz cameras based on a config entry."""
+
     coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         DATA_COORDINATOR
     ]
-    conf_cameras = hass.data[DOMAIN]["config"][ATTR_CAMERAS]
+
+    conf_cameras = entry.data.get("cameras", {})
     ffmpeg_arguments = entry.options.get(
         CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
     )
@@ -64,6 +109,45 @@ async def async_setup_entry(
             vol.Required(ATTR_SPEED): cv.positive_int,
         },
         "perform_ezviz_ptz",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_switch_set",
+        {
+            vol.Required(ATTR_SWITCH): vol.In(
+                [
+                    ATTR_LIGHT,
+                    ATTR_SOUND,
+                    ATTR_INFRARED_LIGHT,
+                    ATTR_PRIVACY,
+                    ATTR_SLEEP,
+                    ATTR_MOBILE_TRACKING,
+                ]
+            ),
+            vol.Required(ATTR_ENABLE): cv.positive_int,
+        },
+        "perform_ezviz_switch_set",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_defence_mode_change",
+        {
+            vol.Required(ATTR_SWITCH): vol.In(
+                [
+                    ATTR_HOME,
+                    ATTR_AWAY,
+                ]
+            ),
+        },
+        "perform_ezviz_defence_mode_change",
+    )
+
+    platform.async_register_entity_service(
+        "ezviz_sound_alarm",
+        {
+            vol.Required(ATTR_ENABLE): cv.positive_int,
+        },
+        "perform_ezviz_sound_alarm",
     )
 
     platform.async_register_entity_service(
@@ -278,6 +362,28 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         self.coordinator.ezviz_client.ptz_control(
             str(direction).upper(), self._serial, "STOP", speed
         )
+
+    def perform_ezviz_switch_set(self, switch, enable):
+        """Change a device switch on the camera."""
+        _LOGGER.debug("Set EZVIZ Switch '%s' to %s", switch, enable)
+        service_switch = getattr(DeviceSwitchType, switch)
+
+        self.coordinator.ezviz_client.switch_status(
+            self._serial, service_switch.value, enable
+        )
+
+    def perform_ezviz_sound_alarm(self, enable):
+        """Sound the alarm on a camera."""
+        _LOGGER.debug("EZVIZ Alarm Switch to %s", enable)
+
+        self.coordinator.ezviz_client.sound_alarm(self._serial, enable)
+
+    def perform_ezviz_defence_mode_change(self, defence_type):
+        """Sound the alarm on a camera."""
+        _LOGGER.debug("EZVIZ Defence mode to %s", type)
+        service_switch = getattr(DefenseModeType, defence_type)
+
+        self.coordinator.ezviz_client.api_set_defence_mode(service_switch)
 
     def perform_ezviz_wake_device(self):
         """Basically wakes the camera by querying the device."""
