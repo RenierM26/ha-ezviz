@@ -8,6 +8,8 @@ Install:
 2) **Rewrote integration based on latest framework. Please install via hassio integration after copying your config to the "custom_components" folder.
 3) Add camera username/password under ezviz_cloud domain. Please see example below.
 
+****Legacy, you can now configure all settings via the integration. Just add another ezviz integration to add camera rtsp credentials******
+
 From 0.0.4.0 onwards (***NEW****):
 
 ```yaml
@@ -51,8 +53,8 @@ ezviz_cloud:
 ```
 
 4) RESTART Home Assistant
-5) Go to Configuration > Integrations, add and find the "Ezviz" integration.
-6) Type in your ezviz account username and password.
+5) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries, it will import automatically if you did and create this for you)
+6) Type in your ezviz account username and password. (if not present in yaml)
 7) You might have to change the region. (Integration options).
 8) Your camera(s) should now be present on Hass
 
@@ -60,3 +62,4 @@ Notes:
 
 1) Please use your main account. It doesn't seem to be working with shared accounts at the moment.
 2) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
+3) If your ezviz account is in a region other than EU, you'll need to do all the config via the integration. (Due to region code not imported from config)
