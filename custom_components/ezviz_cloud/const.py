@@ -2,8 +2,6 @@
 
 DOMAIN = "ezviz_cloud"
 MANUFACTURER = "Ezviz"
-ACC_USERNAME = "username"
-ACC_PASSWORD = "password"
 
 # Configuration
 ATTR_SERIAL = "serial"
