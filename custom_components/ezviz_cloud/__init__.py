@@ -26,7 +26,12 @@ _LOGGER = logging.getLogger(__name__)
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=30)
 
-PLATFORMS = ["camera", "sensor", "binary_sensor", "switch"]
+PLATFORMS = [
+    "camera",
+    "sensor",
+    "binary_sensor",
+    "switch",
+]
 
 
 async def async_setup(hass: HomeAssistantType, config: dict) -> bool:
@@ -40,7 +45,7 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool
     """Set up Ezviz from a config entry."""
 
     if entry.data.get(ATTR_SERIAL):
-        hass.data[DOMAIN][entry.unique_id] = entry.data
+        hass.data[DOMAIN][entry.unique_id] = entry
         return True
 
     if not entry.options:
