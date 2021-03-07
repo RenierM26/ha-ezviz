@@ -27,9 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=30)
 
 PLATFORMS = [
+    "binary_sensor",
     "camera",
     "sensor",
-    "binary_sensor",
     "switch",
 ]
 
