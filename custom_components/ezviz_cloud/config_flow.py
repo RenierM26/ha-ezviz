@@ -7,12 +7,20 @@ import voluptuous as vol
 
 from homeassistant import exceptions
 from homeassistant.config_entries import CONN_CLASS_CLOUD_POLL, ConfigFlow, OptionsFlow
-from homeassistant.const import CONF_PASSWORD, CONF_REGION, CONF_TIMEOUT, CONF_USERNAME
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_REGION,
+    CONF_TIMEOUT,
+    CONF_TYPE,
+    CONF_USERNAME,
+)
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
 
 from .const import (  # pylint: disable=unused-import
     ATTR_SERIAL,
+    ATTR_TYPE_CAMERA,
+    ATTR_TYPE_CLOUD,
     CONF_FFMPEG_ARGUMENTS,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -55,22 +63,26 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             raise InvalidAuth from err
 
         auth_data = {
-            "username": data[CONF_USERNAME],
-            "password": data[CONF_PASSWORD],
-            "region": data.get(CONF_REGION, DEFAULT_REGION),
+            CONF_USERNAME: data[CONF_USERNAME],
+            CONF_PASSWORD: data[CONF_PASSWORD],
+            CONF_REGION: data.get(CONF_REGION, DEFAULT_REGION),
+            CONF_TYPE: ATTR_TYPE_CLOUD,
         }
 
         return self.async_create_entry(title=data[CONF_USERNAME], data=auth_data)
 
-    async def _create_camera_rstp(self, data):
-        """Create RSTP auth entry per camera in config."""
+    async def _create_camera_rtsp(self, data):
+        """Create RTSP auth entry per camera in config."""
 
         await self.async_set_unique_id(data[ATTR_SERIAL])
         self._abort_if_unique_id_configured()
 
         _LOGGER.debug("Create camera with: %s", data)
 
-        return self.async_create_entry(title=data[ATTR_SERIAL], data=data)
+        cam_serial = data.pop(ATTR_SERIAL)
+        data[CONF_TYPE] = ATTR_TYPE_CAMERA
+
+        return self.async_create_entry(title=cam_serial, data=data)
 
     @staticmethod
     @callback
@@ -80,8 +92,11 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initiated by the user."""
-        if self._async_current_entries():
-            return await self.async_step_user_camera()
+
+        # Check if ezviz cloud account is present
+        for item in self._async_current_entries():
+            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+                return await self.async_step_user_camera()
 
         errors = {}
 
@@ -126,9 +141,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title=user_input[ATTR_SERIAL],
                 data={
-                    ATTR_SERIAL: user_input[ATTR_SERIAL],
                     CONF_USERNAME: user_input[CONF_USERNAME],
                     CONF_PASSWORD: user_input[CONF_PASSWORD],
+                    CONF_TYPE: ATTR_TYPE_CAMERA,
                 },
             )
 
@@ -150,7 +165,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if ATTR_SERIAL in import_config:
             try:
-                return await self._create_camera_rstp(import_config)
+                return await self._create_camera_rtsp(import_config)
 
             except AbortFlow:
                 raise

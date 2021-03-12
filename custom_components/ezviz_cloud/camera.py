@@ -2,10 +2,9 @@
 import asyncio
 from datetime import timedelta
 import logging
-from typing import Callable, List
 
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
-from pyezviz import DefenseModeType
+from pyezviz.constants import DefenseModeType
 import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
@@ -13,7 +12,6 @@ from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import SOURCE_IMPORT
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -40,7 +38,6 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
 )
-from .coordinator import EzvizDataUpdateCoordinator
 
 CAMERA_SCHEMA = vol.Schema(
     {vol.Required(CONF_USERNAME): cv.string, vol.Required(CONF_PASSWORD): cv.string}
@@ -67,7 +64,6 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     if ATTR_CAMERAS in config:
         cameras_conf = config.get(ATTR_CAMERAS, CAMERA_SCHEMA)
-
         for camera in cameras_conf.items():
             hass.async_create_task(
                 hass.config_entries.flow.async_init(
@@ -90,19 +86,64 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     )
 
 
-async def async_setup_entry(
-    hass, entry, async_add_entities: Callable[[List[Entity], bool], None]
-) -> None:
+async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Ezviz cameras based on a config entry."""
 
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
+    camera_config_entries = hass.config_entries.async_entries(DOMAIN)
 
-    ffmpeg_arguments = entry.options.get(
-        CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-    )
     camera_entities = []
+
+    for idx, camera in enumerate(coordinator.data):
+
+        # There seem to be a bug related to localRtspPort in Ezviz API...
+        local_rtsp_port = DEFAULT_RTSP_PORT
+        camera_rtsp_entry = [
+            item
+            for item in camera_config_entries
+            if item.unique_id == camera[ATTR_SERIAL]
+        ]
+
+        if camera["local_rtsp_port"] != 0:
+            local_rtsp_port = camera["local_rtsp_port"]
+
+        if camera_rtsp_entry:
+            conf_cameras = camera_rtsp_entry[0]
+            ffmpeg_arguments = conf_cameras.options.get(
+                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            )
+
+            camera_username = conf_cameras.data[CONF_USERNAME]
+            camera_password = conf_cameras.data[CONF_PASSWORD]
+
+            camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{camera['local_ip']}:{local_rtsp_port}{ffmpeg_arguments}"
+            _LOGGER.debug(
+                "Camera %s source stream: %s", camera[ATTR_SERIAL], camera_rtsp_stream
+            )
+
+        else:
+            camera_username = DEFAULT_CAMERA_USERNAME
+            camera_password = ""
+            camera_rtsp_stream = ""
+            _LOGGER.info(
+                "Found camera with serial %s without configuration. Please add an integration instance to see the camera stream",
+                camera[ATTR_SERIAL],
+            )
+
+        camera_entities.append(
+            EzvizCamera(
+                hass,
+                coordinator,
+                idx,
+                camera_username,
+                camera_password,
+                camera_rtsp_stream,
+                local_rtsp_port,
+                ffmpeg_arguments,
+            )
+        )
+
+    async_add_entities(camera_entities)
 
     platform = entity_platform.current_platform.get()
 
@@ -152,48 +193,6 @@ async def async_setup_entry(
         "perform_ezviz_set_alarm_detection_sensibility",
     )
 
-    for idx, camera in enumerate(coordinator.data):
-
-        # There seem to be a bug related to localRtspPort in Ezviz API...
-        local_rtsp_port = DEFAULT_RTSP_PORT
-
-        if camera["local_rtsp_port"] != 0:
-            local_rtsp_port = camera["local_rtsp_port"]
-
-        if camera[ATTR_SERIAL] in hass.data.get(DOMAIN):
-            conf_cameras = hass.data[DOMAIN][camera[ATTR_SERIAL]]
-
-            camera_username = conf_cameras.data[CONF_USERNAME]
-            camera_password = conf_cameras.data[CONF_PASSWORD]
-            camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{camera['local_ip']}:{local_rtsp_port}{ffmpeg_arguments}"
-            _LOGGER.debug(
-                "Camera %s source stream: %s", camera[ATTR_SERIAL], camera_rtsp_stream
-            )
-
-        else:
-            camera_username = DEFAULT_CAMERA_USERNAME
-            camera_password = ""
-            camera_rtsp_stream = ""
-            _LOGGER.info(
-                "Found camera with serial %s without configuration. Please add an integration instance to see the camera stream",
-                camera[ATTR_SERIAL],
-            )
-
-        camera_entities.append(
-            EzvizCamera(
-                hass,
-                coordinator,
-                idx,
-                camera_username,
-                camera_password,
-                camera_rtsp_stream,
-                local_rtsp_port,
-                ffmpeg_arguments,
-            )
-        )
-
-    async_add_entities(camera_entities)
-
 
 class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     """An implementation of a Ezviz security camera."""
@@ -223,18 +222,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         self._serial = self.coordinator.data[self._idx]["serial"]
         self._name = self.coordinator.data[self._idx]["name"]
         self._local_ip = self.coordinator.data[self._idx]["local_ip"]
-
-    @property
-    def device_state_attributes(self):
-        """Return the Ezviz-specific camera state attributes."""
-        return {
-            # Camera firmware version update available?
-            "upgrade_available": self.coordinator.data[self._idx]["upgrade_available"],
-            # camera's local ip on local network
-            "local_ip": self.coordinator.data[self._idx]["local_ip"],
-            # RTSP Stream
-            "RTSP stream": self._rtsp_stream,
-        }
 
     @property
     def available(self):
