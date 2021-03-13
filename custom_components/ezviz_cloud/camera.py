@@ -125,6 +125,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             camera_username = DEFAULT_CAMERA_USERNAME
             camera_password = ""
             camera_rtsp_stream = ""
+            ffmpeg_arguments = DEFAULT_FFMPEG_ARGUMENTS
             _LOGGER.info(
                 "Found camera with serial %s without configuration. Please add an integration instance to see the camera stream",
                 camera[ATTR_SERIAL],
