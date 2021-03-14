@@ -10,7 +10,7 @@ Install:
 
 ****Legacy, you can now configure all settings via the integration. Just add another ezviz integration to add camera rtsp credentials******
 
-From 0.0.4.0 onwards (***NEW****):
+From 0.0.4.0 onwards:
 
 ```yaml
 ffmpeg:
@@ -30,26 +30,6 @@ camera:
         username: admin
         password: Password_from_camera_sticker
 
-```
-
-
-v0.0.3.9 and previous versions (***OLD****):
-```yaml
-stream:
-ffmpeg:
-camera:
-
-ezviz_cloud:
-  cameras:
-    D6666660:
-      username: admin
-      password: Password_from_camera_sticker.
-    D666678:
-      username: admin
-      password: Password_from_camera_sticker.
-    D66666648:
-      username: admin
-      password: Password_from_camera_sticker.
 ```
 
 4) RESTART Home Assistant
