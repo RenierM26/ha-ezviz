@@ -57,9 +57,8 @@ ezviz_cloud:
 
 Only required if did not have yaml entries:
 
-6) Type in your ezviz account username and password.
-7) You might have to change the region. (Integration options).
-8) Your camera(s) should now be present on Hass
+6) Type in your ezviz account username and password. Also please check your region code.
+7) Your camera(s) should now be present on Hass
 
 Notes:
 
