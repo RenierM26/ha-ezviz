@@ -5,12 +5,12 @@ ezviz component for HASSIO, based on my fork of pyezviz
 Install:
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
-2) **Rewrote integration based on latest framework. Please install via hassio integration after copying your config to the "custom_components" folder.
-3) Add camera username/password under ezviz_cloud domain. Please see example below.
+2) **Rewrote integration based on latest framework. Please install via hassio integration after copying files to the "custom_components" folder.
+3) Add camera username/password under ezviz_cloud domain. Please see example below. (Legacy and not required)
 
 ****Legacy, you can now configure all settings via the integration. Just add another ezviz integration to add camera rtsp credentials******
 
-From 0.0.4.0 onwards (***NEW****):
+From 0.0.4.0 onwards:
 
 ```yaml
 ffmpeg:
@@ -32,31 +32,13 @@ camera:
 
 ```
 
-
-v0.0.3.9 and previous versions (***OLD****):
-```yaml
-stream:
-ffmpeg:
-camera:
-
-ezviz_cloud:
-  cameras:
-    D6666660:
-      username: admin
-      password: Password_from_camera_sticker.
-    D666678:
-      username: admin
-      password: Password_from_camera_sticker.
-    D66666648:
-      username: admin
-      password: Password_from_camera_sticker.
-```
-
 4) RESTART Home Assistant
-5) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries, it will import automatically if you did and create this for you)
-6) Type in your ezviz account username and password. (if not present in yaml)
-7) You might have to change the region. (Integration options).
-8) Your camera(s) should now be present on Hass
+5) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
+
+Only required if did not have yaml entries:
+
+6) Type in your ezviz account username and password. Also please check your region code.
+7) Your camera(s) should now be present on Hass
 
 Notes:
 
