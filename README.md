@@ -56,9 +56,10 @@ ezviz_cloud:
 5) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
 
 Only required if did not have yaml entries:
-7) Type in your ezviz account username and password.
-8) You might have to change the region. (Integration options).
-9) Your camera(s) should now be present on Hass
+
+6) Type in your ezviz account username and password.
+7) You might have to change the region. (Integration options).
+8) Your camera(s) should now be present on Hass
 
 Notes:
 
