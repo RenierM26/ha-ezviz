@@ -59,9 +59,14 @@ MIN_TIME_BETWEEN_SESSION_RENEW = timedelta(seconds=90)
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up a Ezviz IP Camera from platform config."""
     _LOGGER.warning(
-        "Loading ezviz via platform config is deprecated, it will be automatically imported. Please remove it afterwards."
+        "Loading ezviz via platform config is deprecated, it will be automatically imported. Please remove it afterwards"
     )
 
+    # Check if entry config exists and skips import if it does.
+    if hass.config_entries.async_entries(DOMAIN):
+        return True
+
+    # Check if importing camera account.
     if ATTR_CAMERAS in config:
         cameras_conf = config.get(ATTR_CAMERAS, CAMERA_SCHEMA)
         for camera in cameras_conf.items():
@@ -77,6 +82,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
                 )
             )
 
+    # Check if importing main ezviz cloud account.
     hass.async_create_task(
         hass.config_entries.flow.async_init(
             DOMAIN,
@@ -130,8 +136,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
                     context={"source": SOURCE_DISCOVERY},
                     data={
                         ATTR_SERIAL: camera[ATTR_SERIAL],
-                        CONF_USERNAME: None,
-                        CONF_PASSWORD: None,
                     },
                 )
             )

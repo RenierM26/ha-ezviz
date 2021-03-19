@@ -8,7 +8,7 @@
             "cannot_connect": "Failed to connect",
             "invalid_auth": "Invalid authentication"
         },
-        "flow_title": "ezviz: {name}",
+        "flow_title": "{host}",
         "step": {
             "user": {
                 "data": {
@@ -24,15 +24,15 @@
                     "password": "password",
                     "serial": "serial"
                 },
-                "title": "Add Camera"
+                "title": "Add Ezviz Camera"
             },
-            "discovery": {
+            "confirm": {
                 "data": {
                     "username": "username",
-                    "password": "password",
-                    "serial": "serial"
+                    "password": "password"
                 },
-                "title": "Discovered Camera"
+                "title": "Discovered Ezviz Camera",
+                "description": "Enter RTSP credentials for Ezviz camera {serial}"
             }
         }
     },
