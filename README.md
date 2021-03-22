@@ -1,12 +1,16 @@
-***Name changed to Ezviz Cloud. (hassio domain : ezviz_cloud). Fixes a few weird issues with hassio, and allowed me to submit an official pull request.***
-
-ezviz component for HASSIO, based on my fork of pyezviz
+Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration).
 
 Install:
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
-2) **Rewrote integration based on latest framework. Please install via hassio integration after copying files to the "custom_components" folder.
-3) Add camera username/password under ezviz_cloud domain. Please see example below. (Legacy and not required)
+2) RESTART Home Assistant
+3) **Rewrote integration based on latest framework. Please install via hassio integration after copying files to the "custom_components" folder.
+4) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
+5) Type in your ezviz account username and password. Also please check your region code.
+6) Your camera(s) should now be present on Hass
+
+
+When upgrading from old verions:
 
 ****Legacy, you can now configure all settings via the integration. Just add another ezviz integration to add camera rtsp credentials******
 
@@ -32,13 +36,9 @@ camera:
 
 ```
 
-4) RESTART Home Assistant
-5) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
 
-Only required if did not have yaml entries:
 
-6) Type in your ezviz account username and password. Also please check your region code.
-7) Your camera(s) should now be present on Hass
+
 
 Notes:
 
