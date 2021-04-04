@@ -1,26 +1,27 @@
 {
   "config": {
-    "flow_title": "{host}",
+    "flow_title": "{serial}",
     "step": {
       "user": {
         "title": "Connect to Ezviz Cloud",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
-          "URL": "Ezviz Server URL"
+          "url": "[%key:common::config_flow::data::url%]"
         }
       },
-      "user_camera": {
-        "title": "Add Ezviz Camera",
+      "user_custom_url": {
+        "title": "Connect to custom Ezviz URL",
+        "description": "Manually specify your region URL",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
-          "serial": "Camera serial number"
+          "url": "[%key:common::config_flow::data::url%]"
         }
       },
       "confirm": {
         "title": "Discovered Ezviz Camera",
-        "description": "Enter RTSP credentials for Ezviz camera {serial}",
+        "description": "Enter RTSP credentials for Ezviz camera {serial} with IP {ip_address}",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]"
@@ -29,7 +30,8 @@
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]"
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_host": "[%key:common::config_flow::error::invalid_host%]"
     },
     "abort": {
       "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]",

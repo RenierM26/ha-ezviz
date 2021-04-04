@@ -8,9 +8,9 @@ from requests import ConnectTimeout, HTTPError
 
 from homeassistant.const import (
     CONF_PASSWORD,
-    CONF_REGION,
     CONF_TIMEOUT,
     CONF_TYPE,
+    CONF_URL,
     CONF_USERNAME,
 )
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=30)
 
 PLATFORMS = [
+    "alarm_control_panel",
     "binary_sensor",
     "camera",
     "sensor",
@@ -129,7 +130,7 @@ def _get_ezviz_client_instance(entry):
     ezviz_client = EzvizClient(
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
-        entry.data[CONF_REGION],
+        entry.data[CONF_URL],
         entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
     )
     ezviz_client.login()

@@ -4,27 +4,23 @@ from datetime import timedelta
 import logging
 
 from haffmpeg.tools import IMAGE_JPEG, ImageFrame
-from pyezviz.constants import DefenseModeType
 import voluptuous as vol
 
 from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import SOURCE_DISCOVERY, SOURCE_IMPORT
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ATTR_AWAY,
     ATTR_CAMERAS,
     ATTR_DIRECTION,
     ATTR_ENABLE,
-    ATTR_HOME,
     ATTR_LEVEL,
     ATTR_SERIAL,
     ATTR_SPEED,
-    ATTR_SWITCH,
     ATTR_TYPE,
     CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
@@ -136,6 +132,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
                     context={"source": SOURCE_DISCOVERY},
                     data={
                         ATTR_SERIAL: camera[ATTR_SERIAL],
+                        CONF_IP_ADDRESS: camera["local_ip"],
                     },
                 )
             )
@@ -175,14 +172,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
             vol.Required(ATTR_SPEED): cv.positive_int,
         },
         "perform_ezviz_ptz",
-    )
-
-    platform.async_register_entity_service(
-        "ezviz_defence_mode_change",
-        {
-            vol.Required(ATTR_SWITCH): vol.In([ATTR_HOME, ATTR_AWAY]),
-        },
-        "perform_ezviz_defence_mode_change",
     )
 
     platform.async_register_entity_service(
@@ -245,7 +234,10 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     @property
     def available(self):
         """Return True if entity is available."""
-        return self.coordinator.data[self._idx]["status"]
+        if self.coordinator.data[self._idx]["status"] == 2:
+            return False
+
+        return True
 
     @property
     def supported_features(self):
@@ -310,11 +302,7 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         ffmpeg = ImageFrame(self._ffmpeg.binary)
 
         image = await asyncio.shield(
-            ffmpeg.get_image(
-                self._rtsp_stream,
-                output_format=IMAGE_JPEG,
-                extra_cmd=self._ffmpeg_arguments,
-            )
+            ffmpeg.get_image(self._rtsp_stream, output_format=IMAGE_JPEG)
         )
         return image
 
@@ -360,13 +348,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
         _LOGGER.debug("EZVIZ Alarm Switch to %s", enable)
 
         self.coordinator.ezviz_client.sound_alarm(self._serial, enable)
-
-    def perform_ezviz_defence_mode_change(self, switch):
-        """Sound the alarm on a camera."""
-        _LOGGER.debug("EZVIZ Defence mode to %s", switch)
-        service_switch = getattr(DefenseModeType, switch)
-
-        self.coordinator.ezviz_client.api_set_defence_mode(service_switch.value)
 
     def perform_ezviz_wake_device(self):
         """Basically wakes the camera by querying the device."""
