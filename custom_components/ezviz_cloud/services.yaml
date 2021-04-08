@@ -5,7 +5,7 @@ ezviz_alarm_sound:
       description: 'Name(s) of entities to move.'
       example: 'camera.living_room_camera'
     level:
-      description: 'Sound level (2 is disabled, 1 intensive, 0 software).'
+      description: 'Sound level (2 is disabled, 1 intensive, 0 soft).'
       example: '0'
 ezviz_ptz:
   description: 'Moves the camera to the direction, with defined speed'
