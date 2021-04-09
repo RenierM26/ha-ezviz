@@ -2,20 +2,21 @@
 from unittest.mock import patch
 
 from homeassistant.components.ezviz.const import (
-    ATTR_CAMERAS,
     ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_CAMERAS,
     CONF_FFMPEG_ARGUMENTS,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
 )
 from homeassistant.const import (
+    CONF_IP_ADDRESS,
     CONF_PASSWORD,
-    CONF_REGION,
     CONF_TIMEOUT,
     CONF_TYPE,
+    CONF_URL,
     CONF_USERNAME,
 )
 from homeassistant.helpers.typing import HomeAssistantType
@@ -25,8 +26,8 @@ from tests.common import MockConfigEntry
 ENTRY_CONFIG = {
     CONF_USERNAME: "test-username",
     CONF_PASSWORD: "test-password",
-    CONF_REGION: "test-region",
-    CONF_TIMEOUT: 25,
+    CONF_URL: "apiieu.ezvizlife.com",
+    CONF_TYPE: ATTR_TYPE_CLOUD,
 }
 
 ENTRY_OPTIONS = {
@@ -37,13 +38,13 @@ ENTRY_OPTIONS = {
 USER_INPUT_VALIDATE = {
     CONF_USERNAME: "test-username",
     CONF_PASSWORD: "test-password",
-    CONF_REGION: "test-region",
+    CONF_URL: "apiieu.ezvizlife.com",
 }
 
 USER_INPUT = {
     CONF_USERNAME: "test-username",
     CONF_PASSWORD: "test-password",
-    CONF_REGION: "test-region",
+    CONF_URL: "apiieu.ezvizlife.com",
     CONF_TYPE: ATTR_TYPE_CLOUD,
 }
 
@@ -62,8 +63,8 @@ USER_INPUT_CAMERA = {
 YAML_CONFIG = {
     CONF_USERNAME: "test-username",
     CONF_PASSWORD: "test-password",
-    CONF_REGION: "test-region",
-    ATTR_CAMERAS: {
+    CONF_URL: "apiieu.ezvizlife.com",
+    CONF_CAMERAS: {
         "C666666": {CONF_USERNAME: "test-username", CONF_PASSWORD: "test-password"}
     },
 }
@@ -78,14 +79,18 @@ YAML_CONFIG_CAMERA = {
     CONF_PASSWORD: "test-password",
 }
 
-DISCOVERY_INFO = {ATTR_SERIAL: "C666666", CONF_USERNAME: None, CONF_PASSWORD: None}
+DISCOVERY_INFO = {
+    ATTR_SERIAL: "C666666",
+    CONF_USERNAME: None,
+    CONF_PASSWORD: None,
+    CONF_IP_ADDRESS: "127.0.0.1",
+}
 
-
-def _patch_async_setup(return_value=True):
-    return patch(
-        "homeassistant.components.ezviz.async_setup",
-        return_value=return_value,
-    )
+TEST = {
+    CONF_USERNAME: None,
+    CONF_PASSWORD: None,
+    CONF_IP_ADDRESS: "127.0.0.1",
+}
 
 
 def _patch_async_setup_entry(return_value=True):
