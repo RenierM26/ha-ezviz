@@ -31,6 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=30)
 
 PLATFORMS = [
+    "alarm_control_panel",
     "binary_sensor",
     "camera",
     "sensor",
@@ -38,15 +39,9 @@ PLATFORMS = [
 ]
 
 
-async def async_setup(hass, config):
-    """Set up the Ezviz integration."""
-    hass.data.setdefault(DOMAIN, {})
-
-    return True
-
-
 async def async_setup_entry(hass, entry):
     """Set up Ezviz from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
 
     if not entry.options:
         options = {

@@ -15,13 +15,13 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ATTR_CAMERAS,
     ATTR_DIRECTION,
     ATTR_ENABLE,
     ATTR_LEVEL,
     ATTR_SERIAL,
     ATTR_SPEED,
     ATTR_TYPE,
+    CONF_CAMERAS,
     CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
@@ -43,7 +43,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_USERNAME): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(ATTR_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA},
+        vol.Optional(CONF_CAMERAS, default={}): {cv.string: CAMERA_SCHEMA},
     }
 )
 
@@ -60,20 +60,20 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     # Check if entry config exists and skips import if it does.
     if hass.config_entries.async_entries(DOMAIN):
-        return True
+        return
 
     # Check if importing camera account.
-    if ATTR_CAMERAS in config:
-        cameras_conf = config.get(ATTR_CAMERAS, CAMERA_SCHEMA)
-        for camera in cameras_conf.items():
+    if CONF_CAMERAS in config:
+        cameras_conf = config[CONF_CAMERAS]
+        for serial, camera in cameras_conf.items():
             hass.async_create_task(
                 hass.config_entries.flow.async_init(
                     DOMAIN,
                     context={"source": SOURCE_IMPORT},
                     data={
-                        ATTR_SERIAL: camera[0],
-                        CONF_USERNAME: camera[1][CONF_USERNAME],
-                        CONF_PASSWORD: camera[1][CONF_PASSWORD],
+                        ATTR_SERIAL: serial,
+                        CONF_USERNAME: camera[CONF_USERNAME],
+                        CONF_PASSWORD: camera[CONF_PASSWORD],
                     },
                 )
             )
@@ -280,22 +280,6 @@ class EzvizCamera(CoordinatorEntity, Camera, RestoreEntity):
     def motion_detection_enabled(self):
         """Camera Motion Detection Status."""
         return self.coordinator.data[self._idx]["alarm_notify"]
-
-    def enable_motion_detection(self):
-        """Enable motion detection in camera."""
-        try:
-            self.coordinator.ezviz_client.data_report(self._serial, 1)
-
-        except TypeError:
-            _LOGGER.debug("Communication problem")
-
-    def disable_motion_detection(self):
-        """Disable motion detection."""
-        try:
-            self.coordinator.ezviz_client.data_report(self._serial, 0)
-
-        except TypeError:
-            _LOGGER.debug("Communication problem")
 
     @property
     def unique_id(self):
