@@ -1,4 +1,4 @@
-Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration).
+Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
 
 Install:
 
