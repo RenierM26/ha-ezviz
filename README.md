@@ -12,7 +12,7 @@ Install:
 
 When upgrading from old verions:
 
-****Legacy, you can now configure all settings via the integration. Just add another ezviz integration to add camera rtsp credentials******
+****Legacy, you can now configure all settings via the integration page on hassio (also known as config flow).******
 
 From 0.0.4.0 onwards:
 
