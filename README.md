@@ -14,7 +14,7 @@ When upgrading from old verions:
 
 ****Legacy, you can now configure all settings via the integration page on hassio (also known as config flow).******
 
-From 0.0.4.0 onwards:
+From 0.0.4.0 (Legacy Yaml method no longer needed on latest version!):
 
 ```yaml
 ffmpeg:
