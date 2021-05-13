@@ -3,6 +3,8 @@
 
 Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
 
+https://www.home-assistant.io/integrations/ezviz/
+
 Install:
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
