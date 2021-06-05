@@ -10,7 +10,7 @@ Install:
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
 2) RESTART Home Assistant
 3) **Rewrote integration based on latest framework, the integration makes use of Config flows for config. Please install and configure via hassio integration.
-4) Go to Configuration > Integrations, add and find the "Ezviz" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
+4) Go to Configuration > Integrations, add and find the "Ezviz(Beta)" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
 5) Type in your ezviz account username and password. Also please check your region code.
 6) Your camera(s) should now be present on Hass
 
