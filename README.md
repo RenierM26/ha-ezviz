@@ -9,10 +9,12 @@ Install:
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
 2) RESTART Home Assistant
-3) **Rewrote integration based on latest framework, the integration makes use of Config flows for config. Please install and configure via hassio integration.
-4) Go to Configuration > Integrations, add and find the "Ezviz(Beta)" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
-5) Type in your ezviz account username and password. Also please check your region code.
-6) Your camera(s) should now be present on Hass
+
+The integration makes use of Config flows for config. Please install and configure via hassio integration:
+
+3) Go to Configuration > Integrations, add and find the "Ezviz(Beta)" integration. (If you did not have yaml config entries. If you did, it will import automatically and create integrations for you).
+4) Type in your ezviz account username and password. Also please check your region code.
+5) Your camera(s) should now be present on Hass
 
 
 When upgrading from old verions:
@@ -47,6 +49,6 @@ camera:
 
 Notes:
 
-1) Please use your main account. It doesn't seem to be working with shared accounts at the moment.
-2) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
-3) If your ezviz account is in a region other than EU, you'll need to do all the config via the integration. (Due to region code not imported from config)
+1) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
+2) Please disable encryption on your cameras.
+3) MFA needs to be disabled or the integration setup will fail.
