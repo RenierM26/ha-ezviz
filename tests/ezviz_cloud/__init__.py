@@ -1,7 +1,7 @@
 """Tests for the Ezviz integration."""
 from unittest.mock import patch
 
-from homeassistant.components.ezviz.const import (
+from custom_components.ezviz_cloud.const import (
     ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
@@ -19,7 +19,7 @@ from homeassistant.const import (
     CONF_URL,
     CONF_USERNAME,
 )
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.core import HomeAssistant
 
 from tests.common import MockConfigEntry
 
@@ -95,13 +95,13 @@ TEST = {
 
 def _patch_async_setup_entry(return_value=True):
     return patch(
-        "homeassistant.components.ezviz.async_setup_entry",
+        "custom_components.ezviz_cloud.async_setup_entry",
         return_value=return_value,
     )
 
 
 async def init_integration(
-    hass: HomeAssistantType,
+    hass: HomeAssistant,
     *,
     data: dict = ENTRY_CONFIG,
     options: dict = ENTRY_OPTIONS,
