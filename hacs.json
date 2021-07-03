@@ -3,10 +3,10 @@
     "hacs": "1.6.0",
     "domains": [
         "camera",
-		"sensor",
-		"switch",
-		"binary_sensor",
-		"alarm_control_panel"
+	"sensor",
+	"switch",
+	"binary_sensor",
+	"alarm_control_panel"
     ],
     "iot_class": "Cloud Polling",
     "homeassistant": "0.118.0"
