@@ -30,6 +30,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [
+    "alarm_control_panel",
     "binary_sensor",
     "camera",
     "sensor",
