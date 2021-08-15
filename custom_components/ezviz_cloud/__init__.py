@@ -73,6 +73,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.config_entries.async_update_entry(entry, options=options)
 
+    if entry.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA:
+        if hass.data.get(DOMAIN):
+            # Should only execute on addition of new camera entry.
+            # Fetch Entry id of main account and reload it.
+            for item in hass.config_entries.async_entries():
+                if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+                    _LOGGER.info("Reload Ezviz integration with new camera rtsp entry")
+                    await hass.config_entries.async_reload(item.entry_id)
+
+        return True
+
     # Get user account token if not present.
     if not entry.data.get(CONF_SESSION_ID):
 
@@ -92,17 +103,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ezviz_client[CONF_RFSESSION_ID],
             ezviz_client[CONF_USERNAME],
         )
-
-    if entry.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA:
-        if hass.data.get(DOMAIN):
-            # Should only execute on addition of new camera entry.
-            # Fetch Entry id of main account and reload it.
-            for item in hass.config_entries.async_entries():
-                if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                    _LOGGER.info("Reload Ezviz integration with new camera rtsp entry")
-                    await hass.config_entries.async_reload(item.entry_id)
-
-        return True
 
     ezviz_client = EzvizClient(
         token={
