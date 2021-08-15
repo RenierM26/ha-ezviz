@@ -28,7 +28,10 @@ from .const import (
     ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_EZVIZ_ACCOUNT,
     CONF_FFMPEG_ARGUMENTS,
+    CONF_RFSESSION_ID,
+    CONF_SESSION_ID,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
@@ -50,8 +53,8 @@ def _get_ezviz_client_instance(data):
         data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
     )
 
-    ezviz_client.login()
-    return ezviz_client
+    ezviz_token = ezviz_client.login()
+    return ezviz_client, ezviz_token
 
 
 def _test_camera_rtsp_creds(data):
@@ -76,7 +79,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Verify cloud credentials by attempting a login request.
         try:
-            await self.hass.async_add_executor_job(_get_ezviz_client_instance, data)
+            ezviz_token = await self.hass.async_add_executor_job(
+                _get_ezviz_client_instance, data
+            )
 
         except InvalidURL as err:
             raise InvalidURL from err
@@ -90,8 +95,11 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         auth_data = {
             CONF_USERNAME: data[CONF_USERNAME],
             CONF_PASSWORD: data[CONF_PASSWORD],
-            CONF_URL: data.get(CONF_URL, EU_URL),
+            CONF_URL: ezviz_token[1]["api_url"],
             CONF_TYPE: ATTR_TYPE_CLOUD,
+            CONF_SESSION_ID: ezviz_token[1][CONF_SESSION_ID],
+            CONF_RFSESSION_ID: ezviz_token[1][CONF_RFSESSION_ID],
+            CONF_EZVIZ_ACCOUNT: ezviz_token[1][CONF_USERNAME],
         }
 
         return self.async_create_entry(title=data[CONF_USERNAME], data=auth_data)
@@ -137,7 +145,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         # Secondly try to wake hybernating camera.
         try:
             await self.hass.async_add_executor_job(
-                ezviz_client.get_detection_sensibility, data[ATTR_SERIAL]
+                ezviz_client[0].get_detection_sensibility, data[ATTR_SERIAL]
             )
 
         except HTTPError as err:
