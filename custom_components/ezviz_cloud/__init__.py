@@ -2,7 +2,12 @@
 import logging
 
 from pyezviz.client import EzvizClient
-from pyezviz.exceptions import HTTPError, InvalidURL, PyEzvizError
+from pyezviz.exceptions import (
+    HTTPError,
+    InvalidURL,
+    PyEzvizError,
+    EzvizAuthTokenExpired,
+)
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -115,6 +120,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await hass.async_add_executor_job(ezviz_client.login)
+
+    except EzvizAuthTokenExpired:
+        # Token expired, login with username and password, update token.
+        try:
+            ezviz_client = await hass.async_add_executor_job(
+                _get_ezviz_client_instance, entry
+            )
+
+        except (InvalidURL, HTTPError, PyEzvizError) as error:
+            _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
+            raise ConfigEntryNotReady from error
+
+        await _async_save_tokens(
+            hass,
+            entry,
+            ezviz_client[CONF_SESSION_ID],
+            ezviz_client[CONF_RFSESSION_ID],
+            ezviz_client[CONF_USERNAME],
+        )
 
     except (InvalidURL, HTTPError, PyEzvizError) as error:
         _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
