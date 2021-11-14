@@ -44,4 +44,3 @@ DEFAULT_FFMPEG_ARGUMENTS = ""
 
 # Data
 DATA_COORDINATOR = "coordinator"
-DATA_UNDO_UPDATE_LISTENER = "undo_update_listener"
