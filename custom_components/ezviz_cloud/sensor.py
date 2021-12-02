@@ -32,12 +32,12 @@ SENSOR_TYPES: dict[str, SensorEntityDescription] = {
     "supported_channels": SensorEntityDescription(key="supported_channels"),
     "local_ip": SensorEntityDescription(key="local_ip"),
     "wan_ip": SensorEntityDescription(key="wan_ip"),
-    "last_alarm_type_code": SensorEntityDescription(key="last_alarm_type_code"),
-    "last_alarm_type_name": SensorEntityDescription(key="last_alarm_type_name"),
     "PIR_Status": SensorEntityDescription(
         key="PIR_Status",
         device_class=DEVICE_CLASS_MOTION,
     ),
+    "last_alarm_type_code": SensorEntityDescription(key="last_alarm_type_code"),
+    "last_alarm_type_name": SensorEntityDescription(key="last_alarm_type_name"),
 }
 
 
