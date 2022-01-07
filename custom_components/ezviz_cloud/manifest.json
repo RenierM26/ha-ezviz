@@ -1,7 +1,7 @@
 {
   "domain": "ezviz_cloud",
   "name": "Ezviz(Beta)",
-  "version": "0.0.9.3",
+  "version": "0.0.9.4",
   "documentation": "https://www.home-assistant.io/integrations/ezviz",
   "dependencies": ["ffmpeg"],
   "codeowners": ["@RenierM26", "@baqs"],
