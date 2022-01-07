@@ -1,11 +1,11 @@
 {
   "domain": "ezviz_cloud",
   "name": "Ezviz(Beta)",
-  "version": "0.0.9.2",
+  "version": "0.0.9.3",
   "documentation": "https://www.home-assistant.io/integrations/ezviz",
   "dependencies": ["ffmpeg"],
   "codeowners": ["@RenierM26", "@baqs"],
-  "requirements": ["pyezviz==0.2.0.5"],
+  "requirements": ["pyezviz==0.2.0.6"],
   "config_flow": true,
   "iot_class": "cloud_polling"
 }

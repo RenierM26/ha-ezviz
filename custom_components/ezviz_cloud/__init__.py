@@ -19,6 +19,7 @@ from homeassistant.const import (
     CONF_TYPE,
     CONF_URL,
     CONF_USERNAME,
+    Platform,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -41,11 +42,11 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS_BY_TYPE: dict[str, list] = {
     ATTR_TYPE_CAMERA: [],
     ATTR_TYPE_CLOUD: [
-        "alarm_control_panel",
-        "binary_sensor",
-        "camera",
-        "sensor",
-        "switch",
+        Platform.ALARM_CONTROL_PANEL,
+        Platform.BINARY_SENSOR,
+        Platform.CAMERA,
+        Platform.SENSOR,
+        Platform.SWITCH,
     ],
 }
 
