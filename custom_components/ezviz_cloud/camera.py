@@ -60,6 +60,12 @@ async def async_setup_entry(
 
     camera_entities = []
 
+    cameras_ignored: list[str] = [
+        item.unique_id
+        for item in hass.config_entries.async_entries(DOMAIN)
+        if item.source == SOURCE_IGNORE
+    ]
+
     for camera, value in coordinator.data.items():
 
         camera_rtsp_entry = [
@@ -103,10 +109,12 @@ async def async_setup_entry(
                 )
             )
 
-            _LOGGER.warning(
-                "Found camera with serial %s without configuration. Please go to integration to complete setup",
-                camera,
-            )
+            if camera not in cameras_ignored:
+
+                _LOGGER.warning(
+                    "Found camera with serial %s without configuration. Please go to integration to complete setup",
+                    camera,
+                )
 
             ffmpeg_arguments = DEFAULT_FFMPEG_ARGUMENTS
             camera_username = DEFAULT_CAMERA_USERNAME
