@@ -6,10 +6,9 @@ from typing import Any
 from pyezviz.constants import DefenseModeType
 from pyezviz.exceptions import HTTPError
 
-from homeassistant.components.alarm_control_panel import AlarmControlPanelEntity
-from homeassistant.components.alarm_control_panel.const import (
-    SUPPORT_ALARM_ARM_AWAY,
-    SUPPORT_ALARM_ARM_NIGHT,
+from homeassistant.components.alarm_control_panel import (
+    AlarmControlPanelEntity,
+    AlarmControlPanelEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -42,7 +41,7 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities([EzvizAlarm(coordinator)])
+    async_add_entities([EzvizAlarm(coordinator, entry.entry_id)])
 
 
 class EzvizAlarm(CoordinatorEntity, AlarmControlPanelEntity, RestoreEntity):
@@ -50,15 +49,18 @@ class EzvizAlarm(CoordinatorEntity, AlarmControlPanelEntity, RestoreEntity):
 
     coordinator: EzvizDataUpdateCoordinator
     _attr_name = "Ezviz Alarm"
-    _attr_supported_features = SUPPORT_ALARM_ARM_AWAY | SUPPORT_ALARM_ARM_NIGHT
+    _attr_supported_features = (
+        AlarmControlPanelEntityFeature.ARM_AWAY
+        | AlarmControlPanelEntityFeature.ARM_NIGHT
+    )
     _attr_code_arm_required = False
 
-    def __init__(self, coordinator: EzvizDataUpdateCoordinator) -> None:
+    def __init__(self, coordinator: EzvizDataUpdateCoordinator, unique_id) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._attr_state = STATE_ALARM_DISARMED
         self._model = "Ezviz Alarm"
-        self._attr_unique_id = "Ezviz Alarm"
+        self._attr_unique_id = unique_id
         self._attr_device_info: DeviceInfo = {
             "identifiers": {(DOMAIN, self._attr_name)},
             "name": self._attr_name,
@@ -72,10 +74,10 @@ class EzvizAlarm(CoordinatorEntity, AlarmControlPanelEntity, RestoreEntity):
         state = await self.async_get_last_state()
         if not state:
             return
-        if (
-            state.state == STATE_ALARM_DISARMED
-            or STATE_ALARM_ARMED_AWAY
-            or STATE_ALARM_ARMED_NIGHT
+        if state.state in (
+            STATE_ALARM_DISARMED,
+            STATE_ALARM_ARMED_AWAY,
+            STATE_ALARM_ARMED_NIGHT,
         ):
             self._attr_state = state.state
 

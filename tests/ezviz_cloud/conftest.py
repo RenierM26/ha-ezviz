@@ -5,6 +5,12 @@ from pyezviz import EzvizClient
 from pyezviz.test_cam_rtsp import TestRTSPAuth
 from pytest import fixture
 
+ezviz_login_token_return = {
+    "session_id": "fake_token",
+    "rf_session_id": "fake_rf_token",
+    "api_url": "apiieu.ezvizlife.com",
+}
+
 
 @fixture(autouse=True)
 def mock_ffmpeg(hass):
@@ -16,7 +22,7 @@ def mock_ffmpeg(hass):
 def ezviz_test_rtsp_config_flow(hass):
     """Mock the EzvizApi for easier testing."""
     with patch.object(TestRTSPAuth, "main", return_value=True), patch(
-        "custom_components.ezviz_cloud.config_flow.TestRTSPAuth"
+        "homeassistant.components.ezviz.config_flow.TestRTSPAuth"
     ) as mock_ezviz_test_rtsp:
         instance = mock_ezviz_test_rtsp.return_value = TestRTSPAuth(
             "test-ip",
@@ -33,7 +39,7 @@ def ezviz_test_rtsp_config_flow(hass):
 def ezviz_config_flow(hass):
     """Mock the EzvizAPI for easier config flow testing."""
     with patch.object(EzvizClient, "login", return_value=True), patch(
-        "custom_components.ezviz_cloud.config_flow.EzvizClient"
+        "homeassistant.components.ezviz.config_flow.EzvizClient"
     ) as mock_ezviz:
         instance = mock_ezviz.return_value = EzvizClient(
             "test-username",
@@ -42,7 +48,7 @@ def ezviz_config_flow(hass):
             "1",
         )
 
-        instance.login = MagicMock(return_value=True)
+        instance.login = MagicMock(return_value=ezviz_login_token_return)
         instance.get_detection_sensibility = MagicMock(return_value=True)
 
         yield mock_ezviz
