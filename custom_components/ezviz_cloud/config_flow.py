@@ -326,14 +326,17 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle a Confirm flow for reauthentication with password."""
         auth_data = {}
         errors = {}
+        entry = None
 
         for item in self._async_current_entries():
             if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                self.context["data"] = {CONF_USERNAME: item.title}
                 self.context["title_placeholders"] = {ATTR_SERIAL: item.title}
+                entry = await self.async_set_unique_id(item.title)
+
+        if not entry:
+            return self.async_abort(reason="ezviz_cloud_account_missing")
 
         if user_input is not None:
-            entry = await self.async_set_unique_id(user_input[CONF_USERNAME])
 
             user_input[CONF_URL] = entry.data[CONF_URL]
 
@@ -342,36 +345,32 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
                     _validate_and_create_auth, user_input
                 )
 
-            except InvalidURL:
+            except (InvalidHost, InvalidURL):
                 errors["base"] = "invalid_host"
-
-            except InvalidHost:
-                errors["base"] = "cannot_connect"
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "mfa_required"
 
-            except PyEzvizError:
+            except (PyEzvizError, AuthTestResultFailed):
                 errors["base"] = "invalid_auth"
 
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 return self.async_abort(reason="unknown")
 
-            self.hass.config_entries.async_update_entry(
-                entry,
-                data=auth_data,
-            )
+            else:
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    data=auth_data,
+                )
 
-            await self.hass.config_entries.async_reload(entry.entry_id)
+                await self.hass.config_entries.async_reload(entry.entry_id)
 
-            return self.async_abort(reason="reauth_successful")
+                return self.async_abort(reason="reauth_successful")
 
         data_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_USERNAME, default=self.context["data"][CONF_USERNAME]
-                ): vol.In([self.context["data"][CONF_USERNAME]]),
+                vol.Required(CONF_USERNAME, default=entry.title): vol.In([entry.title]),
                 vol.Required(CONF_PASSWORD): str,
             }
         )
