@@ -315,11 +315,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_reauth(self, user_input: dict[str, Any]) -> FlowResult:
+    async def async_step_reauth(self, user_input: dict[str, Any] = None) -> FlowResult:
         """Handle a flow for reauthentication with password."""
-
-        self.context["title_placeholders"] = {ATTR_SERIAL: user_input[CONF_USERNAME]}
-        self.context["data"] = {CONF_USERNAME: user_input[CONF_USERNAME]}
 
         return await self.async_step_reauth_confirm()
 
@@ -330,10 +327,13 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         auth_data = {}
         errors = {}
 
+        for item in self._async_current_entries():
+            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+                self.context["data"] = {CONF_USERNAME: item.title}
+                self.context["title_placeholders"] = {ATTR_SERIAL: item.title}
+
         if user_input is not None:
-            entry = await self.async_set_unique_id(self.context["data"][CONF_USERNAME])
-            if not entry:
-                return self.async_abort(reason="ezviz_cloud_account_missing")
+            entry = await self.async_set_unique_id(user_input[CONF_USERNAME])
 
             user_input[CONF_URL] = entry.data[CONF_URL]
 
@@ -358,12 +358,14 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 return self.async_abort(reason="unknown")
 
-            else:
-                self.hass.config_entries.async_update_entry(
-                    entry,
-                    data=auth_data,
-                )
-                return self.async_abort(reason="reauth_successful")
+            self.hass.config_entries.async_update_entry(
+                entry,
+                data=auth_data,
+            )
+
+            await self.hass.config_entries.async_reload(entry.entry_id)
+
+            return self.async_abort(reason="reauth_successful")
 
         data_schema = vol.Schema(
             {
