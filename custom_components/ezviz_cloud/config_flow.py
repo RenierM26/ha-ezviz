@@ -1,6 +1,7 @@
 """Config flow for ezviz."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -139,7 +140,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
         """Get the options flow for this handler."""
         return EzvizOptionsFlowHandler(config_entry)
 
@@ -315,7 +316,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_reauth(self, user_input: dict[str, Any] = None) -> FlowResult:
+    async def async_step_reauth(
+        self, user_input: Mapping[str, Any] = None
+    ) -> FlowResult:
         """Handle a flow for reauthentication with password."""
 
         return await self.async_step_reauth_confirm()
