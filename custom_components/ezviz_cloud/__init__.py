@@ -110,11 +110,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     if sensor_type == ATTR_TYPE_CAMERA:
-        for item in hass.config_entries.async_entries(domain=DOMAIN):
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                _LOGGER.info("Reload Ezviz main account with camera entry")
-                await hass.config_entries.async_reload(item.entry_id)
-                return True
+        if hass.data.get(DOMAIN):
+            for item in hass.config_entries.async_entries(domain=DOMAIN):
+                if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+                    _LOGGER.info("Reload Ezviz main account with camera entry")
+                    await hass.config_entries.async_reload(item.entry_id)
+                    return True
 
     hass.config_entries.async_setup_platforms(entry, PLATFORMS_BY_TYPE[sensor_type])
 
