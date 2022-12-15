@@ -5,15 +5,19 @@ Updated Ezviz HA component making use of latest version of pyEzviz (API behind t
 
 https://www.home-assistant.io/integrations/ezviz/
 
-#### EZVIZ account setup (doesn't require IE):
+&nbsp;
+## EZVIZ account setup (doesn't require IE):
+#
 
 1) Register your account here: https://i.ezvizlife.com/user/userAction!goRegister.action
 2) Take note of your **User Name**, you will need it to the EZVIZ Integration setup
 3) Login here: https://euauth.ezvizlife.com/signIn
 4) Logged in access the user account here: https://i.ezvizlife.com/user/userAction!displayUserInfo.action (to add/manage cameras) or use the EZVIZ App
 
+&nbsp;
 
-#### Install:
+## Install:
+#
 
 1) Copy to custom_components folder or use HACS custom repository. (Custom repository : RenierM26/ha-ezviz)
 2) RESTART Home Assistant
@@ -24,8 +28,10 @@ The integration makes use of Config flows for config. Please install and configu
 4) Type in your ezviz account username and password. Also please check your region code.
 5) Your camera(s) should now be present on Hass
 
+&nbsp;
 
-#### When upgrading from old verions:
+## When upgrading from old verions:
+#
 
 **Legacy, you can now configure all settings via the integration page on hassio (also known as config flow).**
 
@@ -51,8 +57,10 @@ camera:
 
 ```
 
+&nbsp;
 
-#### Notes:
+## Notes:
+#
 
 1) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
 2) Please disable encryption on your cameras.
