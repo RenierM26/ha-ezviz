@@ -1,6 +1,10 @@
 """Support for EZVIZ camera."""
 import logging
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from pyezviz.client import EzvizClient
 from pyezviz.exceptions import (
     EzvizAuthTokenExpired,
@@ -9,11 +13,6 @@ from pyezviz.exceptions import (
     InvalidURL,
     PyEzvizError,
 )
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     ATTR_TYPE_CAMERA,
@@ -38,6 +37,7 @@ PLATFORMS_BY_TYPE: dict[str, list] = {
         Platform.CAMERA,
         Platform.SENSOR,
         Platform.SWITCH,
+        Platform.UPDATE,
     ],
 }
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 
-from pyezviz.exceptions import HTTPError, InvalidHost, PyEzvizError
 import voluptuous as vol
 
 from homeassistant.components import ffmpeg
@@ -22,6 +21,7 @@ from homeassistant.helpers import (
     discovery_flow,
     entity_platform,
 )
+from pyezviz.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from .const import (
     ATTR_DIRECTION,

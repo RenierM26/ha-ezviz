@@ -3,9 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyezviz.constants import DefenseModeType
-from pyezviz.exceptions import HTTPError
-
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
     AlarmControlPanelEntityFeature,
@@ -21,6 +18,8 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from pyezviz.constants import DefenseModeType
+from pyezviz.exceptions import HTTPError
 
 from .const import (
     ATTR_AWAY,

@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyezviz.constants import DeviceSwitchType
-from pyezviz.exceptions import HTTPError, PyEzvizError
-
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from pyezviz.constants import DeviceSwitchType
+from pyezviz.exceptions import HTTPError, PyEzvizError
 
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
