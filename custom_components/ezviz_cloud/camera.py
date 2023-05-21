@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from pyezviz.exceptions import HTTPError, InvalidHost, PyEzvizError
 import voluptuous as vol
 
 from homeassistant.components import ffmpeg
@@ -16,12 +17,11 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import (
-    config_validation as cv,
-    discovery_flow,
-    entity_platform,
+from homeassistant.helpers import config_validation as cv, discovery_flow
+from homeassistant.helpers.entity_platform import (
+    AddEntitiesCallback,
+    async_get_current_platform,
 )
-from pyezviz.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from .const import (
     ATTR_DIRECTION,
@@ -29,7 +29,6 @@ from .const import (
     ATTR_LEVEL,
     ATTR_SERIAL,
     ATTR_SPEED,
-    ATTR_TYPE,
     CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
@@ -41,7 +40,6 @@ from .const import (
     DOMAIN,
     SERVICE_ALARM_SOUND,
     SERVICE_ALARM_TRIGGER,
-    SERVICE_DETECTION_SENSITIVITY,
     SERVICE_PTZ,
     SERVICE_WAKE_DEVICE,
 )
@@ -52,9 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: entity_platform.AddEntitiesCallback,
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ cameras based on a config entry."""
 
@@ -71,7 +67,6 @@ async def async_setup_entry(
     ]
 
     for camera, value in coordinator.data.items():
-
         camera_rtsp_entry = [
             item
             for item in hass.config_entries.async_entries(DOMAIN)
@@ -79,7 +74,6 @@ async def async_setup_entry(
         ]
 
         if camera_rtsp_entry:
-
             ffmpeg_arguments = camera_rtsp_entry[0].options[CONF_FFMPEG_ARGUMENTS]
             camera_username = camera_rtsp_entry[0].data[CONF_USERNAME]
             camera_password = camera_rtsp_entry[0].data[CONF_PASSWORD]
@@ -94,7 +88,6 @@ async def async_setup_entry(
             )
 
         else:
-
             discovery_flow.async_create_flow(
                 hass,
                 DOMAIN,
@@ -106,7 +99,6 @@ async def async_setup_entry(
             )
 
             if camera not in cameras_ignored:
-
                 _LOGGER.warning(
                     "Found camera with serial %s without configuration. Please go to integration to complete setup",
                     camera,
@@ -132,7 +124,7 @@ async def async_setup_entry(
 
     async_add_entities(camera_entities)
 
-    platform = entity_platform.async_get_current_platform()
+    platform = async_get_current_platform()
 
     platform.async_register_entity_service(
         SERVICE_PTZ,
@@ -161,15 +153,6 @@ async def async_setup_entry(
         SERVICE_ALARM_SOUND,
         {vol.Required(ATTR_LEVEL): cv.positive_int},
         "perform_alarm_sound",
-    )
-
-    platform.async_register_entity_service(
-        SERVICE_DETECTION_SENSITIVITY,
-        {
-            vol.Required(ATTR_LEVEL): cv.positive_int,
-            vol.Required(ATTR_TYPE): cv.positive_int,
-        },
-        "perform_set_alarm_detection_sensibility",
     )
 
 
@@ -302,14 +285,3 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HTTPError(
                 "Cannot set alarm sound level for on movement detected"
             ) from err
-
-    def perform_set_alarm_detection_sensibility(
-        self, level: int, type_value: int
-    ) -> None:
-        """Set camera detection sensibility level service."""
-        try:
-            self.coordinator.ezviz_client.detection_sensibility(
-                self._serial, level, type_value
-            )
-        except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot set detection sensitivity level") from err
