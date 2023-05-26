@@ -3,8 +3,8 @@
         "abort": {
             "already_configured_account": "Account is already configured",
             "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure Ezviz cloud account",
-            "unknown": "Unexpected error",
-            "reauth_successful": "Re-authentication was successful"
+            "reauth_successful": "Re-authentication was successful",
+            "unknown": "Unexpected error"
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -19,8 +19,16 @@
                     "password": "Password",
                     "username": "Username"
                 },
-                "description": "Enter RTSP credentials for Ezviz camera {serial} with IP {ip_address}",
-                "title": "Discovered Ezviz Camera"
+                "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
+                "title": "Discovered EZVIZ Camera"
+            },
+            "reauth_confirm": {
+                "data": {
+                    "password": "Password",
+                    "username": "Username"
+                },
+                "description": "Enter credentials to reauthenticate to ezviz cloud account",
+                "title": "Reauthenticate Integration"
             },
             "user": {
                 "data": {
@@ -28,7 +36,7 @@
                     "url": "URL",
                     "username": "Username"
                 },
-                "title": "Connect to Ezviz Cloud"
+                "title": "Connect to EZVIZ Cloud"
             },
             "user_custom_url": {
                 "data": {
@@ -37,14 +45,7 @@
                     "username": "Username"
                 },
                 "description": "Manually specify your region URL",
-                "title": "Connect to custom Ezviz URL"
-            },
-            "reauth_confirm": {
-                "data": {
-                    "password": "Password",
-                    "username": "Username"
-                },
-                "title": "Reauthenticate Integration"
+                "title": "Connect to custom EZVIZ URL"
             }
         }
     },
@@ -56,6 +57,12 @@
                     "timeout": "Request Timeout (seconds)"
                 }
             }
+        }
+    },
+    "issues": {
+        "service_depreciation_detection_sensibility": {
+          "title": "Ezviz Detection sensitivity service is being removed",
+          "description": "Ezviz Detection sensitivity service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved."
         }
     }
 }

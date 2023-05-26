@@ -5,6 +5,15 @@ from collections.abc import Mapping
 import logging
 from typing import Any
 
+from pyezviz.client import EzvizClient
+from pyezviz.exceptions import (
+    AuthTestResultFailed,
+    EzvizAuthVerificationCode,
+    InvalidHost,
+    InvalidURL,
+    PyEzvizError,
+)
+from pyezviz.test_cam_rtsp import TestRTSPAuth
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
@@ -19,15 +28,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-from pyezviz.client import EzvizClient
-from pyezviz.exceptions import (
-    AuthTestResultFailed,
-    EzvizAuthVerificationCode,
-    InvalidHost,
-    InvalidURL,
-    PyEzvizError,
-)
-from pyezviz.test_cam_rtsp import TestRTSPAuth
 
 from .const import (
     ATTR_SERIAL,
@@ -159,7 +159,6 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         auth_data = {}
 
         if user_input is not None:
-
             await self.async_set_unique_id(user_input[CONF_USERNAME])
             self._abort_if_unique_id_configured()
 
@@ -338,7 +337,6 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="ezviz_cloud_account_missing")
 
         if user_input is not None:
-
             user_input[CONF_URL] = entry.data[CONF_URL]
 
             try:

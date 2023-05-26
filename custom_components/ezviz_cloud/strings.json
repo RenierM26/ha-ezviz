@@ -3,7 +3,7 @@
     "flow_title": "{serial}",
     "step": {
       "user": {
-        "title": "Connect to Ezviz Cloud",
+        "title": "Connect to EZVIZ Cloud",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
@@ -11,7 +11,7 @@
         }
       },
       "user_custom_url": {
-        "title": "Connect to custom Ezviz URL",
+        "title": "Connect to custom EZVIZ URL",
         "description": "Manually specify your region URL",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
@@ -20,8 +20,8 @@
         }
       },
       "confirm": {
-        "title": "Discovered Ezviz Camera",
-        "description": "Enter RTSP credentials for Ezviz camera {serial} with IP {ip_address}",
+        "title": "Discovered EZVIZ Camera",
+        "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]"
@@ -57,6 +57,12 @@
           "ffmpeg_arguments": "Arguments passed to ffmpeg for cameras"
         }
       }
+    }
+  },
+  "issues": {
+    "service_depreciation_detection_sensibility": {
+      "title": "Ezviz Detection sensitivity service is being removed",
+      "description": "Ezviz Detection sensitivity service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved."
     }
   }
 }

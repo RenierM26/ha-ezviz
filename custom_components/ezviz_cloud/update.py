@@ -13,8 +13,9 @@ from homeassistant.components.update import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -48,7 +49,6 @@ async def async_setup_entry(
 class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
     """Representation of a EZVIZ Update entity."""
 
-    coordinator: EzvizDataUpdateCoordinator
     _attr_has_entity_name = True
     _attr_supported_features = (
         UpdateEntityFeature.INSTALL
