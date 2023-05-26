@@ -1,10 +1,6 @@
 """Support for EZVIZ camera."""
 import logging
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from pyezviz.client import EzvizClient
 from pyezviz.exceptions import (
     EzvizAuthTokenExpired,
@@ -13,6 +9,11 @@ from pyezviz.exceptions import (
     InvalidURL,
     PyEzvizError,
 )
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     ATTR_TYPE_CAMERA,
@@ -37,6 +38,7 @@ PLATFORMS_BY_TYPE: dict[str, list] = {
         Platform.CAMERA,
         Platform.NUMBER,
         Platform.SENSOR,
+        Platform.SIREN,
         Platform.SWITCH,
         Platform.UPDATE,
     ],
@@ -59,32 +61,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize EZVIZ cloud entities
     if PLATFORMS_BY_TYPE[sensor_type]:
-
         # Initiate reauth config flow if account token if not present.
         if not entry.data.get(CONF_SESSION_ID):
             raise ConfigEntryAuthFailed
 
-        # No EZVIZ login session, call api login().
-        if not ezviz_client:
+        ezviz_client = EzvizClient(
+            token={
+                CONF_SESSION_ID: entry.data.get(CONF_SESSION_ID),
+                CONF_RFSESSION_ID: entry.data.get(CONF_RFSESSION_ID),
+                "api_url": entry.data.get(CONF_URL),
+            },
+            timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+        )
 
-            ezviz_client = EzvizClient(
-                token={
-                    CONF_SESSION_ID: entry.data.get(CONF_SESSION_ID),
-                    CONF_RFSESSION_ID: entry.data.get(CONF_RFSESSION_ID),
-                    "api_url": entry.data.get(CONF_URL),
-                },
-                timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
-            )
+        try:
+            await hass.async_add_executor_job(ezviz_client.login)
 
-            try:
-                await hass.async_add_executor_job(ezviz_client.login)
+        except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
+            raise ConfigEntryAuthFailed from error
 
-            except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
-                raise ConfigEntryAuthFailed from error
-
-            except (InvalidURL, HTTPError, PyEzvizError) as error:
-                _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
-                raise ConfigEntryNotReady from error
+        except (InvalidURL, HTTPError, PyEzvizError) as error:
+            _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
+            raise ConfigEntryNotReady from error
 
         coordinator = EzvizDataUpdateCoordinator(
             hass, api=ezviz_client, api_timeout=entry.options[CONF_TIMEOUT]
