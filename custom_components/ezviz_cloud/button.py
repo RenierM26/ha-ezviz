@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pyezviz import EzvizClient
 from pyezviz.constants import SupportExt
 from pyezviz.exceptions import HTTPError, PyEzvizError
 
@@ -25,7 +26,7 @@ PARALLEL_UPDATES = 1
 class EzvizButtonEntityDescriptionMixin:
     """Mixin values for EZVIZ button entities."""
 
-    method: Callable[[Any, Any, Any], Any]
+    method: Callable[[EzvizClient, str, str], Any]
     supported_ext: str
 
 
@@ -89,7 +90,7 @@ async def async_setup_entry(
     # If present with value of "1" then add button entity.
 
     async_add_entities(
-        EzvizButton(coordinator, camera, entity_description)
+        EzvizButtonEntity(coordinator, camera, entity_description)
         for camera in coordinator.data
         for capibility, value in coordinator.data[camera]["supportExt"].items()
         for entity_description in BUTTON_ENTITIES
@@ -98,7 +99,7 @@ async def async_setup_entry(
     )
 
 
-class EzvizButton(EzvizEntity, ButtonEntity):
+class EzvizButtonEntity(EzvizEntity, ButtonEntity):
     """Representation of a EZVIZ button entity."""
 
     entity_description: EzvizButtonEntityDescription
