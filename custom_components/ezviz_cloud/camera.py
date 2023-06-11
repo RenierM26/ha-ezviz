@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from pyezviz.exceptions import HTTPError, InvalidHost, PyEzvizError
 import voluptuous as vol
 
@@ -17,15 +18,18 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers import (
     config_validation as cv,
     discovery_flow,
     issue_registry as ir,
+    template as template_helper,
 )
 from homeassistant.helpers.entity_platform import (
     AddEntitiesCallback,
     async_get_current_platform,
 )
+from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import (
     ATTR_DIRECTION,
@@ -53,6 +57,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 
 _LOGGER = logging.getLogger(__name__)
+GET_IMAGE_TIMEOUT = 10
 
 
 async def async_setup_entry(
@@ -65,12 +70,6 @@ async def async_setup_entry(
     ]
 
     camera_entities = []
-
-    cameras_ignored: list[str | None] = [
-        item.unique_id
-        for item in hass.config_entries.async_entries(DOMAIN)
-        if item.source == SOURCE_IGNORE
-    ]
 
     for camera, value in coordinator.data.items():
         camera_rtsp_entry = [
@@ -104,14 +103,13 @@ async def async_setup_entry(
                 },
             )
 
-            if camera not in cameras_ignored:
-                _LOGGER.warning(
-                    (
-                        "Found camera with serial %s without configuration. Please go to"
-                        " integration to complete setup"
-                    ),
-                    camera,
-                )
+            _LOGGER.warning(
+                (
+                    "Found camera with serial %s without configuration. Please go to"
+                    " integration to complete setup"
+                ),
+                camera,
+            )
 
             ffmpeg_arguments = DEFAULT_FFMPEG_ARGUMENTS
             camera_username = DEFAULT_CAMERA_USERNAME
@@ -130,6 +128,8 @@ async def async_setup_entry(
                 ffmpeg_arguments,
             )
         )
+
+        camera_entities.append(EzvizLastMotion(hass, coordinator, camera))
 
     async_add_entities(camera_entities)
 
@@ -229,7 +229,7 @@ class EzvizCamera(EzvizEntity, Camera):
             self.coordinator.ezviz_client.set_camera_defence(self._serial, 1)
 
         except InvalidHost as err:
-            raise InvalidHost("Error enabling motion detection") from err
+            raise HomeAssistantError("Error enabling motion detection") from err
 
     def disable_motion_detection(self) -> None:
         """Disable motion detection."""
@@ -237,7 +237,7 @@ class EzvizCamera(EzvizEntity, Camera):
             self.coordinator.ezviz_client.set_camera_defence(self._serial, 0)
 
         except InvalidHost as err:
-            raise InvalidHost("Error disabling motion detection") from err
+            raise HomeAssistantError("Error disabling motion detection") from err
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
@@ -279,7 +279,7 @@ class EzvizCamera(EzvizEntity, Camera):
             )
 
         except HTTPError as err:
-            raise HTTPError("Cannot perform PTZ") from err
+            raise HomeAssistantError("Cannot perform PTZ") from err
 
         ir.async_create_issue(
             self.hass,
@@ -293,34 +293,34 @@ class EzvizCamera(EzvizEntity, Camera):
 
     def perform_sound_alarm(self, enable: int) -> None:
         """Sound the alarm on a camera."""
-        try:
-            self.coordinator.ezviz_client.sound_alarm(self._serial, enable)
-        except HTTPError as err:
-            raise HTTPError("Cannot sound alarm") from err
-
         ir.async_create_issue(
             self.hass,
             DOMAIN,
             "service_depreciation_sound_alarm",
-            breaks_in_ha_version="2023.8.0",
+            breaks_in_ha_version="2023.9.0",
             is_fixable=False,
             severity=ir.IssueSeverity.WARNING,
             translation_key="service_depreciation_sound_alarm",
         )
+
+        try:
+            self.coordinator.ezviz_client.sound_alarm(self._serial, enable)
+        except HTTPError as err:
+            raise HomeAssistantError("Cannot sound alarm") from err
 
     def perform_wake_device(self) -> None:
         """Basically wakes the camera by querying the device."""
         try:
             self.coordinator.ezviz_client.get_detection_sensibility(self._serial)
         except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot wake device") from err
+            raise HomeAssistantError("Cannot wake device") from err
 
     def perform_alarm_sound(self, level: int) -> None:
         """Enable/Disable movement sound alarm."""
         try:
             self.coordinator.ezviz_client.alarm_sound(self._serial, level, 1)
         except HTTPError as err:
-            raise HTTPError(
+            raise HomeAssistantError(
                 "Cannot set alarm sound level for on movement detected"
             ) from err
 
@@ -343,7 +343,7 @@ class EzvizCamera(EzvizEntity, Camera):
                 self._serial, level, type_value
             )
         except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot set detection sensitivity level") from err
+            raise HomeAssistantError("Cannot set detection sensitivity level") from err
 
         ir.async_create_issue(
             self.hass,
@@ -354,3 +354,60 @@ class EzvizCamera(EzvizEntity, Camera):
             severity=ir.IssueSeverity.WARNING,
             translation_key="service_depreciation_detection_sensibility",
         )
+
+
+class EzvizLastMotion(EzvizEntity, Camera):
+    """Return Last Motion Image from Ezviz Camera."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, hass: HomeAssistant, coordinator: EzvizDataUpdateCoordinator, serial: str
+    ) -> None:
+        """Initialize a generic camera."""
+        super().__init__(coordinator, serial)
+        Camera.__init__(self)
+        self.hass = hass
+        self._attr_unique_id = f"{serial}_last_motion_image"
+        self._attr_name = "Last motion image"
+
+        self._last_url = None
+        self._last_image: bytes | None = None
+
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return last still image response from EZVIZ api."""
+        try:
+            url = self._still_image_url.async_render(parse_result=False)
+        except TemplateError as err:
+            _LOGGER.error("Error parsing template %s: %s", self._still_image_url, err)
+            return self._last_image
+
+        if url == self._last_url:
+            return self._last_image
+
+        try:
+            async_client = get_async_client(self.hass, verify_ssl=True)
+            response = await async_client.get(
+                url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
+            )
+            response.raise_for_status()
+            self._last_image = response.content
+        except httpx.TimeoutException:
+            _LOGGER.error("Timeout getting camera image from %s", self.name)
+            return self._last_image
+        except (httpx.RequestError, httpx.HTTPStatusError) as err:
+            _LOGGER.error("Error getting new camera image from %s: %s", self.name, err)
+            return self._last_image
+
+        self._last_url = url
+        return self._last_image
+
+    @property
+    def _still_image_url(self) -> template_helper.Template:
+        """Return the template for the image."""
+        _api_image_url = cv.template(self.data["last_alarm_pic"])
+        _api_image_url.hass = self.hass
+
+        return _api_image_url
