@@ -131,7 +131,7 @@ async def async_setup_entry(
 
         camera_entities.append(EzvizLastMotion(hass, coordinator, camera))
 
-    async_add_entities(camera_entities)
+    async_add_entities(camera_entities)  # type: ignore[arg-type]
 
     platform = async_get_current_platform()
 
