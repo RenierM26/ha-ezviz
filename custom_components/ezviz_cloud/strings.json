@@ -87,6 +87,25 @@
           "silent": "Silent"
         }
       }
+    },
+    "button": {
+      "ptz_up": {
+        "name": "PTZ up"
+      },
+      "ptz_down": {
+        "name": "PTZ down"
+      },
+      "ptz_left": {
+        "name": "PTZ left"
+      },
+      "ptz_right": {
+        "name": "PTZ right"
+      }
+    },
+    "siren": {
+      "siren": {
+        "name": "[%key:component::siren::title%]"
+      }
     }
   }
 }
