@@ -78,23 +78,61 @@
             "siren": {
                 "name": "Siren"
             }
+        },
+        "switch": {
+            "all_day_video_recording": {
+                "name": "All day video recording"
+            },
+            "audio": {
+                "name": "Audio"
+            },
+            "auto_sleep": {
+                "name": "Auto sleep"
+            },
+            "flicker_light_on_movement": {
+                "name": "Flicker light on movement"
+            },
+            "follow_movement": {
+                "name": "Follow movement"
+            },
+            "infrared_light": {
+                "name": "Infrared light"
+            },
+            "motion_tracking": {
+                "name": "Motion tracking"
+            },
+            "pir_motion_activated_light": {
+                "name": "PIR motion activated light"
+            },
+            "privacy": {
+                "name": "Privacy"
+            },
+            "sleep": {
+                "name": "Sleep"
+            },
+            "status_light": {
+                "name": "Status light"
+            },
+            "tamper_alarm": {
+                "name": "Tamper alarm"
+            }
         }
     },
     "issues": {
         "service_depreciation_alarm_sound_level": {
-            "description": "Ezviz Alarm sound level service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
+            "description": "Ezviz Alarm sound level service is deprecated and will be removed in Home Assistant 2024.2; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
             "title": "Ezviz Alarm sound level service is being removed"
         },
         "service_depreciation_detection_sensibility": {
-            "description": "Ezviz Detection sensitivity service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
+            "description": "Ezviz Detection sensitivity service is deprecated and will be removed in Home Assistant 2023.12; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
             "title": "Ezviz Detection sensitivity service is being removed"
         },
         "service_depreciation_ptz": {
-            "description": "Ezviz ptz service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
+            "description": "Ezviz ptz service is deprecated and will be removed in Home Assistant 2024.2; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
             "title": "Ezviz ptz service is being removed"
         },
         "service_depreciation_sound_alarm": {
-            "description": "Ezviz Sound alarm service is deprecated and will be removed in Home Assistant 2023.8; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
+            "description": "Ezviz Sound alarm service is deprecated and will be removed in Home Assistant 2024.2; Please adjust the automation or script that uses the service and select submit below to mark this issue as resolved.",
             "title": "Ezviz Sound alarm service is being removed"
         }
     },
