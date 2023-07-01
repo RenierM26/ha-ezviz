@@ -64,6 +64,11 @@
                 "name": "PTZ up"
             }
         },
+        "light": {
+            "light": {
+                "name": "Light"
+            }
+        },
         "select": {
             "alarm_sound_mode": {
                 "name": "Warning sound",

@@ -144,6 +144,11 @@
       "follow_movement": {
         "name": "Follow movement"
       }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      }
     }
   }
 }
