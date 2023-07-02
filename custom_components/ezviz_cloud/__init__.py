@@ -19,7 +19,7 @@ from .const import (
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
     CONF_FFMPEG_ARGUMENTS,
-    CONF_RFSESSION_ID,
+    CONF_RF_SESSION_ID,
     CONF_SESSION_ID,
     DATA_COORDINATOR,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -70,11 +70,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         ezviz_client = EzvizClient(
             token={
-                CONF_SESSION_ID: entry.data.get(CONF_SESSION_ID),
-                CONF_RFSESSION_ID: entry.data.get(CONF_RFSESSION_ID),
-                "api_url": entry.data.get(CONF_URL),
+                CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
+                CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
+                "api_url": entry.data[CONF_URL],
             },
-            timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+            timeout=entry.options[CONF_TIMEOUT],
         )
 
         try:
@@ -84,8 +84,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryAuthFailed from error
 
         except (InvalidURL, HTTPError, PyEzvizError) as error:
-            _LOGGER.error("Unable to connect to Ezviz service: %s", str(error))
-            raise ConfigEntryNotReady from error
+            raise ConfigEntryNotReady(
+                f"Unable to connect to Ezviz service: {error}"
+            ) from error
 
         coordinator = EzvizDataUpdateCoordinator(
             hass, api=ezviz_client, api_timeout=entry.options[CONF_TIMEOUT]
@@ -102,8 +103,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Separate camera entities allow for credential changes per camera.
     if sensor_type == ATTR_TYPE_CAMERA and hass.data[DOMAIN]:
         for item in hass.config_entries.async_entries(domain=DOMAIN):
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                _LOGGER.info("Reload Ezviz main account with camera entry")
+            if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
+                _LOGGER.debug("Reload Ezviz main account with camera entry")
                 await hass.config_entries.async_reload(item.entry_id)
                 return True
 

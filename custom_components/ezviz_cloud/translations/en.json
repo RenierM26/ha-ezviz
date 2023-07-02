@@ -50,6 +50,17 @@
         }
     },
     "entity": {
+        "binary_sensor": {
+            "alarm_schedules_enabled": {
+                "name": "Alarm schedules"
+            },
+            "encrypted": {
+                "name": "Encryption"
+            },
+            "motion_trigger": {
+                "name": "Motion"
+            }
+        },
         "button": {
             "ptz_down": {
                 "name": "PTZ down"
@@ -77,6 +88,38 @@
                     "silent": "Silent",
                     "soft": "Soft"
                 }
+            }
+        },
+        "sensor": {
+            "battery_level": {
+                "name": "Battery"
+            },
+            "last_alarm_pic": {
+                "name": "Last alarm picture url"
+            },
+            "last_alarm_time": {
+                "name": "Last alarm time"
+            },
+            "last_alarm_type_code": {
+                "name": "Last alarm type code"
+            },
+            "last_alarm_type_name": {
+                "name": "Last alarm type name"
+            },
+            "local_ip": {
+                "name": "Local IP"
+            },
+            "pir_status": {
+                "name": "PIR status"
+            },
+            "seconds_last_trigger": {
+                "name": "Seconds since last trigger"
+            },
+            "supported_channels": {
+                "name": "Supported channels"
+            },
+            "wan_ip": {
+                "name": "WAN IP"
             }
         },
         "siren": {

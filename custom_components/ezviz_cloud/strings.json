@@ -149,6 +149,49 @@
       "light": {
         "name": "Light"
       }
+    },
+    "sensor": {
+      "battery_level": {
+        "name": "Battery"
+      },
+      "last_alarm_time": {
+        "name": "Last alarm time"
+      },
+      "seconds_last_trigger": {
+        "name": "Seconds since last trigger"
+      },
+      "last_alarm_pic": {
+        "name": "Last alarm picture url"
+      },
+      "supported_channels": {
+        "name": "Supported channels"
+      },
+      "local_ip": {
+        "name": "Local IP"
+      },
+      "wan_ip": {
+        "name": "WAN IP"
+      },
+      "pir_status": {
+        "name": "PIR status"
+      },
+      "last_alarm_type_code": {
+        "name": "Last alarm type code"
+      },
+      "last_alarm_type_name": {
+        "name": "Last alarm type name"
+      }
+    },
+    "binary_sensor": {
+      "motion_trigger": {
+        "name": "Motion"
+      },
+      "alarm_schedules_enabled": {
+        "name": "Alarm schedules"
+      },
+      "encrypted": {
+        "name": "Encryption"
+      }
     }
   }
 }
