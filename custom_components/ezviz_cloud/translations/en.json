@@ -75,6 +75,11 @@
                 "name": "PTZ up"
             }
         },
+        "image": {
+            "last_motion_image": {
+                "name": "Last motion image"
+            }
+        },
         "light": {
             "light": {
                 "name": "Light"
