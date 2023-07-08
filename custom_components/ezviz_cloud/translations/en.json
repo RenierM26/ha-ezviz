@@ -30,6 +30,13 @@
                 "description": "Enter credentials to reauthenticate to ezviz cloud account",
                 "title": "Reauthenticate Integration"
             },
+            "reauth_mfa": {
+                "data": {
+                    "sms_code": "MFA Code"
+                },
+                "description": "Enter MFA code to authenticate ezviz cloud account",
+                "title": "EZVIZ Cloud MFA Authentication"
+            },
             "user": {
                 "data": {
                     "password": "Password",
@@ -46,6 +53,13 @@
                 },
                 "description": "Manually specify your region URL",
                 "title": "Connect to custom EZVIZ URL"
+            },
+            "user_mfa_confirm": {
+                "data": {
+                    "sms_code": "MFA Code"
+                },
+                "description": "Enter MFA code to authenticate ezviz cloud account",
+                "title": "EZVIZ Cloud MFA Authentication"
             }
         }
     },
