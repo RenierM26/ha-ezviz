@@ -87,10 +87,9 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         """Fetch data from EZVIZ."""
         _LOGGER.debug("Updating %s", self.name)
         try:
-            cam_key = self.coordinator.ezviz_client.get_cam_key(
+            self._attr_native_value = self.coordinator.ezviz_client.get_cam_key(
                 self._serial,
             )
-            self._attr_native_value = cam_key["encryptkey"]
 
         except (
             EzvizAuthTokenExpired,
