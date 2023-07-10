@@ -20,55 +20,44 @@ PARALLEL_UPDATES = 1
 SENSOR_TYPES: dict[str, SensorEntityDescription] = {
     "battery_level": SensorEntityDescription(
         key="battery_level",
-        name="Battery",
-        translation_key="battery_level",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
     ),
     "last_alarm_time": SensorEntityDescription(
         key="last_alarm_time",
-        name="Last alarm time",
         translation_key="last_alarm_time",
     ),
     "Seconds_Last_Trigger": SensorEntityDescription(
         key="Seconds_Last_Trigger",
-        name="Seconds since last alarm",
         translation_key="seconds_last_trigger",
         entity_registry_enabled_default=False,
     ),
     "last_alarm_pic": SensorEntityDescription(
         key="last_alarm_pic",
-        name="Last alarm picture url",
         translation_key="last_alarm_pic",
     ),
     "supported_channels": SensorEntityDescription(
         key="supported_channels",
-        name="Supported channels",
         translation_key="supported_channels",
     ),
     "local_ip": SensorEntityDescription(
         key="local_ip",
-        name="Local IP",
         translation_key="local_ip",
     ),
     "wan_ip": SensorEntityDescription(
         key="wan_ip",
-        name="WAN IP",
         translation_key="wan_ip",
     ),
     "PIR_Status": SensorEntityDescription(
         key="PIR_Status",
-        name="PIR Status",
         translation_key="pir_status",
     ),
     "last_alarm_type_code": SensorEntityDescription(
         key="last_alarm_type_code",
-        name="Last alarm type code",
         translation_key="last_alarm_type_code",
     ),
     "last_alarm_type_name": SensorEntityDescription(
         key="last_alarm_type_name",
-        name="Last alarm type name",
         translation_key="last_alarm_type_name",
     ),
 }
