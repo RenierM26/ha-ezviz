@@ -180,11 +180,11 @@
         }
     },
     "issues": {
-        "service_depreciation_alarm_sound_level": {
+        "service_deprecation_alarm_sound_level": {
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz Alarm sound level service is deprecated and will be removed in Home Assistant 2024.2.\nTo set the sensitivity, you can instead use the `number.set_value` service targetting the Detection sensitivity entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "Ezviz Alarm sound level service is deprecated and will be removed in Home Assistant 2024.2.\nTo set the Alarm sound level, you can instead use the `select.select_option` service targetting the Warning sound entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
                         "title": "Ezviz Alarm sound level service is being removed"
                     }
                 }
@@ -206,7 +206,7 @@
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz ptz service is deprecated and will be removed in Home Assistant 2024.2.\nTo set the sensitivity, you can instead use the `number.set_value` service targetting the Detection sensitivity entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "Ezviz ptz service is deprecated and will be removed in Home Assistant 2024.2.\nTo move the camera, you can instead use the `button.press` service targetting the PTZ up/down/left/right entities.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
                         "title": "Ezviz ptz service is being removed"
                     }
                 }
@@ -217,7 +217,7 @@
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz Sound alarm service is deprecated and will be removed in Home Assistant 2024.2.\nTo set the sensitivity, you can instead use the `number.set_value` service targetting the Detection sensitivity entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "Ezviz Sound alarm service is deprecated and will be removed in Home Assistant 2024.2.\nTo trigger the siren, you can instead use the `siren.toggle` service targetting the Siren entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
                         "title": "Ezviz Sound alarm service is being removed"
                     }
                 }
