@@ -223,7 +223,7 @@
     },
     "binary_sensor": {
       "alarm_schedules_enabled": {
-        "name": "Alarm schedules"
+        "name": "Alarm schedules enabled"
       },
       "encrypted": {
         "name": "Encryption"
