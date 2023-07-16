@@ -107,8 +107,11 @@
             }
         },
         "sensor": {
+            "alarm_sound_mod": {
+                "name": "Alarm sound level"
+            },
             "last_alarm_pic": {
-                "name": "Last alarm picture url"
+                "name": "Last alarm picture URL"
             },
             "last_alarm_time": {
                 "name": "Last alarm time"

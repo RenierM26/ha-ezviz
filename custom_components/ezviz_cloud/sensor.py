@@ -23,9 +23,15 @@ SENSOR_TYPES: dict[str, SensorEntityDescription] = {
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
     ),
+    "alarm_sound_mod": SensorEntityDescription(
+        key="alarm_sound_mod",
+        translation_key="alarm_sound_mod",
+        entity_registry_enabled_default=False,
+    ),
     "last_alarm_time": SensorEntityDescription(
         key="last_alarm_time",
         translation_key="last_alarm_time",
+        entity_registry_enabled_default=False,
     ),
     "Seconds_Last_Trigger": SensorEntityDescription(
         key="Seconds_Last_Trigger",
@@ -35,6 +41,7 @@ SENSOR_TYPES: dict[str, SensorEntityDescription] = {
     "last_alarm_pic": SensorEntityDescription(
         key="last_alarm_pic",
         translation_key="last_alarm_pic",
+        entity_registry_enabled_default=False,
     ),
     "supported_channels": SensorEntityDescription(
         key="supported_channels",
