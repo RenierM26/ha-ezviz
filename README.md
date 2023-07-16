@@ -64,4 +64,3 @@ camera:
 
 1) Hassio makes use of rtsp for camera streaming. This function will only work on the local network. (Mabe we'll be able to reverse engineer the ezviz cloud rtsp proxy in the future)
 2) Please disable encryption on your cameras.
-3) MFA needs to be disabled or the integration setup will fail.
