@@ -96,6 +96,11 @@
                 "name": "Light"
             }
         },
+        "number": {
+            "detection_sensibility": {
+                "name": "Detection sensitivity"
+            }
+        },
         "select": {
             "alarm_sound_mode": {
                 "name": "Warning sound",
@@ -180,6 +185,11 @@
             "tamper_alarm": {
                 "name": "Tamper alarm"
             }
+        },
+        "update": {
+            "firmware": {
+                "name": "Firmware"
+            }
         }
     },
     "issues": {
@@ -187,7 +197,7 @@
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz Alarm sound level service is deprecated and will be removed.\nTo set the Alarm sound level, you can instead use the `select.select_option` service targeting the Warning sound entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "Ezviz Alarm sound level service is deprecated and will be removed.\nTo set the Alarm sound level, you can instead use the `select.select_option` service targetting the Warning sound entity.\n\nPlease remove this service from your automations and scripts and select **submit** to close this issue.",
                         "title": "Ezviz Alarm sound level service is being removed"
                     }
                 }
@@ -198,7 +208,7 @@
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "The Ezviz Detection sensitivity service is deprecated and will be removed.\nTo set the sensitivity, you can instead use the `number.set_value` service targeting the Detection sensitivity entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "The Ezviz Detection sensitivity service is deprecated and will be removed in Home Assistant 2023.12.\nTo set the sensitivity, you can instead use the `number.set_value` service targetting the Detection sensitivity entity.\n\nPlease remove this service from your automations and scripts and select **submit** to close this issue.",
                         "title": "Ezviz Detection sensitivity service is being removed"
                     }
                 }
@@ -209,18 +219,18 @@
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz ptz service is deprecated and will be removed.\nTo move the camera, you can instead use the `button.press` service targeting the PTZ up/down/left/right entities.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
-                        "title": "Ezviz ptz service is being removed"
+                        "description": "EZVIZ PTZ service is deprecated and will be removed.\nTo move the camera, you can instead use the `button.press` service targetting the PTZ* entities.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "title": "EZVIZ PTZ service is being removed"
                     }
                 }
             },
-            "title": "Ezviz ptz service is being removed"
+            "title": "EZVIZ PTZ service is being removed"
         },
         "service_depreciation_sound_alarm": {
             "fix_flow": {
                 "step": {
                     "confirm": {
-                        "description": "Ezviz Sound alarm service is deprecated and will be removed.\nTo trigger the siren, you can instead use the `siren.toggle` service targeting the Siren entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to close this issue.",
+                        "description": "Ezviz Sound alarm service is deprecated and will be removed.\nTo sound the alarm, you can instead use the `siren.toggle` service targeting the Siren entity.\n\nPlease remove the use of this service from your automations and scripts and select **submit** to fix this issue.",
                         "title": "Ezviz Sound alarm service is being removed"
                     }
                 }
@@ -236,6 +246,60 @@
                     "timeout": "Request Timeout (seconds)"
                 }
             }
+        }
+    },
+    "services": {
+        "alarm_sound": {
+            "description": "Setx movement warning sound level.",
+            "fields": {
+                "level": {
+                    "description": "Sound level (2 is disabled, 1 intensive, 0 soft).",
+                    "name": "Sound level"
+                }
+            },
+            "name": "Set warning sound level."
+        },
+        "ptz": {
+            "description": "Moves the camera to the direction, with defined speed.",
+            "fields": {
+                "direction": {
+                    "description": "Direction to move camera (up, down, left, right).",
+                    "name": "Direction"
+                },
+                "speed": {
+                    "description": "Speed of movement (from 1 to 9).",
+                    "name": "Speed"
+                }
+            },
+            "name": "PTZ"
+        },
+        "set_alarm_detection_sensibility": {
+            "description": "Sets the detection sensibility level.",
+            "fields": {
+                "level": {
+                    "description": "Sensibility level (1-6) for type 0 (Normal camera) or (1-100) for type 3 (PIR sensor camera).",
+                    "name": "Sensitivity level"
+                },
+                "type_value": {
+                    "description": "Type of detection. Options : 0 - Camera or 3 - PIR Sensor Camera.",
+                    "name": "Detection type"
+                }
+            },
+            "name": "Detection sensitivity"
+        },
+        "sound_alarm": {
+            "description": "Sounds the alarm on your camera.",
+            "fields": {
+                "enable": {
+                    "description": "Enter 1 or 2 (1=disable, 2=enable).",
+                    "name": "Alarm sound"
+                }
+            },
+            "name": "Sound alarm"
+        },
+        "wake_device": {
+            "description": "This can be used to wake the camera/device from hibernation.",
+            "name": "Wake camera"
         }
     }
 }

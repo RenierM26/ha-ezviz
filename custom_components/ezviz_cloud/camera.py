@@ -170,6 +170,8 @@ async def async_setup_entry(
 class EzvizCamera(EzvizEntity, Camera):
     """An implementation of a EZVIZ security camera."""
 
+    _attr_name = None
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -192,7 +194,6 @@ class EzvizCamera(EzvizEntity, Camera):
         self._ffmpeg_arguments = ffmpeg_arguments
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
-        self._attr_name = self.data["name"]
         if camera_password:
             self._attr_supported_features = CameraEntityFeature.STREAM
 
@@ -291,7 +292,7 @@ class EzvizCamera(EzvizEntity, Camera):
             self.hass,
             DOMAIN,
             "service_depreciation_sound_alarm",
-            breaks_in_ha_version="2024.2.0",
+            breaks_in_ha_version="2024.3.0",
             is_fixable=True,
             is_persistent=True,
             severity=ir.IssueSeverity.WARNING,
@@ -322,7 +323,6 @@ class EzvizCamera(EzvizEntity, Camera):
             severity=ir.IssueSeverity.WARNING,
             translation_key="service_deprecation_alarm_sound_level",
         )
-
         try:
             self.coordinator.ezviz_client.alarm_sound(self._serial, level, 1)
         except HTTPError as err:
@@ -334,6 +334,13 @@ class EzvizCamera(EzvizEntity, Camera):
         self, level: int, type_value: int
     ) -> None:
         """Set camera detection sensibility level service."""
+        try:
+            self.coordinator.ezviz_client.detection_sensibility(
+                self._serial, level, type_value
+            )
+        except (HTTPError, PyEzvizError) as err:
+            raise PyEzvizError("Cannot set detection sensitivity level") from err
+
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -344,10 +351,3 @@ class EzvizCamera(EzvizEntity, Camera):
             severity=ir.IssueSeverity.WARNING,
             translation_key="service_depreciation_detection_sensibility",
         )
-
-        try:
-            self.coordinator.ezviz_client.detection_sensibility(
-                self._serial, level, type_value
-            )
-        except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot set detection sensitivity level") from err
