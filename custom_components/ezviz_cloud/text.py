@@ -49,8 +49,6 @@ async def async_setup_entry(
 class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
     """Representation of a EZVIZ text entity."""
 
-    _attr_has_entity_name = True
-
     def __init__(
         self,
         coordinator: EzvizDataUpdateCoordinator,
