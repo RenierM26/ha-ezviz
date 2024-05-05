@@ -1,4 +1,5 @@
 """Support for EZVIZ text entity."""
+
 from __future__ import annotations
 
 from datetime import timedelta

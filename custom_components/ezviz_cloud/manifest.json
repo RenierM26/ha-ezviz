@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/RenierM26/ha-ezviz/issues",
   "loggers": ["paho_mqtt", "pyezviz"],
   "requirements": ["pyezviz==0.2.2.2"],
-  "version": "0.1.0.41"
+  "version": "0.1.0.42"
 }
