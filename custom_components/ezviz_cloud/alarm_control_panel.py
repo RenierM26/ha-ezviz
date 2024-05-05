@@ -1,4 +1,5 @@
 """Support for Ezviz alarm."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,14 +22,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import (
-    DATA_COORDINATOR,
-    DOMAIN,
-    MANUFACTURER,
-)
+from .const import DATA_COORDINATOR, DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,18 +34,11 @@ SCAN_INTERVAL = timedelta(seconds=60)
 PARALLEL_UPDATES = 0
 
 
-@dataclass
-class EzvizAlarmControlPanelEntityDescriptionMixin:
-    """Mixin values for EZVIZ Alarm control panel entities."""
+@dataclass(frozen=True, kw_only=True)
+class EzvizAlarmControlPanelEntityDescription(AlarmControlPanelEntityDescription):
+    """Describe an EZVIZ Alarm control panel entity."""
 
     ezviz_alarm_states: list
-
-
-@dataclass
-class EzvizAlarmControlPanelEntityDescription(
-    AlarmControlPanelEntityDescription, EzvizAlarmControlPanelEntityDescriptionMixin
-):
-    """Describe an EZVIZ Alarm control panel entity."""
 
 
 ALARM_TYPE = EzvizAlarmControlPanelEntityDescription(
@@ -70,12 +60,12 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    device_info: DeviceInfo = {
-        "identifiers": {(DOMAIN, entry.unique_id)},  # type: ignore[arg-type]
-        "name": "EZVIZ Alarm",
-        "model": "EZVIZ Alarm",
-        "manufacturer": MANUFACTURER,
-    }
+    device_info = DeviceInfo(
+        identifiers={(DOMAIN, entry.unique_id)},  # type: ignore[arg-type]
+        name="EZVIZ Alarm",
+        model="EZVIZ Alarm",
+        manufacturer=MANUFACTURER,
+    )
 
     async_add_entities(
         [EzvizAlarm(coordinator, entry.entry_id, device_info, ALARM_TYPE)]
