@@ -196,8 +196,6 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
 
             except EzvizAuthVerificationCode:
-                self.username = user_input[CONF_USERNAME]
-                self.password = user_input[CONF_PASSWORD]
                 self.ezviz_url = user_input[CONF_URL]
 
                 return await self.async_step_user_mfa_confirm()
