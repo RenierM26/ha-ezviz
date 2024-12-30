@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 import logging
 
-from pyezviz.exceptions import (
+from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
     EzvizAuthVerificationCode,
     HTTPError,
@@ -67,6 +67,7 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         if not (last_state := await self.async_get_last_state()):
             return self.schedule_update_ha_state(force_refresh=True)
         self._attr_native_value = last_state.state
+        return None
 
     def set_value(self, value: str) -> None:
         """Set camera encryption key."""

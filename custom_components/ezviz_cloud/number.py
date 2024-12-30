@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 import logging
 
-from pyezviz.constants import SupportExt
-from pyezviz.exceptions import (
+from pyezvizapi.constants import SupportExt
+from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
     EzvizAuthVerificationCode,
     HTTPError,
@@ -43,6 +43,7 @@ NUMBER_TYPE = EzvizNumberEntityDescription(
     key="detection_sensibility",
     translation_key="detection_sensibility",
     entity_category=EntityCategory.CONFIG,
+    entity_registry_enabled_default=False,
     native_min_value=0,
     native_step=1,
     supported_ext=str(SupportExt.SupportSensibilityAdjust.value),
