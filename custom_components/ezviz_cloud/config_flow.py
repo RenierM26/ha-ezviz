@@ -66,19 +66,19 @@ def _test_camera_rtsp_creds(data: dict) -> None:
     test_rtsp.main()
 
 
-def _wake_camera(data: dict, ezviz_token: dict, ezviz_timeout: int) -> None:
+def _wake_camera(data: dict, ezviz_client) -> None:
     """Wake up hibernating camera and test."""
-    ezviz_client = EzvizClient(token=ezviz_token, timeout=ezviz_timeout)
 
-    # We need to wake hibernating cameras.
-    # First create EZVIZ API instance.
-    ezviz_client.login()
-
-    # Secondly try to wake hybernating camera.
+    # Wake hybernating camera.
     ezviz_client.get_detection_sensibility(data[ATTR_SERIAL])
 
-    # Thirdly attempts an authenticated RTSP DESCRIBE request.
+    # Attempts an authenticated RTSP DESCRIBE request.
     _test_camera_rtsp_creds(data)
+
+
+def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
+    """Get camera encryption key."""
+    return ezviz_client.get_cam_key(data[ATTR_SERIAL])
 
 
 class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -140,9 +140,19 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         if ezviz_token.get(CONF_SESSION_ID) is None:
             return self.async_abort(reason="ezviz_cloud_account_missing")
 
-        await self.hass.async_add_executor_job(
-            _wake_camera, data, ezviz_token, ezviz_timeout
-        )
+        ezviz_client = EzvizClient(token=ezviz_token, timeout=ezviz_timeout)
+
+        # Create Ezviz API Client.
+        await self.hass.async_add_executor_job(ezviz_client.login)
+
+        # If no encryption key is provided, get it. Sometimes a old key is provided and doesn't work.
+        if data[CONF_PASSWORD] == "fetch_my_key":
+            data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
+                _get_cam_enc_key, data, ezviz_client
+            )
+
+        # Test camera RTSP credentials.
+        await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
 
         return self.async_create_entry(
             title=data[ATTR_SERIAL],
@@ -326,7 +336,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         discovered_camera_schema = vol.Schema(
             {
                 vol.Required(CONF_USERNAME, default=DEFAULT_CAMERA_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
+                vol.Required(CONF_PASSWORD, default="fetch_my_key"): str,
             }
         )
 
