@@ -292,7 +292,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             assert self.unique_id is not None
 
         self.context["title_placeholders"] = {ATTR_SERIAL: self.unique_id}
-        self.ip_address = {CONF_IP_ADDRESS: discovery_info[CONF_IP_ADDRESS]}
+        self.ip_address = discovery_info[CONF_IP_ADDRESS]
 
         return await self.async_step_confirm()
 
