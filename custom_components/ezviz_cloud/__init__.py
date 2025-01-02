@@ -12,13 +12,21 @@ from pyezvizapi.exceptions import (
 )
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_TIMEOUT,
+    CONF_TYPE,
+    CONF_URL,
+    CONF_USERNAME,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
     CONF_SESSION_ID,
@@ -105,6 +113,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Cameras are accessed via local RTSP stream with unique credentials per camera.
     # Separate camera entities allow for credential changes per camera.
     if sensor_type == ATTR_TYPE_CAMERA and hass.data[DOMAIN]:
+        if not entry.data.get(CONF_ENC_KEY):
+            data = {
+                CONF_USERNAME: entry.data[CONF_USERNAME],
+                CONF_PASSWORD: entry.data[CONF_PASSWORD],
+                CONF_ENC_KEY: entry.data[CONF_PASSWORD],
+                CONF_TYPE: ATTR_TYPE_CAMERA,
+            }
+
+            hass.config_entries.async_update_entry(entry, data=data)
+
         for item in hass.config_entries.async_entries(domain=DOMAIN):
             if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
                 _LOGGER.debug("Reload Ezviz main account with camera entry")

@@ -8,13 +8,12 @@ from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 
@@ -57,7 +56,9 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         )
         camera = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, serial)
         self.alarm_image_password = (
-            camera.data[CONF_PASSWORD] if camera is not None else None
+            camera.data[CONF_ENC_KEY]
+            if camera and camera.source != SOURCE_IGNORE
+            else None
         )
 
     async def _async_load_image_from_url(self, url: str) -> Image | None:
