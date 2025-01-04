@@ -151,9 +151,12 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             _get_cam_enc_key, data, ezviz_client
         )
 
-        # Test camera RTSP credentials. Older cameras still use the verification code on the camra and not the encryption key.
         if data[CONF_PASSWORD] == "fetch_my_key":
-            await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
+            data[CONF_PASSWORD] = data[CONF_ENC_KEY]
+
+        # Test camera RTSP credentials. Older cameras still use the verification code on the camra and not the encryption key.
+
+        await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
 
         return self.async_create_entry(
             title=data[ATTR_SERIAL],
