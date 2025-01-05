@@ -12,6 +12,7 @@ CONF_SESSION_ID = "session_id"
 CONF_RF_SESSION_ID = "rf_session_id"
 CONF_EZVIZ_ACCOUNT = "ezviz_account"
 CONF_ENC_KEY = "enc_key"
+CONF_TEST_RTSP_CREDENTIALS = "test_rtsp_credentials"
 
 # Service names
 SERVICE_WAKE_DEVICE = "wake_device"

@@ -24,7 +24,8 @@
         "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
-          "password": "[%key:common::config_flow::data::password%]"
+          "password": "[%key:common::config_flow::data::password%]",
+          "test_rtsp_credentials": "Test RTSP credentials"
         }
       },
       "reauth_confirm": {
