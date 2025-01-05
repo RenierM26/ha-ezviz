@@ -13,13 +13,13 @@ from pyezvizapi.exceptions import (
 )
 
 from homeassistant.components.text import TextEntity, TextEntityDescription, TextMode
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity
 
@@ -44,7 +44,9 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(EzvizText(coordinator, camera) for camera in coordinator.data)
+    async_add_entities(
+        EzvizText(hass, coordinator, camera) for camera in coordinator.data
+    )
 
 
 class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
@@ -52,6 +54,7 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator: EzvizDataUpdateCoordinator,
         serial: str,
     ) -> None:
@@ -59,7 +62,15 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_{TEXT_TYPE.key}"
         self.entity_description = TEXT_TYPE
-        self._attr_native_value = "Unknown"
+        self._attr_native_value = None
+        self.camera = hass.config_entries.async_entry_for_domain_unique_id(
+            DOMAIN, serial
+        )
+        self.alarm_enc_key = (
+            self.camera.data[CONF_ENC_KEY]
+            if self.camera and self.camera.source != SOURCE_IGNORE
+            else None
+        )
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -83,12 +94,12 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
                 f"Cannot set camera encryption key for {self.name}"
             ) from err
 
-    def update(self) -> None:
+    async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
         _LOGGER.debug("Updating %s", self.name)
         try:
-            self._attr_native_value = self.coordinator.ezviz_client.get_cam_key(
-                self._serial,
+            self._attr_native_value = await self.hass.async_add_executor_job(
+                self.coordinator.ezviz_client.get_cam_key, self._serial
             )
 
         except (
@@ -97,3 +108,17 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
             PyEzvizError,
         ) as error:
             raise HomeAssistantError(f"Invalid response from API: {error}") from error
+
+        # Encryption key changed, update config entry
+        if self.alarm_enc_key and self.camera:
+            if self.alarm_enc_key != self._attr_native_value:
+                await self.update_camera_config_entry(self.camera)
+
+    async def update_camera_config_entry(self, entry: ConfigEntry) -> None:
+        """Update camera config entry."""
+        data = {**entry.data}
+        data[CONF_ENC_KEY] = self._attr_native_value
+        self.hass.config_entries.async_update_entry(
+            entry,
+            data=data,
+        )
