@@ -12,13 +12,21 @@ from pyezvizapi.exceptions import (
 )
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TIMEOUT, CONF_TYPE, CONF_URL, Platform
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_TIMEOUT,
+    CONF_TYPE,
+    CONF_URL,
+    CONF_USERNAME,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
     CONF_SESSION_ID,
@@ -67,10 +75,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize EZVIZ cloud entities
     if PLATFORMS_BY_TYPE[sensor_type]:
-        # Initiate reauth config flow if account token if not present.
-        if not entry.data.get(CONF_SESSION_ID):
-            raise ConfigEntryAuthFailed
-
         ezviz_client = EzvizClient(
             token={
                 CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
@@ -134,3 +138,33 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate old camera entry."""
+    _LOGGER.debug("Migrating from version %s.%s", entry.version, entry.minor_version)
+
+    if entry.version == 1:
+        if entry.data[CONF_TYPE] == ATTR_TYPE_CAMERA:
+            data = {
+                CONF_USERNAME: entry.data[CONF_USERNAME],
+                CONF_PASSWORD: entry.data[CONF_PASSWORD],
+                CONF_ENC_KEY: entry.data[CONF_PASSWORD],
+                CONF_TYPE: ATTR_TYPE_CAMERA,
+            }
+
+            hass.config_entries.async_update_entry(entry, data=data, version=2)
+
+        if entry.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
+            if not entry.data.get(CONF_SESSION_ID):
+                raise ConfigEntryAuthFailed
+            hass.config_entries.async_update_entry(entry, data=entry.data, version=2)
+
+        _LOGGER.info(
+            "Migration to version %s.%s successful for %s account",
+            entry.version,
+            entry.minor_version,
+            entry.data[CONF_TYPE],
+        )
+
+    return True

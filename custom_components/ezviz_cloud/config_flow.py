@@ -38,9 +38,11 @@ from .const import (
     ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
     CONF_SESSION_ID,
+    CONF_TEST_RTSP_CREDENTIALS,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
@@ -84,7 +86,7 @@ def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
 class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ."""
 
-    VERSION = 1
+    VERSION = 2
 
     ip_address: str
     username: str | None
@@ -145,20 +147,25 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         # Create Ezviz API Client.
         await self.hass.async_add_executor_job(ezviz_client.login)
 
-        # If no encryption key is provided, get it. Sometimes a old key is provided and doesn't work.
-        if data[CONF_PASSWORD] == "fetch_my_key":
-            data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
-                _get_cam_enc_key, data, ezviz_client
-            )
+        # Fetch encryption key from ezviz api.
+        data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
+            _get_cam_enc_key, data, ezviz_client
+        )
 
-        # Test camera RTSP credentials.
-        await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
+        # If newer camera, the encryption key is the password.
+        if data[CONF_PASSWORD] == "fetch_my_key":
+            data[CONF_PASSWORD] = data[CONF_ENC_KEY]
+
+        # Test camera RTSP credentials. Older cameras still use the verification code on the camera and not the encryption key.
+        if data[CONF_TEST_RTSP_CREDENTIALS]:
+            await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
 
         return self.async_create_entry(
             title=data[ATTR_SERIAL],
             data={
                 CONF_USERNAME: data[CONF_USERNAME],
                 CONF_PASSWORD: data[CONF_PASSWORD],
+                CONF_ENC_KEY: data[CONF_ENC_KEY],
                 CONF_TYPE: ATTR_TYPE_CAMERA,
             },
             options=DEFAULT_OPTIONS,
@@ -337,6 +344,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_USERNAME, default=DEFAULT_CAMERA_USERNAME): str,
                 vol.Required(CONF_PASSWORD, default="fetch_my_key"): str,
+                vol.Optional(CONF_TEST_RTSP_CREDENTIALS, default=True): bool,
             }
         )
 
