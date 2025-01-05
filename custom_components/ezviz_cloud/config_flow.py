@@ -85,7 +85,7 @@ def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
 class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ."""
 
-    VERSION = 1
+    VERSION = 2
 
     ip_address: str
     username: str | None
