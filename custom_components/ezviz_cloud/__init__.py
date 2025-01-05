@@ -17,7 +17,6 @@ from homeassistant.const import (
     CONF_TIMEOUT,
     CONF_TYPE,
     CONF_URL,
-    CONF_USERNAME,
     Platform,
 )
 from homeassistant.core import HomeAssistant
@@ -146,12 +145,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.version == 1:
         if entry.data[CONF_TYPE] == ATTR_TYPE_CAMERA:
-            data = {
-                CONF_USERNAME: entry.data[CONF_USERNAME],
-                CONF_PASSWORD: entry.data[CONF_PASSWORD],
-                CONF_ENC_KEY: entry.data[CONF_PASSWORD],
-                CONF_TYPE: ATTR_TYPE_CAMERA,
-            }
+            data = {**entry.data}
+            data[CONF_ENC_KEY] = entry.data[CONF_PASSWORD]
 
             hass.config_entries.async_update_entry(entry, data=data, version=2)
 
