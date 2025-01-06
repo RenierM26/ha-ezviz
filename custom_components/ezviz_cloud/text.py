@@ -85,7 +85,6 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         try:
             self.coordinator.ezviz_client.set_video_enc(
                 serial=self._serial,
-                enable=0,
                 new_password=value,
             )
 

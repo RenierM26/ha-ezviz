@@ -65,7 +65,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         """Load an image by url."""
         if response := await self._fetch_url(url):
             image_data = response.content
-            if self.data["encrypted"] and self.alarm_image_password is not None:
+            if self.alarm_image_password:
                 try:
                     image_data = decrypt_image(
                         response.content, self.alarm_image_password
