@@ -86,8 +86,8 @@
       "ptz_up": {
         "name": "PTZ up"
       },
-      "reboot_device": {
-        "name": "Reboot"
+      "restart_device": {
+        "name": "Restart"
       }
     },
     "image": {

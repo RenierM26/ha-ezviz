@@ -87,7 +87,7 @@
       "ptz_down": { "name": "PTZ down" },
       "ptz_left": { "name": "PTZ left" },
       "ptz_right": { "name": "PTZ right" },
-      "reboot_device": { "name": "Reboot" }
+      "restart_device": { "name": "Restart" }
     },
     "binary_sensor": {
       "alarm_schedules_enabled": { "name": "Alarm schedules enabled" },

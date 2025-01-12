@@ -10,7 +10,11 @@ from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import (
+    ButtonDeviceClass,
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -75,7 +79,8 @@ BUTTON_ENTITIES = (
         supported_ext=str(SupportExt.SupportPtz.value),
     ),
     EzvizButtonEntityDescription(
-        key="reboot_device",
+        key="restart_device",
+        device_class=ButtonDeviceClass.RESTART,
         translation_key="reboot_device",
         method=lambda pyezviz_client, serial: pyezviz_client.reboot_camera(serial),
         supported_ext=str(SupportExt.SupportRebootDevice.value),
