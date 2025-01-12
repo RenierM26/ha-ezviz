@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
@@ -21,6 +23,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+
+
+@dataclass(frozen=True, kw_only=True)
+class EzvizOtherSwitchEntityDescription(SwitchEntityDescription):
+    """Describe a EZVIZ switch."""
+
+    supported_ext: str | None
+    method: Callable[[EzvizClient, str, int], Any]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -105,6 +115,17 @@ SWITCH_TYPES: dict[int, EzvizSwitchEntityDescription] = {
     ),
 }
 
+OTHER_SWITCH_TYPES: dict[str, EzvizOtherSwitchEntityDescription] = {
+    "encrypted": EzvizOtherSwitchEntityDescription(
+        key="encrypted",
+        translation_key="encrypted",
+        method=lambda pyezviz_client, serial, enable: pyezviz_client.set_video_enc(
+            pyezviz_client, serial, enable
+        ),
+        supported_ext=str(SupportExt.SupportEncrypt.value),
+    ),
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -114,7 +135,9 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(
+    entities_to_add: list = []
+
+    entities_to_add.extend(
         EzvizSwitch(coordinator, camera, switch_number)
         for camera in coordinator.data
         for switch_number in coordinator.data[camera]["switches"]
@@ -123,6 +146,16 @@ async def async_setup_entry(
         in coordinator.data[camera]["supportExt"]
         or SWITCH_TYPES[switch_number].supported_ext is None
     )
+    entities_to_add.extend(
+        EzvizOtherSwitches(coordinator, camera, switch)
+        for camera in coordinator.data
+        for switch in coordinator.data[camera]
+        if switch in OTHER_SWITCH_TYPES
+        if OTHER_SWITCH_TYPES[switch].supported_ext
+        or OTHER_SWITCH_TYPES[switch].supported_ext is None
+    )
+
+    async_add_entities(entities_to_add)
 
 
 class EzvizSwitch(EzvizEntity, SwitchEntity):
@@ -174,4 +207,54 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_is_on = self.data["switches"].get(self._switch_number)
+        super()._handle_coordinator_update()
+
+
+class EzvizOtherSwitches(EzvizEntity, SwitchEntity):
+    """EZVIZ other switch entities."""
+
+    entity_description: EzvizOtherSwitchEntityDescription
+
+    def __init__(
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        switch: str,
+    ) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, serial)
+        self.entity_description = OTHER_SWITCH_TYPES[switch]
+        self._attr_unique_id = f"{serial}_{self.entity_description.key}"
+        self._attr_is_on = self.data[switch]
+
+    def turn_on(self, **kwargs: Any) -> None:
+        """Change a device switch on the camera."""
+        try:
+            self.entity_description.method(
+                self.coordinator.ezviz_client, self._serial, 1
+            )
+
+            self._attr_is_on = True
+            self.async_write_ha_state()
+
+        except (HTTPError, PyEzvizError) as err:
+            raise HomeAssistantError(f"Failed to turn on switch {self.name}") from err
+
+    def turn_off(self, **kwargs: Any) -> None:
+        """Change a device switch on the camera."""
+        try:
+            self.entity_description.method(
+                self.coordinator.ezviz_client, self._serial, 0
+            )
+
+            self._attr_is_on = False
+            self.async_write_ha_state()
+
+        except (HTTPError, PyEzvizError) as err:
+            raise HomeAssistantError(f"Failed to turn off switch {self.name}") from err
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._attr_is_on = self.data[self.entity_description.key]
         super()._handle_coordinator_update()

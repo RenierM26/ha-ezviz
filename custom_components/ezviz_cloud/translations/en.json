@@ -188,6 +188,9 @@
       },
       "tamper_alarm": {
         "name": "Tamper alarm"
+      },
+      "encrypted": {
+        "name": "Encryption"
       }
     }
   },

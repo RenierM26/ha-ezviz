@@ -119,7 +119,8 @@
       "flicker_light_on_movement": { "name": "Flicker light on movement" },
       "pir_motion_activated_light": { "name": "PIR motion activated light" },
       "tamper_alarm": { "name": "Tamper alarm" },
-      "follow_movement": { "name": "Follow movement" }
+      "follow_movement": { "name": "Follow movement" },
+      "encrypted": { "name": "Encryption" }
     },
     "siren": { "siren": { "name": "[%key:component::siren::title%]" } }
   },
