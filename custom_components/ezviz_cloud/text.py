@@ -85,7 +85,9 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         try:
             self.coordinator.ezviz_client.set_video_enc(
                 serial=self._serial,
+                enable=2,
                 new_password=value,
+                old_password=self._attr_native_value,
             )
 
         except (HTTPError, PyEzvizError) as err:
