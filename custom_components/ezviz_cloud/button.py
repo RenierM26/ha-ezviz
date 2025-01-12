@@ -10,7 +10,11 @@ from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import (
+    ButtonDeviceClass,
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -23,11 +27,21 @@ from .entity import EzvizEntity
 PARALLEL_UPDATES = 1
 
 
+class EzvizButtonEntityHandler:
+    """Class to handle multi actions for button."""
+
+    @staticmethod
+    def press_ptz(pyezviz_client: EzvizClient, direction: str, serial: str) -> Any:
+        """Execute the button action for PTZ."""
+        pyezviz_client.ptz_control(direction, serial, "START")
+        pyezviz_client.ptz_control(direction, serial, "STOP")
+
+
 @dataclass(frozen=True, kw_only=True)
 class EzvizButtonEntityDescription(ButtonEntityDescription):
     """Describe a EZVIZ Button."""
 
-    method: Callable[[EzvizClient, str, str], Any]
+    method: Callable[[EzvizClient, str], Any]
     supported_ext: str
 
 
@@ -35,34 +49,41 @@ BUTTON_ENTITIES = (
     EzvizButtonEntityDescription(
         key="ptz_up",
         translation_key="ptz_up",
-        method=lambda pyezviz_client, serial, run: pyezviz_client.ptz_control(
-            "UP", serial, run
+        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
+            pyezviz_client, "UP", serial
         ),
         supported_ext=str(SupportExt.SupportPtz.value),
     ),
     EzvizButtonEntityDescription(
         key="ptz_down",
         translation_key="ptz_down",
-        method=lambda pyezviz_client, serial, run: pyezviz_client.ptz_control(
-            "DOWN", serial, run
+        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
+            pyezviz_client, "DOWN", serial
         ),
         supported_ext=str(SupportExt.SupportPtz.value),
     ),
     EzvizButtonEntityDescription(
         key="ptz_left",
         translation_key="ptz_left",
-        method=lambda pyezviz_client, serial, run: pyezviz_client.ptz_control(
-            "LEFT", serial, run
+        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
+            pyezviz_client, "LEFT", serial
         ),
         supported_ext=str(SupportExt.SupportPtz.value),
     ),
     EzvizButtonEntityDescription(
         key="ptz_right",
         translation_key="ptz_right",
-        method=lambda pyezviz_client, serial, run: pyezviz_client.ptz_control(
-            "RIGHT", serial, run
+        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
+            pyezviz_client, "RIGHT", serial
         ),
         supported_ext=str(SupportExt.SupportPtz.value),
+    ),
+    EzvizButtonEntityDescription(
+        key="restart_device",
+        device_class=ButtonDeviceClass.RESTART,
+        translation_key="reboot_device",
+        method=lambda pyezviz_client, serial: pyezviz_client.reboot_camera(serial),
+        supported_ext=str(SupportExt.SupportRebootDevice.value),
     ),
 )
 
@@ -75,7 +96,7 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    # Add button entities if supportExt value indicates PTZ capbility.
+    # Add button entities if supportExt value indicates Button capbility.
     # Could be missing or "0" for unsupported.
     # If present with value of "1" then add button entity.
 
@@ -108,13 +129,7 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
     def press(self) -> None:
         """Execute the button action."""
         try:
-            self.entity_description.method(
-                self.coordinator.ezviz_client, self._serial, "START"
-            )
-            self.entity_description.method(
-                self.coordinator.ezviz_client, self._serial, "STOP"
-            )
+            self.entity_description.method(self.coordinator.ezviz_client, self._serial)
+
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Cannot perform PTZ action on {self.name}"
-            ) from err
+            raise HomeAssistantError(f"Cannot perform action on {self.name}") from err
