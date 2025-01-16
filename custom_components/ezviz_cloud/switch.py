@@ -160,7 +160,7 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
         translation_key="encrypted",
         supported_ext=str(SupportExt.SupportEncrypt.value),
         method=lambda pyezviz_client, serial, enable: pyezviz_client.set_video_enc(
-            pyezviz_client, serial, enable
+            serial, enable
         ),
         switch_state=lambda data: data["encrypted"],
     ),
@@ -175,9 +175,7 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    entities_to_add: list = []
-
-    entities_to_add.extend(
+    entities_to_add = [
         EzvizSwitch(coordinator, camera, switch_number)
         for camera in coordinator.data
         for switch_number in coordinator.data[camera]["switches"]
@@ -185,7 +183,8 @@ async def async_setup_entry(
         if SWITCH_TYPES[switch_number].supported_ext
         in coordinator.data[camera]["supportExt"]
         or SWITCH_TYPES[switch_number].supported_ext is None
-    )
+    ]
+
     entities_to_add.extend(
         EzvizSwitch(coordinator, camera, switch)
         for camera in coordinator.data
