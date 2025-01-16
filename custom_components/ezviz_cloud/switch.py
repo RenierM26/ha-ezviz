@@ -27,7 +27,7 @@ from .entity import EzvizEntity
 
 @dataclass(frozen=True, kw_only=True)
 class EzvizSwitchEntityDescription(SwitchEntityDescription):
-    """Describe a EZVIZ switch from switch api."""
+    """Describe a EZVIZ switch."""
 
     supported_ext: str | None
     method: Callable[[EzvizClient, str, int], Any]
