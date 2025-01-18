@@ -106,9 +106,8 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
             != self.data["encrypted_pwd_hash"]
         ):
             _LOGGER.warning(
-                "%s: Password hash is different from password, password = %s, hash_of_pass = %s, hash_from_api = %s, fetching from api",
+                "%s: Password hash is different from password, hash_of_pass = %s, hash_from_api = %s, fetching from api",
                 self.entity_id,
-                self._attr_native_value,
                 return_password_hash(self._attr_native_value),
                 self.data["encrypted_pwd_hash"],
             )
