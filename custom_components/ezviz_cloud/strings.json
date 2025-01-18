@@ -105,9 +105,11 @@
       "wan_ip": { "name": "WAN IP" },
       "pir_status": { "name": "PIR status" },
       "last_alarm_type_code": { "name": "Last alarm type code" },
-      "last_alarm_type_name": { "name": "Last alarm type name" }
+      "last_alarm_type_name": { "name": "Last alarm type name" },
+      "last_offline_time": { "name": "Last offline" }
     },
     "switch": {
+      "voice_prompt": { "name": "Voice prompt" },
       "status_light": { "name": "Status light" },
       "privacy": { "name": "Privacy" },
       "infrared_light": { "name": "Infrared light" },
@@ -120,7 +122,10 @@
       "pir_motion_activated_light": { "name": "PIR motion activated light" },
       "tamper_alarm": { "name": "Tamper alarm" },
       "follow_movement": { "name": "Follow movement" },
-      "encrypted": { "name": "Encryption" }
+      "encrypted": { "name": "Encryption" },
+      "push_notify_alarm": { "name": "Alarm push notification" },
+      "push_notify_call": { "name": "Call push notification" },
+      "offline_notify": { "name": "Offline notification" }
     },
     "siren": { "siren": { "name": "[%key:component::siren::title%]" } }
   },

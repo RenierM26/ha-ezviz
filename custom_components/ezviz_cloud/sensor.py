@@ -68,6 +68,10 @@ SENSOR_TYPES: dict[str, SensorEntityDescription] = {
         key="last_alarm_type_name",
         translation_key="last_alarm_type_name",
     ),
+    "last_offline_time": SensorEntityDescription(
+        key="last_offline_time",
+        translation_key="last_offline_time",
+    ),
 }
 
 
