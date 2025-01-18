@@ -105,7 +105,8 @@
       "wan_ip": { "name": "WAN IP" },
       "pir_status": { "name": "PIR status" },
       "last_alarm_type_code": { "name": "Last alarm type code" },
-      "last_alarm_type_name": { "name": "Last alarm type name" }
+      "last_alarm_type_name": { "name": "Last alarm type name" },
+      "last_offline_time": { "name": "Last offline" }
     },
     "switch": {
       "voice_prompt": { "name": "Voice prompt" },
