@@ -11,6 +11,7 @@ from pyezvizapi.exceptions import (
     HTTPError,
     PyEzvizError,
 )
+from pyezvizapi.utils import return_password_hash
 
 from homeassistant.components.text import TextEntity, TextEntityDescription, TextMode
 from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
@@ -69,13 +70,14 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self.alarm_enc_key = (
             self.camera.data[CONF_ENC_KEY]
             if self.camera and self.camera.source != SOURCE_IGNORE
-            else None
+            else "Unknown"
         )
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         if not (last_state := await self.async_get_last_state()):
+            self._attr_native_value = self.alarm_enc_key
             return self.schedule_update_ha_state(force_refresh=True)
         self._attr_native_value = last_state.state
         return None
@@ -98,22 +100,38 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
     async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
         _LOGGER.debug("Updating %s", self.name)
-        try:
-            self._attr_native_value = await self.hass.async_add_executor_job(
-                self.coordinator.ezviz_client.get_cam_key, self._serial
+
+        if (
+            return_password_hash(self._attr_native_value)
+            != self.data["encrypted_pwd_hash"]
+        ):
+            _LOGGER.warning(
+                "%s: Password hash is different from password, password = %s, hash_of_pass = %s, hash_from_api = %s, fetching from api",
+                self.entity_id,
+                self._attr_native_value,
+                return_password_hash(self._attr_native_value),
+                self.data["encrypted_pwd_hash"],
             )
 
-        except (
-            EzvizAuthTokenExpired,
-            EzvizAuthVerificationCode,
-            PyEzvizError,
-        ) as error:
-            raise HomeAssistantError(f"Invalid response from API: {error}") from error
+            try:
+                self._attr_native_value = await self.hass.async_add_executor_job(
+                    self.coordinator.ezviz_client.get_cam_key, self._serial
+                )
 
-        # Encryption key changed, update config entry
-        if self.alarm_enc_key and self.camera:
-            if self.alarm_enc_key != self._attr_native_value:
-                await self.update_camera_config_entry(self.camera)
+            except (
+                EzvizAuthTokenExpired,
+                EzvizAuthVerificationCode,
+                PyEzvizError,
+            ) as error:
+                raise HomeAssistantError(
+                    f"Invalid response from API: {error}"
+                ) from error
+
+            # Encryption key changed, update config entry
+            if self.alarm_enc_key and self.camera:
+                if self.alarm_enc_key != self._attr_native_value:
+                    self.async_write_ha_state()
+                    await self.update_camera_config_entry(self.camera)
 
     async def update_camera_config_entry(self, entry: ConfigEntry) -> None:
         """Update camera config entry."""
