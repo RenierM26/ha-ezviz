@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from pyezvizapi import EzvizClient
@@ -24,6 +25,8 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, kw_only=True)
 class EzvizSwitchEntityDescription(SwitchEntityDescription):
@@ -35,6 +38,16 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
 
 
 SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
+    1: EzvizSwitchEntityDescription(
+        key="ALARM_TONE",
+        translation_key="voice_prompt",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext=str(SupportExt.SupportAlarmVoice.value),
+        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
+            serial, 1, enable
+        ),
+        switch_state=lambda data: data["switches"].get(1),
+    ),
     3: EzvizSwitchEntityDescription(
         key="LIGHT",
         translation_key="status_light",
@@ -163,6 +176,33 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
             serial, enable
         ),
         switch_state=lambda data: data["encrypted"],
+    ),
+    "push_notify_alarm": EzvizSwitchEntityDescription(
+        key="push_notify_alarm",
+        translation_key="push_notify_alarm",
+        supported_ext=None,
+        method=lambda pyezviz_client, serial, enable: pyezviz_client.do_not_disturb(
+            serial, enable ^ 1
+        ),
+        switch_state=lambda data: data["push_notify_alarm"],
+    ),
+    "push_notify_call": EzvizSwitchEntityDescription(
+        key="push_notify_call",
+        translation_key="push_notify_call",
+        supported_ext=str(SupportExt.SupportAlarmVoice.value),
+        method=lambda pyezviz_client, serial, enable: pyezviz_client.set_answer_call(
+            serial, enable ^ 1
+        ),
+        switch_state=lambda data: data["push_notify_call"],
+    ),
+    "offline_notify": EzvizSwitchEntityDescription(
+        key="offline_notify",
+        translation_key="offline_notify",
+        supported_ext=str(SupportExt.SupportAlarmVoice.value),
+        method=lambda pyezviz_client,
+        serial,
+        enable: pyezviz_client.set_offline_notification(serial, enable),
+        switch_state=lambda data: data["offline_notify"],
     ),
 }
 
