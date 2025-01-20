@@ -68,7 +68,7 @@ def _test_camera_rtsp_creds(data: dict) -> None:
     test_rtsp.main()
 
 
-def _wake_camera(data: dict, ezviz_client) -> None:
+def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
     """Wake up hibernating camera and test."""
 
     # Wake hybernating camera.
