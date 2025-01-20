@@ -29,6 +29,7 @@ BINARY_SENSOR_TYPES: dict[str, BinarySensorEntityDescription] = {
     "encrypted": BinarySensorEntityDescription(
         key="encrypted",
         translation_key="encrypted",
+        entity_registry_enabled_default=False,
     ),
 }
 
