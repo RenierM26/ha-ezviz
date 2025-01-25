@@ -165,7 +165,7 @@ class EzvizCamera(EzvizEntity, Camera):
             f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
         )
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Configuring Camera %s with ip: %s rtsp port: %s ffmpeg arguments: %s",
             self._serial,
             self.data["local_ip"],
