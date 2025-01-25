@@ -125,7 +125,8 @@
       "encrypted": { "name": "Encryption" },
       "push_notify_alarm": { "name": "Alarm push notification" },
       "push_notify_call": { "name": "Call push notification" },
-      "offline_notify": { "name": "Offline notification" }
+      "offline_notify": { "name": "Offline notification" },
+      "motion_detection": { "name": "Motion detection" }
     },
     "siren": { "siren": { "name": "[%key:component::siren::title%]" } }
   },

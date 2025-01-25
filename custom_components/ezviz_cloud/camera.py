@@ -50,27 +50,15 @@ async def async_setup_entry(
     camera_entities = []
 
     for camera, value in coordinator.data.items():
-        camera_rtsp_entry = [
-            item
-            for item in hass.config_entries.async_entries(DOMAIN)
-            if item.unique_id == camera and item.source != SOURCE_IGNORE
-        ]
+        camera_username: str = DEFAULT_CAMERA_USERNAME
+        camera_password: str | None = None
+        ffmpeg_arguments: str = DEFAULT_FFMPEG_ARGUMENTS
 
-        if camera_rtsp_entry:
-            ffmpeg_arguments = camera_rtsp_entry[0].options[CONF_FFMPEG_ARGUMENTS]
-            camera_username = camera_rtsp_entry[0].data[CONF_USERNAME]
-            camera_password = camera_rtsp_entry[0].data[CONF_PASSWORD]
+        camera_config_entry = hass.config_entries.async_entry_for_domain_unique_id(
+            DOMAIN, camera
+        )
 
-            camera_rtsp_stream = f"rtsp://{camera_username}:{camera_password}@{value['local_ip']}:{value['local_rtsp_port']}{ffmpeg_arguments}"
-            _LOGGER.debug(
-                "Configuring Camera %s with ip: %s rtsp port: %s ffmpeg arguments: %s",
-                camera,
-                value["local_ip"],
-                value["local_rtsp_port"],
-                ffmpeg_arguments,
-            )
-
-        else:
+        if camera_config_entry is None:
             discovery_flow.async_create_flow(
                 hass,
                 DOMAIN,
@@ -89,10 +77,10 @@ async def async_setup_entry(
                 camera,
             )
 
-            ffmpeg_arguments = DEFAULT_FFMPEG_ARGUMENTS
-            camera_username = DEFAULT_CAMERA_USERNAME
-            camera_password = None
-            camera_rtsp_stream = ""
+        if camera_config_entry and camera_config_entry.source != SOURCE_IGNORE:
+            ffmpeg_arguments = camera_config_entry.options[CONF_FFMPEG_ARGUMENTS]
+            camera_username = camera_config_entry.data[CONF_USERNAME]
+            camera_password = camera_config_entry.data[CONF_PASSWORD]
 
         camera_entities.append(
             EzvizCamera(
@@ -101,8 +89,6 @@ async def async_setup_entry(
                 camera,
                 camera_username,
                 camera_password,
-                camera_rtsp_stream,
-                value["local_rtsp_port"],
                 ffmpeg_arguments,
             )
         )
@@ -128,9 +114,7 @@ class EzvizCamera(EzvizEntity, Camera):
         serial: str,
         camera_username: str,
         camera_password: str | None,
-        camera_rtsp_stream: str | None,
-        local_rtsp_port: int,
-        ffmpeg_arguments: str | None,
+        ffmpeg_arguments: str,
     ) -> None:
         """Initialize a EZVIZ security camera."""
         super().__init__(coordinator, serial)
@@ -138,28 +122,26 @@ class EzvizCamera(EzvizEntity, Camera):
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
         self._username = camera_username
         self._password = camera_password
-        self._rtsp_stream = camera_rtsp_stream
-        self._local_rtsp_port = local_rtsp_port
+        self._rtsp_stream = None
         self._ffmpeg_arguments = ffmpeg_arguments
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
         if camera_password:
             self._attr_supported_features = CameraEntityFeature.STREAM
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if on."""
-        return bool(self.data["status"])
+            self._rtsp_stream = (
+                f"rtsp://{self._username}:{self._password}@"
+                f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
+            )
 
     @property
     def is_recording(self) -> bool:
         """Return true if the device is recording."""
-        return self.data["alarm_notify"]
+        return bool(self.data["alarm_notify"])
 
     @property
     def motion_detection_enabled(self) -> bool:
         """Camera Motion Detection Status."""
-        return self.data["alarm_notify"]
+        return bool(self.data["alarm_notify"])
 
     def enable_motion_detection(self) -> None:
         """Enable motion detection in camera."""
@@ -191,16 +173,16 @@ class EzvizCamera(EzvizEntity, Camera):
         """Return the stream source."""
         if self._password is None:
             return None
-        local_ip = self.data["local_ip"]
         self._rtsp_stream = (
             f"rtsp://{self._username}:{self._password}@"
-            f"{local_ip}:{self._local_rtsp_port}{self._ffmpeg_arguments}"
+            f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
         )
+
         _LOGGER.debug(
             "Configuring Camera %s with ip: %s rtsp port: %s ffmpeg arguments: %s",
             self._serial,
-            local_ip,
-            self._local_rtsp_port,
+            self.data["local_ip"],
+            self.data["local_rtsp_port"],
             self._ffmpeg_arguments,
         )
 
