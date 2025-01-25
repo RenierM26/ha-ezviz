@@ -27,8 +27,6 @@ from .const import (
     ATTR_SERIAL,
     CONF_FFMPEG_ARGUMENTS,
     DATA_COORDINATOR,
-    DEFAULT_CAMERA_USERNAME,
-    DEFAULT_FFMPEG_ARGUMENTS,
     DOMAIN,
     SERVICE_WAKE_DEVICE,
 )
@@ -50,10 +48,6 @@ async def async_setup_entry(
     camera_entities = []
 
     for camera, value in coordinator.data.items():
-        camera_username: str = DEFAULT_CAMERA_USERNAME
-        camera_password: str | None = None
-        ffmpeg_arguments: str = DEFAULT_FFMPEG_ARGUMENTS
-
         camera_config_entry = hass.config_entries.async_entry_for_domain_unique_id(
             DOMAIN, camera
         )
@@ -76,20 +70,19 @@ async def async_setup_entry(
                 ),
                 camera,
             )
+            continue
 
-        if camera_config_entry and camera_config_entry.source != SOURCE_IGNORE:
-            ffmpeg_arguments = camera_config_entry.options[CONF_FFMPEG_ARGUMENTS]
-            camera_username = camera_config_entry.data[CONF_USERNAME]
-            camera_password = camera_config_entry.data[CONF_PASSWORD]
+        if camera_config_entry.source == SOURCE_IGNORE:
+            continue
 
         camera_entities.append(
             EzvizCamera(
                 hass,
                 coordinator,
                 camera,
-                camera_username,
-                camera_password,
-                ffmpeg_arguments,
+                camera_config_entry.data[CONF_USERNAME],
+                camera_config_entry.data[CONF_PASSWORD],
+                camera_config_entry.options[CONF_FFMPEG_ARGUMENTS],
             )
         )
 
@@ -106,6 +99,7 @@ class EzvizCamera(EzvizEntity, Camera):
     """An implementation of a EZVIZ security camera."""
 
     _attr_name = None
+    _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(
         self,
@@ -113,7 +107,7 @@ class EzvizCamera(EzvizEntity, Camera):
         coordinator: EzvizDataUpdateCoordinator,
         serial: str,
         camera_username: str,
-        camera_password: str | None,
+        camera_password: str,
         ffmpeg_arguments: str,
     ) -> None:
         """Initialize a EZVIZ security camera."""
@@ -122,16 +116,13 @@ class EzvizCamera(EzvizEntity, Camera):
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
         self._username = camera_username
         self._password = camera_password
-        self._rtsp_stream = None
         self._ffmpeg_arguments = ffmpeg_arguments
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
-        if camera_password:
-            self._attr_supported_features = CameraEntityFeature.STREAM
-            self._rtsp_stream = (
-                f"rtsp://{self._username}:{self._password}@"
-                f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
-            )
+        self._rtsp_stream = (
+            f"rtsp://{self._username}:{self._password}@"
+            f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
+        )
 
     @property
     def is_recording(self) -> bool:
@@ -163,22 +154,18 @@ class EzvizCamera(EzvizEntity, Camera):
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return a frame from the camera stream."""
-        if self._rtsp_stream is None:
-            return None
         return await ffmpeg.async_get_image(
             self.hass, self._rtsp_stream, width=width, height=height
         )
 
-    async def stream_source(self) -> str | None:
+    async def stream_source(self) -> str:
         """Return the stream source."""
-        if self._password is None:
-            return None
         self._rtsp_stream = (
             f"rtsp://{self._username}:{self._password}@"
             f"{self.data['local_ip']}:{self.data['local_rtsp_port']}{self._ffmpeg_arguments}"
         )
 
-        _LOGGER.debug(
+        _LOGGER.warning(
             "Configuring Camera %s with ip: %s rtsp port: %s ffmpeg arguments: %s",
             self._serial,
             self.data["local_ip"],
