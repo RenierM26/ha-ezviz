@@ -43,6 +43,7 @@ from .const import (
     CONF_RF_SESSION_ID,
     CONF_SESSION_ID,
     CONF_TEST_RTSP_CREDENTIALS,
+    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
@@ -93,7 +94,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     password: str | None
     ezviz_url: str | None
     unique_id: str
-    ezviz_client: EzvizClient
+    ezviz_client: EzvizClient = None
     entry_data: ConfigEntry
 
     def _validate_and_create_auth(self, data: dict) -> dict[str, Any]:
@@ -121,35 +122,19 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _validate_and_create_camera_rtsp(self, data: dict) -> ConfigFlowResult:
         """Try DESCRIBE on RTSP camera with credentials."""
 
-        # Get EZVIZ cloud credentials from config entry
-        ezviz_token = {
-            CONF_SESSION_ID: None,
-            CONF_RF_SESSION_ID: None,
-            "api_url": None,
-        }
-        ezviz_timeout = DEFAULT_TIMEOUT
-
-        for item in self._async_current_entries():
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                ezviz_token = {
-                    CONF_SESSION_ID: item.data.get(CONF_SESSION_ID),
-                    CONF_RF_SESSION_ID: item.data.get(CONF_RF_SESSION_ID),
-                    "api_url": item.data.get(CONF_URL),
-                }
-                ezviz_timeout = item.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        for item in self.hass.config_entries.async_entries(domain=DOMAIN):
+            if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
+                self.ezviz_client = self.hass.data[DOMAIN][item.entry_id][
+                    DATA_COORDINATOR
+                ].ezviz_client
 
         # Abort flow if user removed cloud account before adding camera.
-        if ezviz_token.get(CONF_SESSION_ID) is None:
+        if self.ezviz_client is None:
             return self.async_abort(reason="ezviz_cloud_account_missing")
-
-        ezviz_client = EzvizClient(token=ezviz_token, timeout=ezviz_timeout)
-
-        # Create Ezviz API Client.
-        await self.hass.async_add_executor_job(ezviz_client.login)
 
         # Fetch encryption key from ezviz api.
         data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
-            _get_cam_enc_key, data, ezviz_client
+            _get_cam_enc_key, data, self.ezviz_client
         )
 
         # If newer camera, the encryption key is the password.
@@ -158,7 +143,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Test camera RTSP credentials. Older cameras still use the verification code on the camera and not the encryption key.
         if data[CONF_TEST_RTSP_CREDENTIALS]:
-            await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
+            await self.hass.async_add_executor_job(
+                _wake_camera, data, self.ezviz_client
+            )
 
         return self.async_create_entry(
             title=data[ATTR_SERIAL],
