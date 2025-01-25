@@ -9,7 +9,7 @@ from typing import Any
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
-from pyezvizapi.exceptions import HTTPError, PyEzvizError
+from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
@@ -204,6 +204,15 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
         enable: pyezviz_client.set_offline_notification(serial, enable),
         switch_state=lambda data: data["offline_notify"],
     ),
+    "alarm_notify": EzvizSwitchEntityDescription(
+        key="motion_detection",
+        translation_key="motion_detection",
+        supported_ext=None,
+        method=lambda pyezviz_client, serial, enable: pyezviz_client.set_camera_defence(
+            serial, enable
+        ),
+        switch_state=lambda data: data["alarm_notify"],
+    ),
 }
 
 
@@ -263,7 +272,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
                 1,
             )
 
-        except (HTTPError, PyEzvizError) as err:
+        except (HTTPError, PyEzvizError, InvalidHost) as err:
             raise HomeAssistantError(f"Failed to turn on switch {self.name}") from err
 
         self._attr_is_on = True
@@ -279,7 +288,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
                 0,
             )
 
-        except (HTTPError, PyEzvizError) as err:
+        except (HTTPError, PyEzvizError, InvalidHost) as err:
             raise HomeAssistantError(f"Failed to turn on switch {self.name}") from err
 
         self._attr_is_on = False

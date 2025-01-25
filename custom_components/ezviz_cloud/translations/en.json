@@ -206,6 +206,9 @@
       },
       "voice_prompt": {
         "name": "Voice prompt"
+      },
+      "motion_detection": {
+        "name": "Motion detection"
       }
     }
   },
