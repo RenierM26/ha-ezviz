@@ -35,17 +35,18 @@ class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
             model=self.data["device_sub_category"],
             name=self.data["name"],
             sw_version=self.data["version"],
+            serial_number=self._serial,
         )
 
     @property
-    def data(self) -> dict[str, Any]:
+    def data(self) -> Any:
         """Return coordinator data for this entity."""
         return self.coordinator.data[self._serial]
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.data["status"] != 2
+        return bool(self.data["status"] != 2)
 
 
 class EzvizBaseEntity(Entity):
@@ -71,14 +72,15 @@ class EzvizBaseEntity(Entity):
             model=self.data["device_sub_category"],
             name=self.data["name"],
             sw_version=self.data["version"],
+            serial_number=self._serial,
         )
 
     @property
-    def data(self) -> dict[str, Any]:
+    def data(self) -> Any:
         """Return coordinator data for this entity."""
         return self.coordinator.data[self._serial]
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return self.data["status"] != 2
+        return bool(self.data["status"] != 2)
