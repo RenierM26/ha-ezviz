@@ -128,16 +128,16 @@
       "night_vision_model": {
         "name": "Night vision mode",
         "state": {
-          "NIGHT_VISION_B_W": "Black and white",
-          "NIGHT_VISION_COLOUR": "Colour"
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour"
         }
       },
       "smart_night_vision_model": {
         "name": "Night vision mode",
         "state": {
-          "NIGHT_VISION_B_W": "Black and white",
-          "NIGHT_VISION_COLOUR": "Colour",
-          "NIGHT_VISION_SMART": "Smart mode"
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour",
+          "night_vision_smart": "Smart mode"
         }
       }
     },
