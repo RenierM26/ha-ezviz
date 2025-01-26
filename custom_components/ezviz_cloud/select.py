@@ -28,7 +28,8 @@ PARALLEL_UPDATES = 1
 class EzvizSelectEntityDescription(SelectEntityDescription):
     """Describe a EZVIZ Select entity."""
 
-    supported_ext: str
+    supported_ext_key: str
+    supported_ext_value: str
     option_range: list
     get_current_option: Callable[[dict], int]
     set_current_option: Callable[[EzvizClient, str, int], Any]
@@ -40,7 +41,8 @@ SELECT_TYPE = (
         translation_key="alarm_sound_mode",
         entity_category=EntityCategory.CONFIG,
         options=["soft", "intensive", "silent"],
-        supported_ext=str(SupportExt.SupportTalk.value),
+        supported_ext_key=str(SupportExt.SupportTalk.value),
+        supported_ext_value="1",
         option_range=[0, 1, 2],
         get_current_option=lambda data: getattr(
             SoundMode, data["alarm_sound_mod"]
@@ -61,7 +63,8 @@ SELECT_TYPE = (
             "custom",
             "hybernate",
         ],
-        supported_ext=str(SupportExt.SupportBatteryManage.value),
+        supported_ext_key=str(SupportExt.SupportBatteryManage.value),
+        supported_ext_value="1",
         option_range=[0, 1, 2, 3, 4, 5],
         get_current_option=lambda data: getattr(
             BatteryCameraWorkMode, data["battery_camera_work_mode"]
@@ -69,6 +72,39 @@ SELECT_TYPE = (
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_battery_camera_work_mode(serial, value),
+    ),
+    EzvizSelectEntityDescription(
+        key="night_vision_model",
+        translation_key="night_vision_model",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "NIGHT_VISION_B_W",
+            "NIGHT_VISION_COLOUR",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value="2",
+        option_range=[0, 1],
+        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_night_vision_mode(serial, value),
+    ),
+    EzvizSelectEntityDescription(
+        key="smart_night_vision_model",
+        translation_key="smart_night_vision_model",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "NIGHT_VISION_B_W",
+            "NIGHT_VISION_COLOUR",
+            "NIGHT_VISION_SMART",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value="1",
+        option_range=[0, 1, 2],
+        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_night_vision_mode(serial, value),
     ),
 )
 
@@ -86,8 +122,8 @@ async def async_setup_entry(
         for camera in coordinator.data
         for capability, value in coordinator.data[camera]["supportExt"].items()
         for entity_description in SELECT_TYPE
-        if capability == entity_description.supported_ext
-        if value
+        if capability == entity_description.supported_ext_key
+        if value == entity_description.supported_ext_value
     )
 
 
