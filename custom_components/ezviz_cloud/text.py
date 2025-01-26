@@ -97,6 +97,9 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
                 f"Cannot set camera encryption key for {self.name}"
             ) from err
 
+        self._attr_native_value = value
+        self.async_write_ha_state()
+
     async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
         _LOGGER.debug("Updating %s", self.name)
