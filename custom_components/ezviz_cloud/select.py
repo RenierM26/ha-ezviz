@@ -124,6 +124,7 @@ async def async_setup_entry(
         for entity_description in SELECT_TYPE
         if capability == entity_description.supported_ext_key
         if value in entity_description.supported_ext_value
+        if entity_description.get_current_option(coordinator.data[camera]) != -1
     )
 
 
