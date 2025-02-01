@@ -15,6 +15,7 @@ from pyezvizapi.utils import return_password_hash
 
 from homeassistant.components.text import TextEntity, TextEntityDescription, TextMode
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -24,7 +25,7 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity
 
-SCAN_INTERVAL = timedelta(seconds=3600)
+SCAN_INTERVAL = timedelta(seconds=60)
 PARALLEL_UPDATES = 1
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,11 +62,14 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self.entity_description = TEXT_TYPE
         self._attr_native_value = None
         self.current_enc_key_hash: str | None = None
+        self.mfa_enabled: bool = True
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is None:
+        if (
+            last_state := await self.async_get_last_state()
+        ) is None or last_state.state == STATE_UNKNOWN:
             return self.schedule_update_ha_state(force_refresh=True)
         self._attr_native_value = last_state.state
         self.current_enc_key_hash = return_password_hash(self._attr_native_value)
@@ -87,13 +91,21 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
             ) from err
 
         self._attr_native_value = value
+        self.current_enc_key_hash = return_password_hash(self._attr_native_value)
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        if not self._attr_native_value:
+            return False
+        return super().available
 
     async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
         _LOGGER.debug("Updating %s", self.name)
 
-        if (
+        if self.mfa_enabled and (
             not self.current_enc_key_hash
             or self.current_enc_key_hash != self.data["encrypted_pwd_hash"]
         ):
@@ -109,9 +121,14 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
                     self.coordinator.ezviz_client.get_cam_key, self._serial
                 )
 
+            except EzvizAuthVerificationCode as error:
+                self.mfa_enabled = False
+                raise HomeAssistantError(
+                    f"Update camera encryption key failed, MFA needs to be enabled: {error}"
+                ) from error
+
             except (
                 EzvizAuthTokenExpired,
-                EzvizAuthVerificationCode,
                 PyEzvizError,
             ) as error:
                 raise HomeAssistantError(
