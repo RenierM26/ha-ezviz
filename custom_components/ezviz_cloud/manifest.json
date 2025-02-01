@@ -4,10 +4,10 @@
   "codeowners": ["@RenierM26"],
   "config_flow": true,
   "dependencies": ["ffmpeg"],
-  "documentation": "https://www.home-assistant.io/integrations/ezviz",
+  "documentation": "https://github.com/RenierM26/ha-ezviz",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/RenierM26/ha-ezviz/issues",
   "loggers": ["paho_mqtt", "pyezvizapi"],
   "requirements": ["pyezvizapi==1.0.0.6"],
-  "version": "0.1.0.56"
+  "version": "0.1.0.57"
 }
