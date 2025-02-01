@@ -113,6 +113,32 @@
           "silent": "Silent",
           "soft": "Soft"
         }
+      },
+      "battery_camera_work_mode": {
+        "name": "Battery work mode",
+        "state": {
+          "power_save": "Power save",
+          "high_performance": "High performance",
+          "plugged_in": "Plugged in",
+          "super_power_save": "Super power saving",
+          "custom": "Custom",
+          "hibernate": "Hibernate"
+        }
+      },
+      "night_vision_model": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour"
+        }
+      },
+      "smart_night_vision_model": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour",
+          "night_vision_smart": "Smart mode"
+        }
       }
     },
     "sensor": {
