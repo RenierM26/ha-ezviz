@@ -34,6 +34,7 @@ TEXT_TYPE = TextEntityDescription(
     key="camera_enc_key",
     name="Camera encryption key",
     mode=TextMode.PASSWORD,
+    entity_registry_enabled_default=False,
 )
 
 
