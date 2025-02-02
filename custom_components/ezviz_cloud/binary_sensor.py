@@ -71,4 +71,4 @@ class EzvizBinarySensor(EzvizEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return the state of the sensor."""
-        return self.data[self._sensor_name]
+        return bool(self.data[self._sensor_name])
