@@ -85,6 +85,12 @@ BUTTON_ENTITIES = (
         method=lambda pyezviz_client, serial: pyezviz_client.reboot_camera(serial),
         supported_ext=str(SupportExt.SupportRebootDevice.value),
     ),
+    EzvizButtonEntityDescription(
+        key="flip_image",
+        translation_key="flip_image",
+        method=lambda pyezviz_client, serial: pyezviz_client.flip_image(serial),
+        supported_ext=str(SupportExt.SupportPtzCenterMirror.value),
+    ),
 )
 
 
