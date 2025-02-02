@@ -114,7 +114,7 @@ SELECT_TYPE = (
             "advanced_detect_human_shape",
             "advanced_detect_pir",
         ],
-        supported_ext_key="534",
+        supported_ext_key=str(SupportExt.SupportDefenceTypeFull.value),
         supported_ext_value=["3,6"],
         option_range=[1, 5],
         get_current_option=lambda data: data["Alarm_DetectHumanCar"],
