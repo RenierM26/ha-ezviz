@@ -105,6 +105,13 @@
           "night_vision_colour": "Colour",
           "night_vision_smart": "Smart mode"
         }
+      },
+      "advanced_detect_human_car_pir": {
+        "name": "Detection mode",
+        "state": {
+          "advanced_detect_human_shape": "Human shape",
+          "advanced_detect_pir": "Pir"
+        }
       }
     },
     "image": { "last_motion_image": { "name": "Last motion image" } },
@@ -113,7 +120,8 @@
       "ptz_down": { "name": "PTZ down" },
       "ptz_left": { "name": "PTZ left" },
       "ptz_right": { "name": "PTZ right" },
-      "restart_device": { "name": "Restart" }
+      "restart_device": { "name": "Restart" },
+      "flip_image": { "name": "Flip camera image" }
     },
     "binary_sensor": {
       "alarm_schedules_enabled": { "name": "Alarm schedules enabled" },
@@ -148,6 +156,7 @@
       "pir_motion_activated_light": { "name": "PIR motion activated light" },
       "tamper_alarm": { "name": "Tamper alarm" },
       "follow_movement": { "name": "Follow movement" },
+      "watermark": { "name": "Watermark on image" },
       "encrypted": { "name": "Encryption" },
       "push_notify_alarm": { "name": "Alarm push notification" },
       "push_notify_call": { "name": "Call push notification" },

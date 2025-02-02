@@ -88,6 +88,9 @@
       },
       "restart_device": {
         "name": "Restart"
+      },
+      "flip_image": {
+        "name": "Flip camera image"
       }
     },
     "image": {
@@ -138,6 +141,13 @@
           "night_vision_b_w": "Black and white",
           "night_vision_colour": "Colour",
           "night_vision_smart": "Smart mode"
+        }
+      },
+      "advanced_detect_human_car_pir": {
+        "name": "Detection mode",
+        "state": {
+          "advanced_detect_human_shape": "Human shape",
+          "advanced_detect_pir": "Pir"
         }
       }
     },
@@ -196,6 +206,9 @@
       },
       "follow_movement": {
         "name": "Follow movement"
+      },
+      "watermark": {
+        "name": "Watermark on image"
       },
       "infrared_light": {
         "name": "Infrared light"

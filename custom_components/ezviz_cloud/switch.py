@@ -168,6 +168,16 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
         ),
         switch_state=lambda data: data["switches"].get(650),
     ),
+    702: EzvizSwitchEntityDescription(
+        key="WATERMARK",
+        translation_key="watermark",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext=None,
+        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
+            serial, 702, enable
+        ),
+        switch_state=lambda data: data["switches"].get(702),
+    ),
     "encrypted": EzvizSwitchEntityDescription(
         key="encrypted",
         translation_key="encrypted",
@@ -207,7 +217,7 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
     "alarm_notify": EzvizSwitchEntityDescription(
         key="motion_detection",
         translation_key="motion_detection",
-        supported_ext=None,
+        supported_ext=str(SupportExt.SupportDefence.value),
         method=lambda pyezviz_client, serial, enable: pyezviz_client.set_camera_defence(
             serial, enable
         ),

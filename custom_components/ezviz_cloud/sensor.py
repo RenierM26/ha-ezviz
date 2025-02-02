@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -107,6 +109,6 @@ class EzvizSensor(EzvizEntity, SensorEntity):
         self.entity_description = SENSOR_TYPES[sensor]
 
     @property
-    def native_value(self) -> int | str:
+    def native_value(self) -> Any:
         """Return the state of the sensor."""
         return self.data[self._sensor_name]

@@ -63,8 +63,8 @@ SELECT_TYPE = (
             "custom",
             "hybernate",
         ],
-        supported_ext_key=str(SupportExt.SupportBatteryManage.value),
-        supported_ext_value=["1"],
+        supported_ext_key=str(SupportExt.SupportWorkModeList.value),
+        supported_ext_value=["1,2,3,4,10"],
         option_range=[0, 1, 2, 3, 4, 5],
         get_current_option=lambda data: getattr(
             BatteryCameraWorkMode, data["battery_camera_work_mode"]
@@ -106,6 +106,22 @@ SELECT_TYPE = (
         serial,
         value: ezviz_client.set_night_vision_mode(serial, value),
     ),
+    EzvizSelectEntityDescription(
+        key="advanced_detect_human_car_pir",
+        translation_key="advanced_detect_human_car_pir",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "advanced_detect_human_shape",
+            "advanced_detect_pir",
+        ],
+        supported_ext_key="534",
+        supported_ext_value=["3,6"],
+        option_range=[1, 5],
+        get_current_option=lambda data: data["Alarm_DetectHumanCar"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_detection_mode(serial, value),
+    ),
 )
 
 
@@ -124,7 +140,6 @@ async def async_setup_entry(
         for entity_description in SELECT_TYPE
         if capability == entity_description.supported_ext_key
         if value in entity_description.supported_ext_value
-        if entity_description.get_current_option(coordinator.data[camera]) != -1
     )
 
 
@@ -150,13 +165,15 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         current_value = self.entity_description.get_current_option(self.data)
 
         if current_value in self.entity_description.option_range:
-            return self.options[current_value]
+            option_index = self.entity_description.option_range.index(current_value)
+            return self.options[option_index]
 
         return None
 
     def select_option(self, option: str) -> None:
         """Change the selected option."""
-        option_set_value = self.options.index(option)
+        option_index = self.options.index(option)
+        option_set_value = self.entity_description.option_range[option_index]
 
         try:
             self.entity_description.set_current_option(
