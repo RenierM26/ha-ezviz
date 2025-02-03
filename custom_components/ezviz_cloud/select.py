@@ -122,6 +122,22 @@ SELECT_TYPE = (
         serial,
         value: ezviz_client.set_detection_mode(serial, value),
     ),
+    EzvizSelectEntityDescription(
+        key="advanced_detect_human_car",
+        translation_key="advanced_detect_human_car",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "advanced_detect_human_shape",
+            "advanced_detect_image_change",
+        ],
+        supported_ext_key=str(SupportExt.SupportDetectHumanCar.value),
+        supported_ext_value=["2"],
+        option_range=[1, 3],
+        get_current_option=lambda data: data["Alarm_DetectHumanCar"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_detection_mode(serial, value),
+    ),
 )
 
 

@@ -149,6 +149,13 @@
           "advanced_detect_human_shape": "Human shape",
           "advanced_detect_pir": "Pir"
         }
+      },
+      "advanced_detect_human_car": {
+        "name": "Detection mode",
+        "state": {
+          "advanced_detect_human_shape": "Human shape",
+          "advanced_detect_image_change": "Image change"
+        }
       }
     },
     "sensor": {
