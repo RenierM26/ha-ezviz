@@ -21,7 +21,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import (
     CONF_CUSTOMIZE,
@@ -122,7 +122,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _validate_and_create_camera_rtsp(self, data: dict) -> ConfigFlowResult:
         """Try DESCRIBE on RTSP camera with credentials."""
 
-        for item in self.hass.config_entries.async_entries(domain=DOMAIN):
+        for item in self.hass.config_entries.async_entries(
+            domain=DOMAIN, include_ignore=False
+        ):
             if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
                 self.ezviz_client = self.hass.data[DOMAIN][item.entry_id][
                     DATA_COORDINATOR
@@ -517,7 +519,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class EzvizOptionsFlowHandler(OptionsFlow):
+class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     """Handle EZVIZ client options."""
 
     async def async_step_init(

@@ -102,13 +102,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.data[DOMAIN][entry.entry_id] = {DATA_COORDINATOR: coordinator}
 
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
     # Check EZVIZ cloud account entity is present, reload cloud account entities for camera entity change to take effect.
     # Cameras are accessed via local RTSP stream with unique credentials per camera.
     # Separate camera entities allow for credential changes per camera.
     if sensor_type == ATTR_TYPE_CAMERA and hass.data[DOMAIN]:
-        for item in hass.config_entries.async_entries(domain=DOMAIN):
+        for item in hass.config_entries.async_entries(
+            domain=DOMAIN, include_ignore=False
+        ):
             if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
                 _LOGGER.debug("Reload Ezviz main account with camera entry")
                 await hass.config_entries.async_reload(item.entry_id)
@@ -132,11 +132,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
