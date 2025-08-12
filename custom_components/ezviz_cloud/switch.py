@@ -112,7 +112,7 @@ SWITCH_TYPES: dict[int | str, EzvizSwitchEntityDescription] = {
         key="ALL_DAY_VIDEO",
         translation_key="all_day_video_recording",
         device_class=SwitchDeviceClass.SWITCH,
-        supported_ext=str(SupportExt.SupportFulldayRecord.value),
+        supported_ext=str(SupportExt.SupportFullDayRecord.value),
         method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
             serial, 29, enable
         ),

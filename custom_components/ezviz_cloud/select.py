@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pyezvizapi.client import EzvizClient
-from pyezvizapi.constants import BatteryCameraWorkMode, SoundMode, SupportExt
+from pyezvizapi.constants import SoundMode, SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
@@ -66,9 +66,26 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportWorkModeList.value),
         supported_ext_value=["1,2,3,4,10"],
         option_range=[0, 1, 2, 3, 4, 5],
-        get_current_option=lambda data: getattr(
-            BatteryCameraWorkMode, data["battery_camera_work_mode"]
-        ).value,
+        get_current_option=lambda data: data["battery_camera_work_mode"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_battery_camera_work_mode(serial, value),
+    ),
+    EzvizSelectEntityDescription(
+        key="battery_camera_work_mode_aov",
+        translation_key="battery_camera_work_mode_aov",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "standard",
+            "plugged_in",
+            "super_power_save",
+            "custom",
+            "aov_mode",
+        ],
+        supported_ext_key=str(SupportExt.SupportNewWorkMode.value),
+        supported_ext_value=["1,3,10,9,8"],
+        option_range=[1, 2, 3, 4, 7],
+        get_current_option=lambda data: data["battery_camera_work_mode"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_battery_camera_work_mode(serial, value),

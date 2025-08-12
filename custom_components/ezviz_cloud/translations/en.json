@@ -128,6 +128,16 @@
           "hibernate": "Hibernate"
         }
       },
+      "battery_camera_work_mode_aov": {
+        "name": "Battery work mode",
+        "state": {
+          "standard": "Standard",
+          "plugged_in": "Plugged in",
+          "power_save": "Power saving",
+          "aov_mode": "Always on video",
+          "custom": "Custom"
+        }
+      },
       "night_vision_model": {
         "name": "Night vision mode",
         "state": {
