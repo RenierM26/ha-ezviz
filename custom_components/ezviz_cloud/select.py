@@ -78,7 +78,7 @@ SELECT_TYPE = (
         options=[
             "standard",
             "plugged_in",
-            "super_power_save",
+            "power_save",
             "custom",
             "aov_mode",
         ],
