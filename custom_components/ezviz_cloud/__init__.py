@@ -28,6 +28,7 @@ from .const import (
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
+    CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
     DATA_COORDINATOR,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -149,6 +150,25 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not entry.data.get(CONF_SESSION_ID):
                 raise ConfigEntryAuthFailed
             hass.config_entries.async_update_entry(entry, data=entry.data, version=2)
+
+        _LOGGER.info(
+            "Migration to version %s.%s successful for %s account",
+            entry.version,
+            entry.minor_version,
+            entry.data[CONF_TYPE],
+        )
+
+    if entry.version != 3:
+        if entry.data[CONF_TYPE] == ATTR_TYPE_CAMERA:
+            data = {**entry.data}
+            data[CONF_RTSP_USES_VERIFICATION_CODE] = True
+
+            hass.config_entries.async_update_entry(entry, data=data, version=3)
+
+        if entry.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
+            if not entry.data.get(CONF_SESSION_ID):
+                raise ConfigEntryAuthFailed
+            hass.config_entries.async_update_entry(entry, data=entry.data, version=3)
 
         _LOGGER.info(
             "Migration to version %s.%s successful for %s account",

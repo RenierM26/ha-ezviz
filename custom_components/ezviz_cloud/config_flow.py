@@ -41,6 +41,7 @@ from .const import (
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
+    CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
     CONF_TEST_RTSP_CREDENTIALS,
     DATA_COORDINATOR,
@@ -62,11 +63,20 @@ DEFAULT_OPTIONS = {
 def _test_camera_rtsp_creds(data: dict) -> None:
     """Try DESCRIBE on RTSP camera with credentials."""
 
+    # First test with verification code, then try encryption key.
+    # Newer cameras use encryption key if set, older cameras use verification code.
     test_rtsp = TestRTSPAuth(
         data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_PASSWORD]
     )
 
-    test_rtsp.main()
+    if data[CONF_RTSP_USES_VERIFICATION_CODE]:
+        test_rtsp.main()
+
+    else:
+        test_rtsp = TestRTSPAuth(
+            data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_ENC_KEY]
+        )
+        test_rtsp.main()
 
 
 def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
@@ -84,10 +94,15 @@ def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
     return ezviz_client.get_cam_key(data[ATTR_SERIAL])
 
 
+def _get_cam_verification_code(data: dict, ezviz_client: EzvizClient) -> Any:
+    """Get camera verification code."""
+    return ezviz_client.get_cam_auth_code(data[ATTR_SERIAL])
+
+
 class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ."""
 
-    VERSION = 2
+    VERSION = 3
 
     ip_address: str
     username: str | None
@@ -134,14 +149,16 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.ezviz_client is None:
             return self.async_abort(reason="ezviz_cloud_account_missing")
 
-        # Fetch encryption key from ezviz api.
-        data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
-            _get_cam_enc_key, data, self.ezviz_client
-        )
+        # Fetch encryption key and camera sticker code from ezviz api. 2FA is required for this to work.
+        if data[CONF_ENC_KEY] == "fetch_my_key":
+            data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
+                _get_cam_enc_key, data, self.ezviz_client
+            )
 
-        # If newer camera, the encryption key is the password.
         if data[CONF_PASSWORD] == "fetch_my_key":
-            data[CONF_PASSWORD] = data[CONF_ENC_KEY]
+            data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
+                _get_cam_verification_code, data, self.ezviz_client
+            )
 
         # Test camera RTSP credentials. Older cameras still use the verification code on the camera and not the encryption key.
         if data[CONF_TEST_RTSP_CREDENTIALS]:
@@ -155,6 +172,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USERNAME: data[CONF_USERNAME],
                 CONF_PASSWORD: data[CONF_PASSWORD],
                 CONF_ENC_KEY: data[CONF_ENC_KEY],
+                CONF_RTSP_USES_VERIFICATION_CODE: data[
+                    CONF_RTSP_USES_VERIFICATION_CODE
+                ],
                 CONF_TYPE: ATTR_TYPE_CAMERA,
             },
             options=DEFAULT_OPTIONS,
@@ -333,6 +353,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_USERNAME, default=DEFAULT_CAMERA_USERNAME): str,
                 vol.Required(CONF_PASSWORD, default="fetch_my_key"): str,
+                vol.Required(CONF_ENC_KEY, default="fetch_my_key"): str,
+                vol.Optional(CONF_RTSP_USES_VERIFICATION_CODE, default=False): bool,
                 vol.Optional(CONF_TEST_RTSP_CREDENTIALS, default=True): bool,
             }
         )

@@ -18,6 +18,8 @@
         "data": {
           "password": "Password",
           "username": "Username",
+          "enc_key": "Encryption key",
+          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
           "test_rtsp_credentials": "Test RTSP credentials"
         },
         "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",

@@ -25,6 +25,8 @@
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
+          "enc_key": "Encryption key",
+          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
           "test_rtsp_credentials": "Test RTSP credentials"
         }
       },
