@@ -25,7 +25,9 @@ from homeassistant.helpers.entity_platform import (
 
 from .const import (
     ATTR_SERIAL,
+    CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
+    CONF_RTSP_USES_VERIFICATION_CODE,
     DATA_COORDINATOR,
     DOMAIN,
     SERVICE_WAKE_DEVICE,
@@ -81,7 +83,9 @@ async def async_setup_entry(
                 coordinator,
                 camera,
                 camera_config_entry.data[CONF_USERNAME],
-                camera_config_entry.data[CONF_PASSWORD],
+                camera_config_entry.data[CONF_PASSWORD]
+                if not camera_config_entry.data[CONF_RTSP_USES_VERIFICATION_CODE]
+                else camera_config_entry.data[CONF_ENC_KEY],
                 camera_config_entry.options[CONF_FFMPEG_ARGUMENTS],
             )
         )

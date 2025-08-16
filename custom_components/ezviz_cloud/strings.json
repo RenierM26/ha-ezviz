@@ -25,8 +25,15 @@
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
+          "enc_key": "Encryption key",
+          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
           "test_rtsp_credentials": "Test RTSP credentials"
         }
+      },
+      "async_step_confirm_2FA": {
+        "title": "EZVIZ camera encryption key",
+        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
+        "data": { "sms_code": "MFA Code" }
       },
       "reauth_confirm": {
         "title": "[%key:common::config_flow::title::reauth%]",
