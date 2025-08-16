@@ -25,6 +25,11 @@
         "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
         "title": "Discovered EZVIZ Camera"
       },
+      "async_step_confirm_2FA": {
+        "title": "EZVIZ camera encryption key",
+        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
+        "data": { "sms_code": "MFA Code" }
+      },
       "reauth_confirm": {
         "data": {
           "password": "Password",
