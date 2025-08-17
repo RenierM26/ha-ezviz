@@ -84,7 +84,7 @@ async def async_setup_entry(
                 camera,
                 camera_config_entry.data[CONF_USERNAME],
                 camera_config_entry.data[CONF_PASSWORD]
-                if not camera_config_entry.data[CONF_RTSP_USES_VERIFICATION_CODE]
+                if camera_config_entry.data[CONF_RTSP_USES_VERIFICATION_CODE]
                 else camera_config_entry.data[CONF_ENC_KEY],
                 camera_config_entry.options[CONF_FFMPEG_ARGUMENTS],
             )
