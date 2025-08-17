@@ -172,6 +172,21 @@ SELECT_TYPE = (
         serial,
         value: ezviz_client.set_detection_mode(serial, value),
     ),
+    EzvizSelectEntityDescription(
+        key="image_style_setting",
+        translation_key="image_style_setting",
+        entity_category=EntityCategory.CONFIG,
+        options=["image_style_original", "image_style_soft", "image_style_vivid"],
+        supported_ext_key=str(SupportExt.SupportBackLight.value),
+        supported_ext_value=["1"],
+        option_range=[1, 2, 3],
+        get_current_option=lambda data: data["optionals"]["display_mode"]["mode"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_device_config_by_key(
+            serial, value=f'{{"mode":{value}}}', key="display_mode"
+        ),
+    ),
 )
 
 

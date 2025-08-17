@@ -185,6 +185,14 @@
           "advanced_detect_human_shape": "Human shape",
           "advanced_detect_image_change": "Image change"
         }
+      },
+      "image_style_setting": {
+        "name": "Image style",
+        "state": {
+          "image_style_original": "Original",
+          "image_style_soft": "Soft",
+          "image_style_vivid": "Vivid"
+        }
       }
     },
     "sensor": {
