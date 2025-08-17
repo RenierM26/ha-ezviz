@@ -161,6 +161,14 @@
         "state": {
           "night_vision_b_w": "Black and white",
           "night_vision_colour": "Colour",
+          "night_vision_smart": "Smart mode",
+          "super_night_view": "Super night view"
+        }
+      },
+      "smart_night_vision_model_battery": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
           "night_vision_smart": "Smart mode"
         }
       },
@@ -176,6 +184,14 @@
         "state": {
           "advanced_detect_human_shape": "Human shape",
           "advanced_detect_image_change": "Image change"
+        }
+      },
+      "image_style_setting": {
+        "name": "Image style",
+        "state": {
+          "image_style_original": "Original",
+          "image_style_soft": "Soft",
+          "image_style_vivid": "Vivid"
         }
       }
     },
