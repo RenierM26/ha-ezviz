@@ -124,7 +124,8 @@
         "state": {
           "night_vision_b_w": "Black and white",
           "night_vision_colour": "Colour",
-          "night_vision_smart": "Smart mode"
+          "night_vision_smart": "Smart mode",
+          "super_night_view": "Super night view"
         }
       },
       "smart_night_vision_model_battery": {
