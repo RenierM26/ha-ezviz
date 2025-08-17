@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
+    DeviceException,
     EzvizAuthVerificationCode,
     InvalidHost,
     InvalidURL,
@@ -38,6 +39,8 @@ from .const import (
     ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
+    CONF_CAM_ENC_2FA_CODE,
+    CONF_CAM_VERIFICATION_2FA_CODE,
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
@@ -89,15 +92,33 @@ def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
 
 
 def _get_cam_verification_code(data: dict, ezviz_client: EzvizClient) -> Any:
-    """Get camera verification code. Needs enc_key if not 2fa verified."""
+    """Get camera verification code."""
     _LOGGER.warning("Getting camera verification code for %s", data[ATTR_SERIAL])
-    return ezviz_client.get_cam_auth_code(data[ATTR_SERIAL])
+    try:
+        return ezviz_client.get_cam_auth_code(
+            data[ATTR_SERIAL],
+            msg_auth_code=data.get(CONF_CAM_VERIFICATION_2FA_CODE),
+            sender_type=0 if data.get(CONF_CAM_VERIFICATION_2FA_CODE) else 3,
+        )
+
+    except EzvizAuthVerificationCode as err:
+        ezviz_client.get_2fa_check_code(username=data["cloud_account_username"])
+        raise EzvizAuthVerificationCode from err
 
 
 def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
     """Get camera encryption key."""
     _LOGGER.warning("Getting camera encryption key for %s", data[ATTR_SERIAL])
-    return ezviz_client.get_cam_key(data[ATTR_SERIAL], smscode=data.get("sms_code"))
+    try:
+        return ezviz_client.get_cam_key(
+            data[ATTR_SERIAL], smscode=data.get(CONF_CAM_ENC_2FA_CODE)
+        )
+
+    except EzvizAuthVerificationCode as err:
+        ezviz_client.get_2fa_check_code(
+            username=data["cloud_account_username"], biz_type="DEVICE_ENCRYPTION"
+        )
+        raise EzvizAuthVerificationCode from err
 
 
 class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -145,6 +166,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             domain=DOMAIN, include_ignore=False
         ):
             if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
+                data["cloud_account_username"] = item.data[CONF_USERNAME]
                 self.ezviz_client = self.hass.data[DOMAIN][item.entry_id][
                     DATA_COORDINATOR
                 ].ezviz_client
@@ -153,19 +175,20 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.ezviz_client is None:
             return self.async_abort(reason="ezviz_cloud_account_missing")
 
-        # Fetch encryption key and camera sticker code from ezviz api. 2FA code is required for this to work.
+        # Fetch encryption key. 2FA code is required for this to work.
         if data[CONF_ENC_KEY] == "fetch_my_key":
             data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
                 _get_cam_enc_key, data, self.ezviz_client
             )
-            _LOGGER.warning("Fetched camera encryption key for %s", data[CONF_ENC_KEY])
+            _LOGGER.warning("Fetched camera encryption key for %s", data[ATTR_SERIAL])
 
+        # Fetch camera sticker code from ezviz api. 2FA code is required for this to work.
         if data[CONF_PASSWORD] == "fetch_my_key":
             data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
                 _get_cam_verification_code, data, self.ezviz_client
             )
             _LOGGER.warning(
-                "Fetched camera verification code for %s", data[CONF_PASSWORD]
+                "Fetched camera verification code for %s", data[ATTR_SERIAL]
             )
 
         if data[CONF_TEST_RTSP_CREDENTIALS]:
@@ -357,6 +380,9 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 return await self.async_step_confirm_2FA()
 
+            except DeviceException:
+                errors["base"] = "device_exception"
+
             except (PyEzvizError, AuthTestResultFailed):
                 errors["base"] = "invalid_auth"
 
@@ -407,8 +433,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             except (InvalidHost, InvalidURL):
                 errors["base"] = "invalid_host"
 
-            except EzvizAuthVerificationCode:
-                errors["base"] = "mfa_required"
+            except DeviceException:
+                errors["base"] = "device_exception"
 
             except (PyEzvizError, AuthTestResultFailed):
                 errors["base"] = "invalid_auth"
@@ -419,7 +445,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         discovered_camera_schema = vol.Schema(
             {
-                vol.Required("sms_code"): str,
+                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default=None): str,
+                vol.Optional(CONF_CAM_ENC_2FA_CODE, default=None): str,
             }
         )
 
