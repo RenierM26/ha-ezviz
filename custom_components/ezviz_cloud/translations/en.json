@@ -10,7 +10,8 @@
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
       "invalid_host": "Invalid hostname or IP address",
-      "mfa_required": "2FA enabled on account, please disable and retry"
+      "mfa_required": "2FA enabled on account, please disable and retry",
+      "device_exception": "Device exception, couldn't fetch key"
     },
     "flow_title": "{serial}",
     "step": {
@@ -18,10 +19,20 @@
         "data": {
           "password": "Password",
           "username": "Username",
+          "enc_key": "Encryption key",
+          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
           "test_rtsp_credentials": "Test RTSP credentials"
         },
         "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
         "title": "Discovered EZVIZ Camera"
+      },
+      "async_step_confirm_2FA": {
+        "title": "EZVIZ camera encryption key",
+        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
+        "data": {
+          "cam_verification_2fa_code": "DEVICE_AUTH_CODE 2FA code from email if required",
+          "cam_encryption_2fa_code": "DEVICE_ENCRYPTION 2FA code from email if required"
+        }
       },
       "reauth_confirm": {
         "data": {

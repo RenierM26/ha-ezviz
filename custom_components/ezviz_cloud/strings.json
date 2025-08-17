@@ -25,7 +25,17 @@
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
+          "enc_key": "Encryption key",
+          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
           "test_rtsp_credentials": "Test RTSP credentials"
+        }
+      },
+      "async_step_confirm_2FA": {
+        "title": "EZVIZ camera encryption key",
+        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
+        "data": {
+          "cam_verification_2fa_code": "DEVICE_AUTH_CODE 2FA code from email if required",
+          "cam_encryption_2fa_code": "DEVICE_ENCRYPTION 2FA code from email if required"
         }
       },
       "reauth_confirm": {
@@ -51,7 +61,8 @@
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "invalid_host": "[%key:common::config_flow::error::invalid_host%]",
-      "mfa_required": "2FA enabled on account, please disable and retry"
+      "mfa_required": "2FA enabled on account, please disable and retry",
+      "device_exception": "Device exception, couldn't fetch key"
     },
     "abort": {
       "already_configured_account": "[%key:common::config_flow::abort::already_configured_account%]",
