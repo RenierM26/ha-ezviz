@@ -124,6 +124,22 @@ SELECT_TYPE = (
         value: ezviz_client.set_night_vision_mode(serial, value),
     ),
     EzvizSelectEntityDescription(
+        key="smart_night_vision_model_battery",
+        translation_key="smart_night_vision_model_battery",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "night_vision_b_w",
+            "night_vision_smart",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value=["7"],
+        option_range=[0, 2],
+        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        set_current_option=lambda ezviz_client,
+        serial,
+        value: ezviz_client.set_night_vision_mode(serial, value),
+    ),
+    EzvizSelectEntityDescription(
         key="advanced_detect_human_car_pir",
         translation_key="advanced_detect_human_car_pir",
         entity_category=EntityCategory.CONFIG,

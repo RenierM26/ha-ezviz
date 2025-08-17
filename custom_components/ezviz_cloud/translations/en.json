@@ -164,6 +164,13 @@
           "night_vision_smart": "Smart mode"
         }
       },
+      "smart_night_vision_model_battery": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
+          "night_vision_smart": "Smart mode"
+        }
+      },
       "advanced_detect_human_car_pir": {
         "name": "Detection mode",
         "state": {
