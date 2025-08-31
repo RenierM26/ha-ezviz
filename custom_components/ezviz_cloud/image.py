@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from propcache import cached_property
+from propcache.api import cached_property
 from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
@@ -14,6 +14,7 @@ from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -65,6 +66,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             else None
         )
         self.cam_key_entity_id: str | None = None
+        self._unsub_dispatcher = None
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -74,6 +76,16 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         self.cam_key_entity_id = entity_registry.async_get_entity_id(
             TEXT_PLATFORM, DOMAIN, f"{self._serial}_camera_enc_key"
         )
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            f"{DOMAIN}_event_{self._serial}",
+            self._handle_push_event,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Run when entity about to be removed."""
+        if self._unsub_dispatcher:
+            self._unsub_dispatcher()
 
     @cached_property
     def available(self) -> bool:
@@ -100,6 +112,19 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 content_type="image/jpeg",  # Actually returns binary/octet-stream
             )
         return None
+
+    @callback
+    def _handle_push_event(self, event: dict):
+        """Handle push event and refresh the snapshot entity."""
+        if event["ext"]["image"]:
+            _LOGGER.debug("Push update for snapshot [%s]: %s", self._serial, event)
+            # Drop cached image, HA will call async_image later
+            self._attr_image_url = event["ext"]["image"]
+            self._cached_image = None
+            self._attr_image_last_updated = dt_util.parse_datetime(
+                str(event["ext"]["time"])
+            )
+            self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:

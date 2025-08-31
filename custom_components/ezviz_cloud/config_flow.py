@@ -47,6 +47,7 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
     CONF_TEST_RTSP_CREDENTIALS,
+    CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -102,7 +103,7 @@ def _get_cam_verification_code(data: dict, ezviz_client: EzvizClient) -> Any:
         )
 
     except EzvizAuthVerificationCode as err:
-        ezviz_client.get_2fa_check_code(username=data["cloud_account_username"])
+        ezviz_client.get_2fa_check_code(username=data["cloud_account_username"], biz_type="DEVICE_AUTH_CODE")
         raise EzvizAuthVerificationCode from err
 
 
@@ -115,9 +116,7 @@ def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
         )
 
     except EzvizAuthVerificationCode as err:
-        ezviz_client.get_2fa_check_code(
-            username=data["cloud_account_username"], biz_type="DEVICE_ENCRYPTION"
-        )
+        # Triggers sending of 2FA code, no need to request.
         raise EzvizAuthVerificationCode from err
 
 
@@ -156,6 +155,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_SESSION_ID: ezviz_token[CONF_SESSION_ID],
             CONF_RF_SESSION_ID: ezviz_token[CONF_RF_SESSION_ID],
             CONF_URL: ezviz_token["api_url"],
+            CONF_USER_ID: ezviz_token["username"],
             CONF_TYPE: ATTR_TYPE_CLOUD,
         }
 
@@ -445,8 +445,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         discovered_camera_schema = vol.Schema(
             {
-                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default=None): str,
-                vol.Optional(CONF_CAM_ENC_2FA_CODE, default=None): str,
+                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default="1234"): str,
+                vol.Optional(CONF_CAM_ENC_2FA_CODE, default="1234"): str,
             }
         )
 

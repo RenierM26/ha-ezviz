@@ -16,6 +16,7 @@ CONF_TEST_RTSP_CREDENTIALS = "test_rtsp_credentials"
 CONF_RTSP_USES_VERIFICATION_CODE = "rtsp_uses_verification_code"
 CONF_CAM_VERIFICATION_2FA_CODE = "cam_verification_2fa_code"
 CONF_CAM_ENC_2FA_CODE = "cam_encryption_2fa_code"
+CONF_USER_ID = "user_id"
 
 # Service names
 SERVICE_WAKE_DEVICE = "wake_device"
