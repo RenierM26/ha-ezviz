@@ -22,6 +22,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
@@ -78,7 +79,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Initialize EZVIZ cloud entities
     if PLATFORMS_BY_TYPE[sensor_type]:
-
         # Reauth if user_id or session_id is missing
         if not entry.data.get(CONF_USER_ID) or not entry.data.get(CONF_SESSION_ID):
             raise ConfigEntryAuthFailed("Need to reauthenticate")
@@ -114,7 +114,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await coordinator.async_config_entry_first_refresh()
 
-        hass.data[DOMAIN][entry.entry_id] = {DATA_COORDINATOR: coordinator, "mqtt": mqtt_handler}
+        hass.data[DOMAIN][entry.entry_id] = {
+            DATA_COORDINATOR: coordinator,
+            "mqtt": mqtt_handler,
+        }
 
     # Check EZVIZ cloud account entity is present, reload cloud account entities for camera entity change to take effect.
     # Cameras are accessed via local RTSP stream with unique credentials per camera.
@@ -143,7 +146,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry, PLATFORMS_BY_TYPE[sensor_type]
     )
     if sensor_type == ATTR_TYPE_CLOUD and unload_ok:
-        await hass.async_add_executor_job(hass.data[DOMAIN][entry.entry_id]["mqtt"].stop)
+        await hass.async_add_executor_job(
+            hass.data[DOMAIN][entry.entry_id]["mqtt"].stop
+        )
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
@@ -174,12 +179,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     return True
 
+
 class EzvizMqttHandler:
     """Wrapper for MQTT client to forward Ezviz push events into HA."""
 
     def __init__(self, hass: HomeAssistant, client: EzvizClient) -> None:
+        """Initialize EZVIZ MQTT handler."""
         self._hass = hass
-        self._mqtt: MQTTClient | None = client.get_mqtt_client(on_message_callback=self._on_message)
+        self._mqtt: MQTTClient = client.get_mqtt_client(
+            on_message_callback=self._on_message
+        )
 
     def start(self) -> None:
         """Start MQTT listener."""
@@ -188,24 +197,37 @@ class EzvizMqttHandler:
 
     def stop(self) -> None:
         """Stop MQTT listener."""
-        if self._mqtt:
-            self._mqtt.stop()
-            self._mqtt = None
-            _LOGGER.debug("EZVIZ MQTT stopped")
+        self._mqtt.stop()
+        _LOGGER.debug("EZVIZ MQTT stopped")
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""
 
-        def _handle():
-            # Fire HA event (optional for automations)
+        def _handle() -> None:
+            """Handle incoming MQTT push message."""
             serial = event["ext"]["device_serial"]
+            ha_device_id = None
 
-            self._hass.bus.async_fire("ezviz_push_event", {
-                "device_serial": serial,
-                "event": event
-            })
+            # Access device registry
+            device_registry = dr.async_get(self._hass)
 
+            # Look up the device by identifiers (DOMAIN, serial)
+            device = device_registry.async_get_device({(DOMAIN, serial)})
+            if device:
+                ha_device_id = device.id
+
+            # Add device ID to event
+            event["device_id"] = ha_device_id
+
+            _LOGGER.debug(
+                "MQTT push: serial=%s resolved device_id=%s",
+                serial,
+                ha_device_id,
+            )
+
+            # Fire HA event
+            self._hass.bus.async_fire("ezviz_push_event", event)
             async_dispatcher_send(self._hass, f"{DOMAIN}_event_{serial}", event)
 
-        # Ensure everything runs inside HA event loop
+        # Schedule on HA event loop
         self._hass.loop.call_soon_threadsafe(_handle)
