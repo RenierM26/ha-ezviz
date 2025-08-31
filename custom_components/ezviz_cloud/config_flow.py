@@ -435,6 +435,7 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
             except DeviceException:
                 errors["base"] = "device_exception"
+                return await self.async_step_confirm()
 
             except (PyEzvizError, AuthTestResultFailed):
                 errors["base"] = "invalid_auth"
