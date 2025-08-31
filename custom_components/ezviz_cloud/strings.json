@@ -30,7 +30,7 @@
           "test_rtsp_credentials": "Test RTSP credentials"
         }
       },
-      "async_step_confirm_2FA": {
+      "confirm_2FA": {
         "title": "EZVIZ camera encryption key",
         "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
         "data": {
