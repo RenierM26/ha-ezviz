@@ -445,8 +445,8 @@ class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
 
         discovered_camera_schema = vol.Schema(
             {
-                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default="1234"): str,
-                vol.Optional(CONF_CAM_ENC_2FA_CODE, default="1234"): str,
+                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default=""): str,
+                vol.Optional(CONF_CAM_ENC_2FA_CODE, default=""): str,
             }
         )
 
