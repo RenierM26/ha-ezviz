@@ -7,9 +7,9 @@ from pyezvizapi.mqtt import MQTTClient
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import DOMAIN
+from .const import DATA_COORDINATOR, DOMAIN
+from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,12 +17,16 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizMqttHandler:
     """Wrapper for MQTT client to forward Ezviz push events into HA."""
 
-    def __init__(self, hass: HomeAssistant, client: EzvizClient) -> None:
+    def __init__(self, hass: HomeAssistant, client: EzvizClient, entry_id: str) -> None:
         """Initialize EZVIZ MQTT handler."""
+        self._entry_id = entry_id
         self._hass = hass
         self._mqtt: MQTTClient = client.get_mqtt_client(
             on_message_callback=self._on_message
         )
+        self._coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][
+            self._entry_id
+        ][DATA_COORDINATOR]
 
     def start(self) -> None:
         """Start MQTT listener."""
@@ -59,9 +63,12 @@ class EzvizMqttHandler:
                 ha_device_id,
             )
 
+            # Merge event data into coordinator
+            self._coordinator.merge_mqtt_update(serial, event)
+            # async_dispatcher_send(self._hass, f"{DOMAIN}_event_{serial}", event)
+
             # Fire HA event
             self._hass.bus.async_fire("ezviz_push_event", event)
-            async_dispatcher_send(self._hass, f"{DOMAIN}_event_{serial}", event)
 
         # Schedule on HA event loop
         self._hass.loop.call_soon_threadsafe(_handle)

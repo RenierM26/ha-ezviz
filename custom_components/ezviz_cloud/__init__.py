@@ -103,12 +103,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"Unable to connect to Ezviz service: {error}"
             ) from error
 
-        mqtt_handler = EzvizMqttHandler(hass, ezviz_client)
-        await hass.async_add_executor_job(mqtt_handler.start)
-
         coordinator = EzvizDataUpdateCoordinator(
             hass, api=ezviz_client, api_timeout=entry.options[CONF_TIMEOUT]
         )
+
+        mqtt_handler = EzvizMqttHandler(hass, ezviz_client, entry.entry_id)
+        await hass.async_add_executor_job(mqtt_handler.start)
 
         await coordinator.async_config_entry_first_refresh()
 
