@@ -30,3 +30,4 @@ DEFAULT_FFMPEG_ARGUMENTS = "/Streaming/Channels/102"
 
 # Data
 DATA_COORDINATOR = "coordinator"
+MQTT_HANDLER = "mqtt_handler"

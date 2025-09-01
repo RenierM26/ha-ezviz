@@ -10,7 +10,6 @@ from pyezvizapi.exceptions import (
     InvalidURL,
     PyEzvizError,
 )
-from pyezvizapi.mqtt import MQTTClient
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -22,8 +21,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     ATTR_TYPE_CAMERA,
@@ -38,8 +35,10 @@ from .const import (
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    MQTT_HANDLER,
 )
 from .coordinator import EzvizDataUpdateCoordinator
+from .mqtt import EzvizMqttHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -105,7 +104,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ) from error
 
         mqtt_handler = EzvizMqttHandler(hass, ezviz_client)
-
         await hass.async_add_executor_job(mqtt_handler.start)
 
         coordinator = EzvizDataUpdateCoordinator(
@@ -116,7 +114,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.data[DOMAIN][entry.entry_id] = {
             DATA_COORDINATOR: coordinator,
-            "mqtt": mqtt_handler,
+            MQTT_HANDLER: mqtt_handler,
         }
 
     # Check EZVIZ cloud account entity is present, reload cloud account entities for camera entity change to take effect.
@@ -147,7 +145,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     if sensor_type == ATTR_TYPE_CLOUD and unload_ok:
         await hass.async_add_executor_job(
-            hass.data[DOMAIN][entry.entry_id]["mqtt"].stop
+            hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].stop
         )
         hass.data[DOMAIN].pop(entry.entry_id)
 
@@ -178,56 +176,3 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     return True
-
-
-class EzvizMqttHandler:
-    """Wrapper for MQTT client to forward Ezviz push events into HA."""
-
-    def __init__(self, hass: HomeAssistant, client: EzvizClient) -> None:
-        """Initialize EZVIZ MQTT handler."""
-        self._hass = hass
-        self._mqtt: MQTTClient = client.get_mqtt_client(
-            on_message_callback=self._on_message
-        )
-
-    def start(self) -> None:
-        """Start MQTT listener."""
-        self._mqtt.connect()
-        _LOGGER.debug("EZVIZ MQTT started")
-
-    def stop(self) -> None:
-        """Stop MQTT listener."""
-        self._mqtt.stop()
-        _LOGGER.debug("EZVIZ MQTT stopped")
-
-    def _on_message(self, event: dict) -> None:
-        """Handle incoming MQTT push message (called from MQTT thread)."""
-
-        def _handle() -> None:
-            """Handle incoming MQTT push message."""
-            serial = event["ext"]["device_serial"]
-            ha_device_id = None
-
-            # Access device registry
-            device_registry = dr.async_get(self._hass)
-
-            # Look up the device by identifiers (DOMAIN, serial)
-            device = device_registry.async_get_device({(DOMAIN, serial)})
-            if device:
-                ha_device_id = device.id
-
-            # Add device ID to event
-            event["device_id"] = ha_device_id
-
-            _LOGGER.debug(
-                "MQTT push: serial=%s resolved device_id=%s",
-                serial,
-                ha_device_id,
-            )
-
-            # Fire HA event
-            self._hass.bus.async_fire("ezviz_push_event", event)
-            async_dispatcher_send(self._hass, f"{DOMAIN}_event_{serial}", event)
-
-        # Schedule on HA event loop
-        self._hass.loop.call_soon_threadsafe(_handle)
