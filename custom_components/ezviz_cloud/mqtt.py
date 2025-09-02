@@ -67,7 +67,6 @@ class EzvizMqttHandler:
 
             # Merge event data into coordinator
             self._coordinator.merge_mqtt_update(serial, event)
-            # async_dispatcher_send(self._hass, f"{DOMAIN}_event_{serial}", event)
 
             # Fire HA event
             self._hass.bus.async_fire("ezviz_push_event", event)
