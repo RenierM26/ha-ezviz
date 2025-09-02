@@ -48,3 +48,24 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
 
         except (InvalidURL, HTTPError, PyEzvizError) as error:
             raise UpdateFailed(f"Invalid response from API: {error}") from error
+
+    def merge_mqtt_update(self, serial: str, mqtt_data: dict) -> None:
+        """Merge MQTT update data into the coordinator."""
+
+        # Make sure coordinator has a dict for this device
+        if serial not in self.data:
+            self.data[serial] = {}
+
+        # Update Image entity and corresponding sensor attibutes
+        ext = mqtt_data["ext"]
+        if ext.get("image"):
+            self.data[serial].update(
+                last_alarm_type_code=ext.get("alert_type_code"),
+                last_alarm_time=ext.get("time"),
+                last_alarm_pic=ext.get("image"),
+                last_alarm_type_name=mqtt_data.get("alert"),
+                Motion_Trigger=True,
+            )
+
+        # Important: broadcast a *new* top-level dict so listeners update
+        self.async_set_updated_data(dict(self.data))
