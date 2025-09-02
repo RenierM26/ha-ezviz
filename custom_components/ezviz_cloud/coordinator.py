@@ -64,6 +64,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
                 last_alarm_time=ext.get("time"),
                 last_alarm_pic=ext.get("image"),
                 last_alarm_type_name=mqtt_data.get("alert"),
+                Motion_Trigger=True,
             )
 
         # Important: broadcast a *new* top-level dict so listeners update
