@@ -17,20 +17,22 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizMqttHandler:
     """Wrapper for MQTT client to forward Ezviz push events into HA."""
 
+    _coordinator: EzvizDataUpdateCoordinator
+
     def __init__(self, hass: HomeAssistant, client: EzvizClient, entry_id: str) -> None:
         """Initialize EZVIZ MQTT handler."""
-        self._entry_id = entry_id
+        self._entry = entry_id
         self._hass = hass
         self._mqtt: MQTTClient = client.get_mqtt_client(
             on_message_callback=self._on_message
         )
-        self._coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][
-            self._entry_id
-        ][DATA_COORDINATOR]
 
     def start(self) -> None:
         """Start MQTT listener."""
         self._mqtt.connect()
+        self._coordinator: EzvizDataUpdateCoordinator = self._hass.data[DOMAIN][
+            self._entry
+        ][DATA_COORDINATOR]
         _LOGGER.debug("EZVIZ MQTT started")
 
     def stop(self) -> None:

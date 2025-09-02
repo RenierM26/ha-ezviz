@@ -57,7 +57,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             self.data[serial] = {}
 
         # Update Image entity and corresponding sensor attibutes
-        ext = mqtt_data.get("ext") or {}
+        ext = mqtt_data["ext"]
         if ext.get("image"):
             self.data[serial].update(
                 last_alarm_type_code=ext.get("alert_type_code"),

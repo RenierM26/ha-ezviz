@@ -1,6 +1,7 @@
 """Support for EZVIZ camera."""
 
 import logging
+from typing import Any
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.exceptions import (
@@ -17,6 +18,7 @@ from homeassistant.const import (
     CONF_TIMEOUT,
     CONF_TYPE,
     CONF_URL,
+    EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
 from homeassistant.core import HomeAssistant
@@ -108,14 +110,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         mqtt_handler = EzvizMqttHandler(hass, ezviz_client, entry.entry_id)
-        await hass.async_add_executor_job(mqtt_handler.start)
-
         await coordinator.async_config_entry_first_refresh()
 
         hass.data[DOMAIN][entry.entry_id] = {
             DATA_COORDINATOR: coordinator,
             MQTT_HANDLER: mqtt_handler,
         }
+
+        # Only start after coordinator is stored in hass.data
+        await hass.async_add_executor_job(
+            hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].start
+        )
+
+        async def _shutdown(event: Any) -> None:
+            """Cleanup Ezviz MQTT when HA stops."""
+            await hass.async_add_executor_job(
+                hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].stop
+            )
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
 
     # Check EZVIZ cloud account entity is present, reload cloud account entities for camera entity change to take effect.
     # Cameras are accessed via local RTSP stream with unique credentials per camera.
