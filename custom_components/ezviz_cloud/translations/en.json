@@ -1,131 +1,134 @@
 {
+  "title": "EZVIZ Cloud",
   "config": {
-    "abort": {
-      "already_configured_account": "Account is already configured",
-      "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure Ezviz cloud account",
-      "reauth_successful": "Re-authentication was successful",
-      "unknown": "Unexpected error"
+    "flow_title": "{serial}",
+    "step": {
+      "user": {
+        "title": "Connect EZVIZ Cloud",
+        "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the host (without https://).",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "region": "Region",
+          "url": "Host",
+          "timeout": "Timeout"
+        }
+      },
+      "user_custom_url": {
+        "title": "Connect to custom EZVIZ URL",
+        "description": "Manually specify your region URL (hostname only, no https://).",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "url": "Host"
+        }
+      },
+      "user_mfa_confirm": {
+        "title": "Two-factor verification required",
+        "description": "Enter the SMS verification code sent by EZVIZ.",
+        "data": {
+          "sms_code": "Code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for an SMS code next.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_mfa": {
+        "title": "Re-authenticate: SMS code",
+        "description": "Enter the SMS verification code to finish re-authentication.",
+        "data": {
+          "sms_code": "Code"
+        }
+      }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "invalid_host": "Invalid hostname or IP address",
-      "mfa_required": "2FA enabled on account, please disable and retry",
-      "device_exception": "Device exception, couldn't fetch key"
+      "invalid_host": "Invalid host",
+      "invalid_url": "Custom API host is invalid. Enter a hostname without https:// or trailing slash.",
+      "mfa_required": "Multi-factor authentication required, please enter the code",
+      "device_exception": "Device exception, couldn't fetch key",
+      "verification_required": "Verification code required or invalid. Please try again.",
+      "unknown": "Unknown error"
     },
-    "flow_title": "{serial}",
+    "abort": {
+      "already_configured_account": "Account already configured",
+      "reauth_successful": "Re-authentication successful",
+      "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure",
+      "no_cameras": "No cameras were found for this account.",
+      "unknown": "Unknown error"
+    }
+  },
+  "options": {
     "step": {
-      "confirm": {
-        "data": {
-          "password": "Password",
-          "username": "Username",
-          "enc_key": "Encryption key",
-          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
-          "test_rtsp_credentials": "Test RTSP credentials"
-        },
-        "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
-        "title": "Discovered EZVIZ Camera"
-      },
-      "confirm_2FA": {
-        "title": "EZVIZ camera encryption key",
-        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
-        "data": {
-          "cam_verification_2fa_code": "DEVICE_AUTH_CODE 2FA code from email if required",
-          "cam_encryption_2fa_code": "DEVICE_ENCRYPTION 2FA code from email if required"
+      "init": {
+        "title": "EZVIZ Options",
+        "description": "Configure cloud or camera options.",
+        "menu_options": {
+          "cloud": "Cloud Settings",
+          "camera_select": "Camera Settings"
         }
       },
-      "reauth_confirm": {
+      "cloud": {
+        "title": "Cloud Settings",
+        "description": "Set default options for the EZVIZ cloud account.",
         "data": {
-          "password": "Password",
-          "username": "Username"
-        },
-        "description": "Enter credentials to reauthenticate to ezviz cloud account",
-        "title": "Authentication expired for {name}"
+          "timeout": "Timeout"
+        }
       },
-      "reauth_mfa": {
+      "camera": {
+        "title": "Select Camera",
+        "description": "Choose a camera to configure.",
         "data": {
-          "sms_code": "MFA Code"
-        },
-        "description": "Enter MFA code to authenticate ezviz cloud account",
-        "title": "EZVIZ Cloud MFA Authentication"
+          "serial": "Camera"
+        }
       },
-      "user": {
-        "data": {
-          "password": "Password",
-          "url": "URL",
-          "username": "Username"
-        },
-        "title": "Connect to EZVIZ Cloud"
+      "camera_select": {
+        "title": "Select a camera",
+        "description": "Choose a camera to edit."
       },
-      "user_custom_url": {
+      "camera_edit": {
+        "title": "Camera settings",
+        "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
         "data": {
-          "password": "Password",
-          "url": "URL",
-          "username": "Username"
-        },
-        "description": "Manually specify your region URL",
-        "title": "Connect to custom EZVIZ URL"
+          "username": "Username",
+          "password": "Verification code (older cams) or leave “fetch_my_key”",
+          "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+          "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
+          "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
+          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)"
+        }
       },
-      "user_mfa_confirm": {
+      "camera_edit_2fa": {
+        "title": "One-time codes",
+        "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
         "data": {
-          "sms_code": "MFA Code"
-        },
-        "description": "Enter MFA code to authenticate ezviz cloud account",
-        "title": "EZVIZ Cloud MFA Authentication"
+          "cam_verification_2fa_code": "Code (for sticker/verification key)",
+          "cam_encryption_2fa_code": "Code (for encryption key)"
+        }
       }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "device_exception": "Device exception, couldn't fetch key",
+      "verification_required": "Verification code required or invalid. Please try again.",
+      "unknown": "Unknown error",
+      "rtsp_auth_failed": "Invalid authentication"
     }
   },
   "entity": {
-    "binary_sensor": {
-      "alarm_schedules_enabled": {
-        "name": "Alarm schedules enabled"
-      },
-      "encrypted": {
-        "name": "Encryption"
-      }
-    },
-    "button": {
-      "ptz_down": {
-        "name": "PTZ down"
-      },
-      "ptz_left": {
-        "name": "PTZ left"
-      },
-      "ptz_right": {
-        "name": "PTZ right"
-      },
-      "ptz_up": {
-        "name": "PTZ up"
-      },
-      "restart_device": {
-        "name": "Restart"
-      },
-      "flip_image": {
-        "name": "Flip camera image"
-      }
-    },
-    "image": {
-      "last_motion_image": {
-        "name": "Last motion image"
-      }
-    },
-    "light": {
-      "light": {
-        "name": "Light"
-      }
-    },
-    "number": {
-      "detection_sensibility": {
-        "name": "Detection sensitivity"
-      }
-    },
     "select": {
       "alarm_sound_mode": {
         "name": "Warning sound",
         "state": {
+          "soft": "Soft",
           "intensive": "Intensive",
-          "silent": "Silent",
-          "soft": "Soft"
+          "silent": "Silent"
         }
       },
       "battery_camera_work_mode": {
@@ -195,120 +198,86 @@
         }
       }
     },
-    "sensor": {
-      "alarm_sound_mod": {
-        "name": "Alarm sound level"
-      },
-      "last_alarm_pic": {
-        "name": "Last alarm picture URL"
-      },
-      "last_alarm_time": {
-        "name": "Last alarm time"
-      },
-      "last_alarm_type_code": {
-        "name": "Last alarm type code"
-      },
-      "last_alarm_type_name": {
-        "name": "Last alarm type name"
-      },
-      "local_ip": {
-        "name": "Local IP"
-      },
-      "pir_status": {
-        "name": "PIR status"
-      },
-      "seconds_last_trigger": {
-        "name": "Seconds since last trigger"
-      },
-      "supported_channels": {
-        "name": "Supported channels"
-      },
-      "wan_ip": {
-        "name": "WAN IP"
-      },
-      "last_offline_time": {
-        "name": "Last offline"
+    "image": {
+      "last_motion_image": {
+        "name": "Last motion image"
       }
+    },
+    "button": {
+      "ptz_up": { "name": "PTZ up" },
+      "ptz_down": { "name": "PTZ down" },
+      "ptz_left": { "name": "PTZ left" },
+      "ptz_right": { "name": "PTZ right" },
+      "restart_device": { "name": "Restart" },
+      "flip_image": { "name": "Flip camera image" }
+    },
+    "binary_sensor": {
+      "alarm_schedules_enabled": { "name": "Alarm schedules enabled" },
+      "encrypted": { "name": "Encryption" }
+    },
+    "light": {
+      "light": {
+        "name": "Light"
+      }
+    },
+    "number": {
+      "detection_sensibility": {
+        "name": "Detection sensitivity"
+      }
+    },
+    "sensor": {
+      "alarm_sound_mod": { "name": "Alarm sound level" },
+      "last_alarm_time": { "name": "Last alarm time" },
+      "seconds_last_trigger": { "name": "Seconds since last trigger" },
+      "last_alarm_pic": { "name": "Last alarm picture URL" },
+      "supported_channels": { "name": "Supported channels" },
+      "local_ip": { "name": "Local IP" },
+      "wan_ip": { "name": "WAN IP" },
+      "pir_status": { "name": "PIR status" },
+      "last_alarm_type_code": { "name": "Last alarm type code" },
+      "last_alarm_type_name": { "name": "Last alarm type name" },
+      "last_offline_time": { "name": "Last offline" }
+    },
+    "switch": {
+      "voice_prompt": { "name": "Voice prompt" },
+      "status_light": { "name": "Status light" },
+      "privacy": { "name": "Privacy" },
+      "infrared_light": { "name": "Infrared light" },
+      "sleep": { "name": "Sleep" },
+      "audio": { "name": "Audio" },
+      "motion_tracking": { "name": "Motion tracking" },
+      "all_day_video_recording": { "name": "All day video recording" },
+      "auto_sleep": { "name": "Auto sleep" },
+      "flicker_light_on_movement": { "name": "Flicker light on movement" },
+      "pir_motion_activated_light": { "name": "PIR motion activated light" },
+      "tamper_alarm": { "name": "Tamper alarm" },
+      "follow_movement": { "name": "Follow movement" },
+      "watermark": { "name": "Watermark on image" },
+      "encrypted": { "name": "Encryption" },
+      "push_notify_alarm": { "name": "Alarm push notification" },
+      "push_notify_call": { "name": "Call push notification" },
+      "offline_notify": { "name": "Offline notification" },
+      "motion_detection": { "name": "Motion detection" }
     },
     "siren": {
       "siren": {
         "name": "Siren"
       }
-    },
-    "switch": {
-      "all_day_video_recording": {
-        "name": "All day video recording"
-      },
-      "audio": {
-        "name": "Audio"
-      },
-      "auto_sleep": {
-        "name": "Auto sleep"
-      },
-      "flicker_light_on_movement": {
-        "name": "Flicker light on movement"
-      },
-      "follow_movement": {
-        "name": "Follow movement"
-      },
-      "watermark": {
-        "name": "Watermark on image"
-      },
-      "infrared_light": {
-        "name": "Infrared light"
-      },
-      "motion_tracking": {
-        "name": "Motion tracking"
-      },
-      "pir_motion_activated_light": {
-        "name": "PIR motion activated light"
-      },
-      "privacy": {
-        "name": "Privacy"
-      },
-      "sleep": {
-        "name": "Sleep"
-      },
-      "status_light": {
-        "name": "Status light"
-      },
-      "tamper_alarm": {
-        "name": "Tamper alarm"
-      },
-      "encrypted": {
-        "name": "Encryption"
-      },
-      "push_notify_alarm": {
-        "name": "Alarm push notification"
-      },
-      "push_notify_call": {
-        "name": "Call push notification"
-      },
-      "offline_notify": {
-        "name": "Offline notification"
-      },
-      "voice_prompt": {
-        "name": "Voice prompt"
-      },
-      "motion_detection": {
-        "name": "Motion detection"
-      }
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "data": {
-          "ffmpeg_arguments": "Arguments passed to ffmpeg for cameras",
-          "timeout": "Request Timeout (seconds)"
-        }
-      }
     }
   },
   "services": {
     "wake_device": {
-      "description": "This can be used to wake the camera/device from hibernation.",
-      "name": "Wake camera"
+      "name": "Wake camera",
+      "description": "This can be used to wake the camera/device from hibernation."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europe",
+        "ru": "Russia",
+        "custom": "Custom host"
+      }
     }
   }
 }

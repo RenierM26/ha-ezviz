@@ -1,84 +1,124 @@
 {
+  "title": "EZVIZ Cloud",
   "config": {
     "flow_title": "{serial}",
     "step": {
       "user": {
-        "title": "Connect to EZVIZ Cloud",
+        "title": "Connect EZVIZ Cloud",
+        "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the host (without https://).",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
-          "url": "[%key:common::config_flow::data::url%]"
+          "region": "Region",
+          "url": "[%key:common::config_flow::data::host%]",
+          "timeout": "[%key:common::config_flow::data::timeout%]"
         }
       },
       "user_custom_url": {
         "title": "Connect to custom EZVIZ URL",
-        "description": "Manually specify your region URL",
+        "description": "Manually specify your region URL (hostname only, no https://).",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
-          "url": "[%key:common::config_flow::data::url%]"
+          "url": "[%key:common::config_flow::data::host%]"
         }
       },
-      "confirm": {
-        "title": "Discovered EZVIZ Camera",
-        "description": "Enter RTSP credentials for EZVIZ camera {serial} with IP {ip_address}",
+      "user_mfa_confirm": {
+        "title": "Two-factor verification required",
+        "description": "Enter the SMS verification code sent by EZVIZ.",
         "data": {
-          "username": "[%key:common::config_flow::data::username%]",
-          "password": "[%key:common::config_flow::data::password%]",
-          "enc_key": "Encryption key",
-          "rtsp_uses_verification_code": "Camera uses sticker verification code for video stream",
-          "test_rtsp_credentials": "Test RTSP credentials"
-        }
-      },
-      "confirm_2FA": {
-        "title": "EZVIZ camera encryption key",
-        "description": "Enter MFA code to fetch encryption key for EZVIZ camera {serial} with IP {ip_address}",
-        "data": {
-          "cam_verification_2fa_code": "DEVICE_AUTH_CODE 2FA code from email if required",
-          "cam_encryption_2fa_code": "DEVICE_ENCRYPTION 2FA code from email if required"
+          "sms_code": "[%key:common::config_flow::data::code%]"
         }
       },
       "reauth_confirm": {
         "title": "[%key:common::config_flow::title::reauth%]",
-        "description": "Enter credentials to reauthenticate to ezviz cloud account",
+        "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for an SMS code next.",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]"
         }
       },
-      "user_mfa_confirm": {
-        "title": "EZVIZ Cloud MFA Authentication",
-        "description": "Enter MFA code to authenticate ezviz cloud account",
-        "data": { "sms_code": "MFA Code" }
-      },
       "reauth_mfa": {
-        "title": "EZVIZ Cloud MFA Authentication",
-        "description": "Enter MFA code to authenticate ezviz cloud account",
-        "data": { "sms_code": "MFA Code" }
+        "title": "Re-authenticate: SMS code",
+        "description": "Enter the SMS verification code to finish re-authentication.",
+        "data": {
+          "sms_code": "[%key:common::config_flow::data::code%]"
+        }
       }
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "invalid_host": "[%key:common::config_flow::error::invalid_host%]",
-      "mfa_required": "2FA enabled on account, please disable and retry",
-      "device_exception": "Device exception, couldn't fetch key"
+      "invalid_url": "Custom API host is invalid. Enter a hostname without https:// or trailing slash.",
+      "mfa_required": "Multi-factor authentication required, please enter the code",
+      "device_exception": "Device exception, couldn't fetch key",
+      "verification_required": "Verification code required or invalid. Please try again.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
       "already_configured_account": "[%key:common::config_flow::abort::already_configured_account%]",
-      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure Ezviz cloud account",
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+      "no_cameras": "No cameras were found for this account.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "EZVIZ Options",
+        "description": "Configure cloud or camera options.",
+        "menu_options": {
+          "cloud": "Cloud Settings",
+          "camera_select": "Camera Settings"
+        }
+      },
+      "cloud": {
+        "title": "Cloud Settings",
+        "description": "Set default options for the EZVIZ cloud account.",
         "data": {
-          "timeout": "Request Timeout (seconds)",
-          "ffmpeg_arguments": "Arguments passed to ffmpeg for cameras"
+          "timeout": "[%key:common::config_flow::data::timeout%]"
+        }
+      },
+      "camera": {
+        "title": "Select Camera",
+        "description": "Choose a camera to configure.",
+        "data": {
+          "serial": "Camera"
+        }
+      },
+      "camera_select": {
+        "title": "Select a camera",
+        "description": "Choose a camera to edit."
+      },
+      "camera_edit": {
+        "title": "Camera settings",
+        "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
+        "data": {
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "Verification code (older cams) or leave “fetch_my_key”",
+          "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+          "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
+          "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
+          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)"
+        }
+      },
+      "camera_edit_2fa": {
+        "title": "One-time codes",
+        "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
+        "data": {
+          "cam_verification_2fa_code": "[%key:common::config_flow::data::code%] (for sticker/verification key)",
+          "cam_encryption_2fa_code": "[%key:common::config_flow::data::code%] (for encryption key)"
         }
       }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "device_exception": "Device exception, couldn't fetch key",
+      "verification_required": "Verification code required or invalid. Please try again.",
+      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "rtsp_auth_failed": "[%key:common::config_flow::error::rtsp_auth_failed%]"
     }
   },
   "entity": {
@@ -158,7 +198,11 @@
         }
       }
     },
-    "image": { "last_motion_image": { "name": "Last motion image" } },
+    "image": {
+      "last_motion_image": {
+        "name": "Last motion image"
+      }
+    },
     "button": {
       "ptz_up": { "name": "PTZ up" },
       "ptz_down": { "name": "PTZ down" },
@@ -171,8 +215,16 @@
       "alarm_schedules_enabled": { "name": "Alarm schedules enabled" },
       "encrypted": { "name": "Encryption" }
     },
-    "light": { "light": { "name": "[%key:component::light::title%]" } },
-    "number": { "detection_sensibility": { "name": "Detection sensitivity" } },
+    "light": {
+      "light": {
+        "name": "[%key:component::light::title%]"
+      }
+    },
+    "number": {
+      "detection_sensibility": {
+        "name": "Detection sensitivity"
+      }
+    },
     "sensor": {
       "alarm_sound_mod": { "name": "Alarm sound level" },
       "last_alarm_time": { "name": "Last alarm time" },
@@ -207,12 +259,25 @@
       "offline_notify": { "name": "Offline notification" },
       "motion_detection": { "name": "Motion detection" }
     },
-    "siren": { "siren": { "name": "[%key:component::siren::title%]" } }
+    "siren": {
+      "siren": {
+        "name": "[%key:component::siren::title%]"
+      }
+    }
   },
   "services": {
     "wake_device": {
       "name": "Wake camera",
       "description": "This can be used to wake the camera/device from hibernation."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europe",
+        "ru": "Russia",
+        "custom": "Custom host"
+      }
     }
   }
 }
