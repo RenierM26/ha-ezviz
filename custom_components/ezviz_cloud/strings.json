@@ -1,26 +1,16 @@
 {
   "title": "EZVIZ Cloud",
   "config": {
-    "flow_title": "{serial}",
     "step": {
       "user": {
         "title": "Connect EZVIZ Cloud",
-        "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the host (without https://).",
+        "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the url (without https://).",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "[%key:common::config_flow::data::password%]",
           "region": "Region",
-          "url": "[%key:common::config_flow::data::host%]",
+          "url": "[%key:common::config_flow::data::url%]",
           "timeout": "[%key:common::config_flow::data::timeout%]"
-        }
-      },
-      "user_custom_url": {
-        "title": "Connect to custom EZVIZ URL",
-        "description": "Manually specify your region URL (hostname only, no https://).",
-        "data": {
-          "username": "[%key:common::config_flow::data::username%]",
-          "password": "[%key:common::config_flow::data::password%]",
-          "url": "[%key:common::config_flow::data::host%]"
         }
       },
       "user_mfa_confirm": {

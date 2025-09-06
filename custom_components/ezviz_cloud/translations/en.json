@@ -1,7 +1,6 @@
 {
   "title": "EZVIZ Cloud",
   "config": {
-    "flow_title": "{serial}",
     "step": {
       "user": {
         "title": "Connect EZVIZ Cloud",
@@ -10,17 +9,8 @@
           "username": "Username",
           "password": "Password",
           "region": "Region",
-          "url": "Host",
+          "url": "Url",
           "timeout": "Timeout"
-        }
-      },
-      "user_custom_url": {
-        "title": "Connect to custom EZVIZ URL",
-        "description": "Manually specify your region URL (hostname only, no https://).",
-        "data": {
-          "username": "Username",
-          "password": "Password",
-          "url": "Host"
         }
       },
       "user_mfa_confirm": {

@@ -58,8 +58,7 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    # Normalize all per-camera option keys once for robust lookups.
-    cams_opts: Mapping[str, dict[str, Any]] = entry.options.get(OPTIONS_KEY_CAMERAS, {})
+    cams_opts: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 
     entities: list[EzvizCamera] = []
     for serial in coordinator.data:
@@ -81,7 +80,9 @@ async def async_setup_entry(
             _LOGGER.warning(
                 "Camera %s missing RTSP password%s; stream may be unavailable until provided",
                 serial,
-                " (verification code expected in enc key)" if use_vc else "",
+                " (verification code expected for RTSP)"
+                if use_vc
+                else " (encryption code expected for RTSP)",
             )
 
         entities.append(
