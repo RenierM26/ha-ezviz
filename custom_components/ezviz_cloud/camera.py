@@ -39,14 +39,13 @@ from .const import (
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
     DOMAIN,
+    OPTIONS_KEY_CAMERAS,
     SERVICE_WAKE_DEVICE,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 
 _LOGGER = logging.getLogger(__name__)
-
-OPTIONS_KEY_CAMERAS = "cameras"
 
 
 async def async_setup_entry(

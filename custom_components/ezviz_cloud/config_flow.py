@@ -54,6 +54,7 @@ from .const import (
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    OPTIONS_KEY_CAMERAS,
     REGION_CUSTOM,
     REGION_EU,
     REGION_RU,
@@ -165,6 +166,12 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     _pending_user_url: str | None = None
     _pending_user_timeout: int = DEFAULT_TIMEOUT
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
+        """Get the options flow handler."""
+        return EzvizOptionsFlowHandler(config_entry)
+
     # --------------------------
     # Initial user setup (with MFA)
     # --------------------------
@@ -181,14 +188,13 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             username = user_input[CONF_USERNAME]
             password = user_input[CONF_PASSWORD]
-            # Resolve host from region/custom
+
             try:
                 api_url = _resolve_api_host(
                     user_input[CONF_REGION], user_input.get(CONF_URL)
                 )
             except vol.Invalid:
                 errors["base"] = "invalid_url"
-                # fall through to re-render the form
 
             timeout = user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
@@ -234,7 +240,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         },
                         options={
                             CONF_TIMEOUT: timeout,
-                            "cameras": {},  # per-camera settings only
+                            OPTIONS_KEY_CAMERAS: {},  # per-camera settings only
                         },
                     )
 
@@ -283,7 +289,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "verification_required"
             except (InvalidURL, HTTPError, PyEzvizError):
                 errors["base"] = "cannot_connect"
-            except Exception:  # pragma: no cover
+            except Exception:
                 _LOGGER.exception("Unexpected error during initial MFA")
                 errors["base"] = "unknown"
             else:
@@ -298,7 +304,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                     options={
                         CONF_TIMEOUT: timeout,
-                        "cameras": {},
+                        OPTIONS_KEY_CAMERAS: {},
                     },
                 )
 
@@ -332,7 +338,6 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect password and try login; may require 2FA."""
-        assert self._reauth_entry is not None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -388,7 +393,6 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect SMS code and complete reauth."""
-        assert self._reauth_entry is not None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -428,18 +432,6 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_mfa", data_schema=schema, errors=errors
         )
-
-    # Options flow entrypoint factory
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
-        """Get the options flow handler."""
-        return EzvizOptionsFlowHandler(config_entry)
-
-
-# -----------------------------------------------------------------------------
-# Options Flow (cloud + cameras)
-# -----------------------------------------------------------------------------
 
 
 class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
@@ -518,9 +510,9 @@ class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
     ) -> ConfigFlowResult:
         """Edit per-camera credentials; may branch to 2FA if EZVIZ requires it."""
         opts = dict(self.config_entry.options)
-        per_cam = opts.get("cameras", {}).get(self._cam_serial, {})
+        per_cam = opts.get(OPTIONS_KEY_CAMERAS, {}).get(self._cam_serial, {})
 
-        cam_info = self.coordinator.data.get(self._cam_serial, {})
+        cam_info = self.coordinator.data[self._cam_serial]
         inferred_ip = cam_info["local_ip"]
 
         errors: dict[str, str] = {}
@@ -549,7 +541,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
             try:
                 resolved = await self._test_rtsp_credentials(data)
 
-                cams_opts = opts.setdefault("cameras", {})
+                cams_opts = opts.setdefault(OPTIONS_KEY_CAMERAS, {})
                 cams_opts[self._cam_serial] = {
                     CONF_USERNAME: resolved[CONF_USERNAME],
                     # For older models, CONF_PASSWORD holds the sticker/verification code
@@ -631,7 +623,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
             return await self.async_step_camera_edit()
 
         opts = dict(self.config_entry.options)
-        per_cam = opts.get("cameras", {}).get(self._cam_serial, {})
+        per_cam = opts.get(OPTIONS_KEY_CAMERAS, {}).get(self._cam_serial, {})
 
         cam_info = self.coordinator.data.get(self._cam_serial, {})
         inferred_ip = cam_info["local_ip"]
@@ -651,7 +643,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
             try:
                 resolved = await self._test_rtsp_credentials(data)
 
-                cams_opts = opts.setdefault("cameras", {})
+                cams_opts = opts.setdefault(OPTIONS_KEY_CAMERAS, {})
                 cams_opts[self._cam_serial] = {
                     CONF_USERNAME: resolved[CONF_USERNAME],
                     CONF_PASSWORD: resolved[CONF_PASSWORD],
@@ -754,7 +746,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithConfigEntry):
                 )
                 _LOGGER.info("Fetched encryption key for camera %s", data[ATTR_SERIAL])
 
-            # Verification (sticker) code (older cam RTSP auth path)
+            # Verification (sticker) code (older cam RTSP auth)
             if data.get(CONF_PASSWORD) == "fetch_my_key":
                 data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
                     _get_cam_verification_code,

@@ -70,3 +70,4 @@ SERVICE_WAKE_DEVICE: Final = "wake_device"
 
 DATA_COORDINATOR: Final = "coordinator"
 MQTT_HANDLER: Final = "mqtt_handler"
+OPTIONS_KEY_CAMERAS: Final = "cameras"

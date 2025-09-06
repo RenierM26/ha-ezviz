@@ -48,6 +48,7 @@ from .const import (
     # Domain / keys
     DOMAIN,
     MQTT_HANDLER,
+    OPTIONS_KEY_CAMERAS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
@@ -70,7 +71,6 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
 ]
 
-OPTIONS_KEY_CAMERAS = "cameras"
 FETCH = "fetch_my_key"
 TARGET_VERSION = 4
 
