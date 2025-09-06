@@ -108,8 +108,8 @@
         "title": "One-time codes",
         "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
         "data": {
-          "cam_verification_2fa_code": "[%key:common::config_flow::data::code%] (for sticker/verification key)",
-          "cam_encryption_2fa_code": "[%key:common::config_flow::data::code%] (for encryption key)"
+          "cam_verification_2fa_code": "[%key:common::config_flow::data::code%]",
+          "cam_encryption_2fa_code": "[%key:common::config_flow::data::code%]"
         }
       }
     },
