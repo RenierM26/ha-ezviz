@@ -510,22 +510,24 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             try:
                 resolved = await self._test_rtsp_credentials(user_input)
 
-                cams_opts = opts.setdefault(OPTIONS_KEY_CAMERAS, {})
-                cams_opts[self._cam_serial] = {
+                base_opts = dict(self.config_entry.options or {})
+                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {})
+                cams_new = dict(cams_old)
+
+                cams_new[self._cam_serial] = {
                     CONF_USERNAME: resolved[CONF_USERNAME],
-                    # For older models, CONF_PASSWORD holds the sticker/verification code
                     CONF_PASSWORD: resolved[CONF_PASSWORD],
                     CONF_ENC_KEY: resolved[CONF_ENC_KEY],
                     CONF_RTSP_USES_VERIFICATION_CODE: resolved[
                         CONF_RTSP_USES_VERIFICATION_CODE
                     ],
-                    CONF_FFMPEG_ARGUMENTS: resolved.get(
-                        CONF_FFMPEG_ARGUMENTS,
-                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
-                    ),
+                    CONF_FFMPEG_ARGUMENTS: user_input[CONF_FFMPEG_ARGUMENTS],
                 }
 
-                return self.async_create_entry(title="", data=opts)
+                new_opts = dict(base_opts)
+                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+
+                return self.async_create_entry(title="", data=new_opts)
 
             except EzvizAuthVerificationCode:
                 self._pending = user_input
@@ -591,11 +593,11 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         if not self._pending:
             return await self.async_step_camera_edit()
 
-        opts = dict(self.config_entry.options)
-        per_cam = opts.get(OPTIONS_KEY_CAMERAS, {}).get(self._cam_serial, {})
+        opts = dict(self.config_entry.options or {})
+        per_cam = (opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(self._cam_serial, {})
 
-        cam_info = self.coordinator.data.get(self._cam_serial, {})
-        inferred_ip = cam_info["local_ip"]
+        cam_info = (self.coordinator.data or {}).get(self._cam_serial, {}) or {}
+        inferred_ip = cam_info.get("local_ip") or ""
 
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -606,14 +608,16 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 )
                 or None,
                 CONF_CAM_ENC_2FA_CODE: user_input.get(CONF_CAM_ENC_2FA_CODE) or None,
-                # ensure IP is present for any RTSP test
                 CONF_IP_ADDRESS: inferred_ip,
             }
             try:
                 resolved = await self._test_rtsp_credentials(data)
 
-                cams_opts = opts.setdefault(OPTIONS_KEY_CAMERAS, {})
-                cams_opts[self._cam_serial] = {
+                base_opts = dict(self.config_entry.options or {})
+                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
+                cams_new = dict(cams_old)
+
+                cams_new[self._cam_serial] = {
                     CONF_USERNAME: resolved[CONF_USERNAME],
                     CONF_PASSWORD: resolved[CONF_PASSWORD],
                     CONF_ENC_KEY: resolved[CONF_ENC_KEY],
@@ -625,11 +629,18 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                         per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
                     ),
                 }
+
+                new_opts = dict(base_opts)
+                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+
+                # Clear ephemerals
                 self._pending = None
                 self._prefill = None
-                return self.async_create_entry(title="", data=opts)
+
+                return self.async_create_entry(title="", data=new_opts)
 
             except EzvizAuthVerificationCode:
+                # Still needs a code
                 errors["base"] = "verification_required"
 
             except AuthTestResultFailed:
@@ -665,7 +676,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             except (InvalidURL, HTTPError, PyEzvizError):
                 errors["base"] = "cannot_connect"
 
-            except Exception:  # pragma: no cover
+            except Exception:
                 _LOGGER.exception("Unexpected error in camera_edit_2fa")
                 return self.async_abort(reason="unknown")
 
