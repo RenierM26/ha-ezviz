@@ -1,4 +1,4 @@
-"""Support EZVIZ camera devices (cloud-only model).
+"""Support EZVIZ camera devices.
 
 This module exposes Home Assistant camera entities based on data provided by the
 cloud-scoped EZVIZ config entry. There are no per-camera config entries or discovery
@@ -6,7 +6,7 @@ flows. Per-camera configuration is read from the cloud entry's options at:
 
     entry.options["cameras"][<SERIAL>]
 
-Where <SERIAL> is the canonical (uppercased, stripped) camera serial. The legacy
+Where <SERIAL> is the camera serial. The legacy
 option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 "/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
 """
@@ -49,22 +49,6 @@ _LOGGER = logging.getLogger(__name__)
 OPTIONS_KEY_CAMERAS = "cameras"
 
 
-def _norm_serial(value: Any) -> str:
-    """Return the canonical camera serial key (uppercased, stripped).
-
-    Parameters
-    ----------
-    value:
-        Raw serial value from coordinator data or options map.
-
-    Returns:
-    -------
-    str
-        Canonicalized serial.
-    """
-    return str(value).strip().upper()
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -76,27 +60,20 @@ async def async_setup_entry(
     ]
 
     # Normalize all per-camera option keys once for robust lookups.
-    cams_opts_raw: Mapping[str, dict[str, Any]] = entry.options.get(
-        OPTIONS_KEY_CAMERAS, {}
-    )
-    cams_opts: dict[str, dict[str, Any]] = {
-        _norm_serial(k): v for k, v in dict(cams_opts_raw).items()
-    }
+    cams_opts: Mapping[str, dict[str, Any]] = entry.options.get(OPTIONS_KEY_CAMERAS, {})
 
     entities: list[EzvizCamera] = []
     for serial in coordinator.data:
-        norm_serial = _norm_serial(serial)
-        per_cam: dict[str, Any] = cams_opts.get(norm_serial, {})
+        per_cam: dict[str, Any] = cams_opts.get(serial, {})
 
         username: str = per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME)
 
         use_vc: bool = bool(per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False))
-        enc_key: str | None = per_cam.get(CONF_ENC_KEY)
-        password: str = (enc_key if use_vc else per_cam.get(CONF_PASSWORD)) or ""
+        enc_key: str = per_cam.get(CONF_ENC_KEY, "")
+        password: str = enc_key if not use_vc else per_cam.get(CONF_PASSWORD, "")
 
-        rtsp_path: str = (
-            per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS) or ""
-        )
+        rtsp_path: str = per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS)
+
         if rtsp_path and not rtsp_path.startswith("/"):
             # Be lenient: if users saved path without leading slash, add it.
             rtsp_path = "/" + rtsp_path
@@ -104,7 +81,7 @@ async def async_setup_entry(
         if not password:
             _LOGGER.warning(
                 "Camera %s missing RTSP password%s; stream may be unavailable until provided",
-                norm_serial,
+                serial,
                 " (verification code expected in enc key)" if use_vc else "",
             )
 
@@ -112,7 +89,7 @@ async def async_setup_entry(
             EzvizCamera(
                 hass=hass,
                 coordinator=coordinator,
-                serial=norm_serial,  # canonical unique_id
+                serial=serial,  # canonical unique_id
                 camera_username=username,
                 camera_password=password,
                 rtsp_path=rtsp_path,
