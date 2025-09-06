@@ -70,20 +70,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up EZVIZ cameras for a cloud config entry.
-
-    This wires camera entities directly from the coordinator's in-memory device map
-    and the cloud entry's per-camera options. No discovery or per-camera entries.
-
-    Parameters
-    ----------
-    hass:
-        Home Assistant instance.
-    entry:
-        The cloud-scoped EZVIZ config entry.
-    async_add_entities:
-        Callback to register entities with Home Assistant.
-    """
+    """Set up EZVIZ cameras for a cloud config entry."""
     coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         DATA_COORDINATOR
     ]
@@ -142,11 +129,7 @@ async def async_setup_entry(
 
 
 class EzvizCamera(EzvizEntity, Camera):
-    """EZVIZ security camera entity.
-
-    The entity builds an RTSP URL from coordinator data (`local_ip`, `local_rtsp_port`)
-    and per-camera credentials/path taken from the cloud config entry options.
-    """
+    """EZVIZ security camera entity."""
 
     _attr_name: str | None = None
     _attr_supported_features: CameraEntityFeature = CameraEntityFeature.STREAM
