@@ -72,85 +72,7 @@ PLATFORMS: list[Platform] = [
 
 OPTIONS_KEY_CAMERAS = "cameras"
 FETCH = "fetch_my_key"
-TARGET_VERSION = 4  # must match config_flow.VERSION
-
-
-# --------------------------
-# Migration (strict; cloud consolidates + removes legacy cameras)
-# --------------------------
-
-
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate EZVIZ entries to v4 (no cross-domain handling)."""
-    if entry.version >= TARGET_VERSION:
-        return True
-
-    _LOGGER.debug("Migrating entry %s from v%s", entry.entry_id, entry.version)
-    etype = entry.data.get(CONF_TYPE)
-
-    # Legacy per-camera entries: cloud migration absorbs & removes them; no-op here.
-    if etype == ATTR_TYPE_CAMERA:
-        return True
-
-    if etype == ATTR_TYPE_CLOUD:
-        # Minimal options: timeout + cameras
-        prev_opts: dict[str, Any] = dict(entry.options or {})
-        cameras_map: dict[str, Any] = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
-        new_options: dict[str, Any] = {
-            CONF_TIMEOUT: prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
-            OPTIONS_KEY_CAMERAS: cameras_map,
-        }
-
-        # Gather legacy camera entries in the same domain
-        legacy_cam_entries = [
-            e
-            for e in hass.config_entries.async_entries(domain=DOMAIN)
-            if e.entry_id != entry.entry_id
-            and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
-        ]
-
-        # Strict consolidation: serial required, normalized, duplicates = error
-        for cam_entry in legacy_cam_entries:
-            serial = cam_entry.data[ATTR_SERIAL]  # strict: KeyError if missing
-            norm_serial = str(serial).strip().upper()
-            if norm_serial in cameras_map:
-                raise ValueError(
-                    f"Duplicate camera serial during migration: {norm_serial}"
-                )
-
-            cameras_map[norm_serial] = {
-                CONF_USERNAME: cam_entry.data.get(
-                    CONF_USERNAME, DEFAULT_CAMERA_USERNAME
-                ),
-                CONF_PASSWORD: cam_entry.data.get(CONF_PASSWORD, FETCH),
-                CONF_ENC_KEY: cam_entry.data.get(CONF_ENC_KEY, FETCH),
-                CONF_RTSP_USES_VERIFICATION_CODE: cam_entry.data.get(
-                    CONF_RTSP_USES_VERIFICATION_CODE, False
-                ),
-                CONF_FFMPEG_ARGUMENTS: cam_entry.options.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                ),
-            }
-
-        # Persist cloud options and bump only the cloud entry
-        hass.config_entries.async_update_entry(
-            entry, options=new_options, version=TARGET_VERSION
-        )
-
-        # Remove legacy camera entries (same domain)
-        for cam_entry in legacy_cam_entries:
-            await hass.config_entries.async_remove(cam_entry.entry_id)
-
-        _LOGGER.info("Migrated cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
-        return True
-
-    _LOGGER.warning("Entry %s has unexpected type %s", entry.entry_id, etype)
-    return True
-
-
-# --------------------------
-# Setup / Unload
-# --------------------------
+TARGET_VERSION = 4
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -188,22 +110,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     try:
-        # Validate tokens; library may refresh them transparently
-        await hass.async_add_executor_job(client.login)
+        # Validate tokens; library will refresh them transparently
+        token = await hass.async_add_executor_job(client.login)
+
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
-        # Tokens invalid/expired → reauth flow
         raise ConfigEntryAuthFailed from err
+
     except (InvalidURL, HTTPError, PyEzvizError) as err:
         raise ConfigEntryNotReady(f"Unable to connect to Ezviz service: {err}") from err
 
     # Persist only if the library rotated session tokens
-    updated = getattr(client, "token", {}) or {}
     to_update: dict[str, Any] = {}
-    sid = updated.get(CONF_SESSION_ID)
-    if sid and sid != entry.data.get(CONF_SESSION_ID):
+    sid = token[CONF_SESSION_ID]
+    if sid and sid != entry.data[CONF_SESSION_ID]:
         to_update[CONF_SESSION_ID] = sid
-    rf = updated.get(CONF_RF_SESSION_ID)
-    if rf and rf != entry.data.get(CONF_RF_SESSION_ID):
+    rf = token[CONF_RF_SESSION_ID]
+    if rf and rf != entry.data[CONF_RF_SESSION_ID]:
         to_update[CONF_RF_SESSION_ID] = rf
     if to_update:
         hass.config_entries.async_update_entry(entry, data={**entry.data, **to_update})
@@ -254,3 +176,69 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         del hass.data[DOMAIN][entry.entry_id]
 
     return unload_ok
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate EZVIZ entries to v4 (no cross-domain handling)."""
+    if entry.version >= TARGET_VERSION:
+        return True
+
+    _LOGGER.debug("Migrating entry %s from v%s", entry.entry_id, entry.version)
+    etype = entry.data.get(CONF_TYPE)
+
+    # Legacy per-camera entries: cloud migration absorbs & removes them; no-op here.
+    if etype == ATTR_TYPE_CAMERA:
+        return True
+
+    if etype == ATTR_TYPE_CLOUD:
+        # Minimal options: timeout + cameras
+        prev_opts: dict[str, Any] = dict(entry.options or {})
+        cameras_map: dict[str, Any] = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
+        new_options: dict[str, Any] = {
+            CONF_TIMEOUT: prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+            OPTIONS_KEY_CAMERAS: cameras_map,
+        }
+
+        # Gather legacy camera entries in the same domain
+        legacy_cam_entries = [
+            e
+            for e in hass.config_entries.async_entries(domain=DOMAIN)
+            if e.entry_id != entry.entry_id
+            and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
+        ]
+
+        # Strict consolidation: serial required, normalized, duplicates = error
+        for cam_entry in legacy_cam_entries:
+            serial = cam_entry.data[ATTR_SERIAL]  # strict: KeyError if missing
+
+            if serial in cameras_map:
+                raise ValueError(f"Duplicate camera serial during migration: {serial}")
+
+            cameras_map[serial] = {
+                CONF_USERNAME: cam_entry.data.get(
+                    CONF_USERNAME, DEFAULT_CAMERA_USERNAME
+                ),
+                CONF_PASSWORD: cam_entry.data.get(CONF_PASSWORD, FETCH),
+                CONF_ENC_KEY: cam_entry.data.get(CONF_ENC_KEY, FETCH),
+                CONF_RTSP_USES_VERIFICATION_CODE: cam_entry.data.get(
+                    CONF_RTSP_USES_VERIFICATION_CODE, False
+                ),
+                CONF_FFMPEG_ARGUMENTS: cam_entry.options.get(
+                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                ),
+            }
+
+        # Persist cloud options and bump only the cloud entry
+        hass.config_entries.async_update_entry(
+            entry, options=new_options, version=TARGET_VERSION
+        )
+
+        # Remove legacy camera entries (same domain)
+        for cam_entry in legacy_cam_entries:
+            await hass.config_entries.async_remove(cam_entry.entry_id)
+
+        _LOGGER.info("Migrated cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
+        return True
+
+    _LOGGER.warning("Entry %s has unexpected type %s", entry.entry_id, etype)
+    return True
