@@ -8,7 +8,7 @@ flows. Per-camera configuration is read from the cloud entry's options at:
 
 Where <SERIAL> is the canonical (uppercased, stripped) camera serial. The legacy
 option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
-"/Streaming/Channels/101"). We keep this name for compatibility with existing setups.
+"/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
 """
 
 from __future__ import annotations
@@ -160,23 +160,7 @@ class EzvizCamera(EzvizEntity, Camera):
         camera_password: str,
         rtsp_path: str,
     ) -> None:
-        """Initialize the camera entity.
-
-        Parameters
-        ----------
-        hass:
-            Home Assistant instance.
-        coordinator:
-            EZVIZ data coordinator (provides `.data` and `.ezviz_client`).
-        serial:
-            Canonical camera serial used as unique_id.
-        camera_username:
-            Username for RTSP auth (often 'admin' or device user).
-        camera_password:
-            Password (or verification code when `CONF_RTSP_USES_VERIFICATION_CODE` is True).
-        rtsp_path:
-            RTSP path segment (e.g., '/Streaming/Channels/101').
-        """
+        """Initialize the camera entity."""
         super().__init__(coordinator, serial)
         Camera.__init__(self)
 
@@ -186,111 +170,69 @@ class EzvizCamera(EzvizEntity, Camera):
         self._password: str = camera_password
         self._rtsp_path: str = rtsp_path
         self._ffmpeg = get_ffmpeg_manager(hass)
-        self._client = self.coordinator.ezviz_client
-
-        # unique_id = canonical serial
         self._attr_unique_id = serial
-
-        # initial cache; rebuilt on demand
         self._rtsp_stream: str = self._build_rtsp()
-
-    # ----- helpers -----
 
     def _build_rtsp(self) -> str:
         """Build an RTSP URL from coordinator data and per-camera credentials.
 
         Returns:
-        -------
-        str
-            RTSP URL in the form:
-            'rtsp://<user>:<pass>@<ip>:<port><path>'
+            str
+            RTSP URL in the form:'rtsp://<user>:<pass>@<ip>:<port><path>'
         """
-        ip = str(self.data.get("local_ip", "") or "")
-        port = str(self.data.get("local_rtsp_port", "") or "")
+        ip = self.data["local_ip"]
+        port = self.data["local_rtsp_port"]
         path = self._rtsp_path or ""
         return f"rtsp://{self._username}:{self._password}@{ip}:{port}{path}"
 
-    # ----- HA camera entity surface -----
-
     @property
     def is_recording(self) -> bool:
-        """Return True if the device is currently recording.
-
-        Notes:
-        -----
-        This checks the `alarm_notify` flag as a proxy for defence/recording status,
-        mirroring previous behavior. Adjust if a more precise field is available.
-        """
-        return bool(self.data.get("alarm_notify"))
+        """Return True if the device is currently recording."""
+        return bool(self.data["alarm_notify"])
 
     @property
     def motion_detection_enabled(self) -> bool:
         """Return True if motion detection is enabled."""
-        return bool(self.data.get("alarm_notify"))
+        return bool(self.data["alarm_notify"])
 
     def enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
-            self._client().set_camera_defence(self._serial, 1)
+            self.coordinator.ezviz_client.set_camera_defence(self._serial, 1)
+
         except InvalidHost as err:
             raise InvalidHost("Error enabling motion detection") from err
 
     def disable_motion_detection(self) -> None:
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
-            self._client().set_camera_defence(self._serial, 0)
+            self.coordinator.ezviz_client.set_camera_defence(self._serial, 0)
+
         except InvalidHost as err:
             raise InvalidHost("Error disabling motion detection") from err
 
     async def async_camera_image(
-        self,
-        width: int | None = None,
-        height: int | None = None,
+        self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Return a single frame from the camera stream via ffmpeg.
-
-        Parameters
-        ----------
-        width, height:
-            Optional dimensions for the captured frame.
-
-        Returns:
-        -------
-        Optional[bytes]
-            Encoded image bytes, or None if unavailable.
-        """
+        """Return a single frame from the camera stream via ffmpeg."""
         return await ffmpeg.async_get_image(
             self.hass, self._build_rtsp(), width=width, height=height
         )
 
     async def stream_source(self) -> str:
-        """Return the RTSP stream source for HA's stream component.
-
-        Returns:
-        -------
-        str
-            RTSP URL.
-        """
-        self._rtsp_stream = self._build_rtsp()
+        """Return the RTSP stream source for HA's stream component."""
         _LOGGER.debug(
             "Configuring Camera %s with ip: %s rtsp port: %s path: %s",
             self._serial,
-            self.data.get("local_ip"),
-            self.data.get("local_rtsp_port"),
+            self.data["local_ip"],
+            self.data["local_rtsp_port"],
             self._rtsp_path,
         )
-        return self._rtsp_stream
+        return self._build_rtsp()
 
     def perform_wake_device(self) -> None:
-        """Wake/ping the camera using a lightweight API call.
-
-        Raises:
-        ------
-        PyEzvizError
-            If the device cannot be contacted.
-        """
+        """Wake/ping the camera using a lightweight API call."""
         try:
-            # Any light read is OK here; keep parity with previous behavior.
-            self._client().get_detection_sensibility(self._serial)
+            self.coordinator.ezviz_client.get_detection_sensibility(self._serial)
         except (HTTPError, PyEzvizError) as err:
             raise PyEzvizError("Cannot wake device") from err
