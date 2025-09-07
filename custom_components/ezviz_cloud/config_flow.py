@@ -1,31 +1,31 @@
-"""Config flow for EZVIZ."""
+"""Config + Options flow for EZVIZ Cloud integration (region-aware)."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.constants import DeviceCatagories
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
     DeviceException,
     EzvizAuthVerificationCode,
-    InvalidHost,
+    HTTPError,
     InvalidURL,
     PyEzvizError,
 )
 from pyezvizapi.test_cam_rtsp import TestRTSPAuth
 import voluptuous as vol
 
+from homeassistant import config_entries
 from homeassistant.config_entries import (
     ConfigEntry,
-    ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
 )
 from homeassistant.const import (
-    CONF_CUSTOMIZE,
     CONF_IP_ADDRESS,
     CONF_PASSWORD,
     CONF_TIMEOUT,
@@ -36,628 +36,774 @@ from homeassistant.const import (
 from homeassistant.core import callback
 
 from .const import (
+    # Camera fields
     ATTR_SERIAL,
-    ATTR_TYPE_CAMERA,
+    # Cloud entry
     ATTR_TYPE_CLOUD,
     CONF_CAM_ENC_2FA_CODE,
+    # One-time (never persisted) 2FA codes for device-level fetches
     CONF_CAM_VERIFICATION_2FA_CODE,
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,
+    CONF_FFMPEG_ARGUMENTS,  # per-camera: RTSP path (legacy name)
+    # Region support
+    CONF_REGION,
     CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
-    CONF_TEST_RTSP_CREDENTIALS,
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
+    DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
-    EU_URL,
-    RUSSIA_URL,
+    OPTIONS_KEY_CAMERAS,
+    REGION_CUSTOM,
+    REGION_EU,
+    REGION_RU,
+    REGION_URLS,
 )
+from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_OPTIONS = {
-    CONF_FFMPEG_ARGUMENTS: DEFAULT_FFMPEG_ARGUMENTS,
-    CONF_TIMEOUT: DEFAULT_TIMEOUT,
-}
+
+VERSION = 4  # keep in sync with __init__.py TARGET_VERSION
 
 
-def _test_camera_rtsp_creds(data: dict) -> None:
-    """Try DESCRIBE on RTSP camera with credentials."""
-
-    # First test with verification code, then try encryption key.
-    # Newer cameras use encryption key if set, older cameras use verification code.
-    if data[CONF_RTSP_USES_VERIFICATION_CODE]:
-        test_rtsp = TestRTSPAuth(
-            data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_PASSWORD]
-        )
-        test_rtsp.main()
-
-    else:
-        test_rtsp = TestRTSPAuth(
-            data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_ENC_KEY]
-        )
-        test_rtsp.main()
+# -----------------------------------------------------------------------------
+# Low-level helpers (run in executor)
+# -----------------------------------------------------------------------------
 
 
-def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
-    """Wake up hibernating camera and test."""
+def _normalize_api_host(value: str) -> str:
+    """Normalize an API host string (no scheme, no trailing slash/space)."""
+    v = (value or "").strip()
+    if v.startswith("http://"):
+        v = v[7:]
+    elif v.startswith("https://"):
+        v = v[8:]
+    return v.strip().strip("/")
 
-    # Wake hybernating camera.
-    ezviz_client.get_detection_sensibility(data[ATTR_SERIAL])
 
-    # Attempts an authenticated RTSP DESCRIBE request.
-    _test_camera_rtsp_creds(data)
+def _resolve_api_host(region: str, custom_url: str | None) -> str:
+    """Resolve concrete API host from region/custom selection."""
+    if region == REGION_CUSTOM:
+        host = _normalize_api_host(custom_url or "")
+        if not host:
+            raise vol.Invalid("invalid_url")
+        return host
+    return REGION_URLS[region]
 
 
-def _get_cam_verification_code(data: dict, ezviz_client: EzvizClient) -> Any:
-    """Get camera verification code."""
-    _LOGGER.warning("Getting camera verification code for %s", data[ATTR_SERIAL])
+def _get_cam_verification_code(
+    data: dict, ezviz_client: EzvizClient, verification_code: str | None = None
+) -> Any:
+    """Fetch camera verification/sticker code. May require one-time 2FA."""
     try:
         return ezviz_client.get_cam_auth_code(
             data[ATTR_SERIAL],
-            msg_auth_code=data.get(CONF_CAM_VERIFICATION_2FA_CODE),
-            sender_type=0 if data.get(CONF_CAM_VERIFICATION_2FA_CODE) else 3,
+            msg_auth_code=verification_code,
+            sender_type=0 if verification_code else 3,
         )
 
     except EzvizAuthVerificationCode as err:
-        ezviz_client.get_2fa_check_code(username=data["cloud_account_username"], biz_type="DEVICE_AUTH_CODE")
+        ezviz_client.get_2fa_check_code(
+            username=data["cloud_account_username"], biz_type="DEVICE_AUTH_CODE"
+        )
         raise EzvizAuthVerificationCode from err
 
 
-def _get_cam_enc_key(data: dict, ezviz_client: EzvizClient) -> Any:
-    """Get camera encryption key."""
-    _LOGGER.warning("Getting camera encryption key for %s", data[ATTR_SERIAL])
-    try:
-        return ezviz_client.get_cam_key(
-            data[ATTR_SERIAL], smscode=data.get(CONF_CAM_ENC_2FA_CODE)
-        )
-
-    except EzvizAuthVerificationCode as err:
-        # Triggers sending of 2FA code, no need to request.
-        raise EzvizAuthVerificationCode from err
+def _get_cam_enc_key(
+    data: dict, ezviz_client: EzvizClient, enc_2fa_code: str | None = None
+) -> Any:
+    """Fetch camera encryption key. May require one-time 2FA."""
+    return ezviz_client.get_cam_key(
+        data[ATTR_SERIAL],
+        smscode=enc_2fa_code,
+    )
 
 
-class EzvizConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for EZVIZ."""
+def _test_camera_rtsp_creds(data: dict) -> None:
+    """Attempt RTSP DESCRIBE using either verification code or enc key."""
+    if data[CONF_RTSP_USES_VERIFICATION_CODE]:
+        TestRTSPAuth(
+            data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_PASSWORD]
+        ).main()
+    else:
+        TestRTSPAuth(
+            data[CONF_IP_ADDRESS], data[CONF_USERNAME], data[CONF_ENC_KEY]
+        ).main()
 
-    VERSION = 3
 
-    ip_address: str
-    username: str | None
-    password: str | None
-    enc_key: str | None
-    rtsp_uses_verification_code: bool | None
-    test_rtsp_credentials: bool | None
-    ezviz_url: str | None
-    unique_id: str
-    ezviz_client: EzvizClient = None
-    entry_data: ConfigEntry
+def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
+    """Wake a hibernating camera and immediately run an RTSP DESCRIBE test."""
+    ezviz_client.get_detection_sensibility(data[ATTR_SERIAL])  # safe 'ping'
+    _test_camera_rtsp_creds(data)
 
-    def _validate_and_create_auth(self, data: dict) -> dict[str, Any]:
-        """Try to login to EZVIZ cloud account and return token."""
-        # Verify cloud credentials by attempting a login request with username and password.
-        # Return login token.
 
-        self.ezviz_client = EzvizClient(
-            data[CONF_USERNAME],
-            data[CONF_PASSWORD],
-            data[CONF_URL],
-            data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
-        )
+def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
+    """Heuristic: most battery categories lack RTSP; some do support it though."""
+    cat = cam_info["device_category"]
+    if DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value in cat:
+        return False
+    return True
 
-        ezviz_token = self.ezviz_client.login(sms_code=data.get("sms_code"))
 
-        return {
-            CONF_USERNAME: data[CONF_USERNAME],
-            CONF_SESSION_ID: ezviz_token[CONF_SESSION_ID],
-            CONF_RF_SESSION_ID: ezviz_token[CONF_RF_SESSION_ID],
-            CONF_URL: ezviz_token["api_url"],
-            CONF_USER_ID: ezviz_token["username"],
-            CONF_TYPE: ATTR_TYPE_CLOUD,
-        }
+# -----------------------------------------------------------------------------
+# Config Flow (cloud account)
+# -----------------------------------------------------------------------------
 
-    async def _validate_and_create_camera_rtsp(self, data: dict) -> ConfigFlowResult:
-        """Try DESCRIBE on RTSP camera with credentials."""
 
-        for item in self.hass.config_entries.async_entries(
-            domain=DOMAIN, include_ignore=False
-        ):
-            if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
-                data["cloud_account_username"] = item.data[CONF_USERNAME]
-                self.ezviz_client = self.hass.data[DOMAIN][item.entry_id][
-                    DATA_COORDINATOR
-                ].ezviz_client
+class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle the cloud account config flow for EZVIZ."""
 
-        # Abort flow if user removed cloud account before adding camera.
-        if self.ezviz_client is None:
-            return self.async_abort(reason="ezviz_cloud_account_missing")
+    VERSION = VERSION
 
-        # Fetch encryption key. 2FA code is required for this to work.
-        if data[CONF_ENC_KEY] == "fetch_my_key":
-            data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
-                _get_cam_enc_key, data, self.ezviz_client
-            )
-            _LOGGER.warning("Fetched camera encryption key for %s", data[ATTR_SERIAL])
+    _reauth_entry: ConfigEntry[Any]
+    _reauth_username: str
+    _reauth_password: str
+    _reauth_url: str
+    _reauth_timeout: int
 
-        # Fetch camera sticker code from ezviz api. 2FA code is required for this to work.
-        if data[CONF_PASSWORD] == "fetch_my_key":
-            data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
-                _get_cam_verification_code, data, self.ezviz_client
-            )
-            _LOGGER.warning(
-                "Fetched camera verification code for %s", data[ATTR_SERIAL]
-            )
-
-        if data[CONF_TEST_RTSP_CREDENTIALS]:
-            await self.hass.async_add_executor_job(
-                _wake_camera, data, self.ezviz_client
-            )
-
-        return self.async_create_entry(
-            title=data[ATTR_SERIAL],
-            data={
-                CONF_USERNAME: data[CONF_USERNAME],
-                CONF_PASSWORD: data[CONF_PASSWORD],
-                CONF_ENC_KEY: data[CONF_ENC_KEY],
-                CONF_RTSP_USES_VERIFICATION_CODE: data[
-                    CONF_RTSP_USES_VERIFICATION_CODE
-                ],
-                CONF_TYPE: ATTR_TYPE_CAMERA,
-            },
-            options=DEFAULT_OPTIONS,
-        )
+    _pending_user_username: str
+    _pending_user_password: str
+    _pending_user_url: str
+    _pending_user_timeout: int = DEFAULT_TIMEOUT
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
-        """Get the options flow for this handler."""
-        return EzvizOptionsFlowHandler()
+        """Get the options flow handler."""
+        return EzvizOptionsFlowHandler(config_entry)
+
+    # --------------------------
+    # Initial user setup (with MFA)
+    # --------------------------
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle a flow initiated by the user."""
-
-        # Check if EZVIZ cloud account is present in entry config,
-        # abort if already configured.
-        for item in self._async_current_entries():
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                return self.async_abort(reason="already_configured_account")
-
-        errors = {}
-        auth_data = {}
+        """Create a single cloud account entry."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             await self.async_set_unique_id(user_input[CONF_USERNAME])
             self._abort_if_unique_id_configured()
 
-            if user_input[CONF_URL] == CONF_CUSTOMIZE:
-                self.username = user_input[CONF_USERNAME]
-                self.password = user_input[CONF_PASSWORD]
-
-                return await self.async_step_user_custom_url()
+            username = user_input[CONF_USERNAME]
+            password = user_input[CONF_PASSWORD]
 
             try:
-                auth_data = await self.hass.async_add_executor_job(
-                    self._validate_and_create_auth, user_input
+                api_url = _resolve_api_host(
+                    user_input[CONF_REGION], user_input.get(CONF_URL)
                 )
+            except vol.Invalid:
+                errors["base"] = "invalid_url"
 
-            except InvalidURL:
-                errors["base"] = "invalid_host"
+            timeout = user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-            except InvalidHost:
-                errors["base"] = "cannot_connect"
+            if not errors:
+                try:
+                    client = EzvizClient(
+                        account=username,
+                        password=password,
+                        url=api_url,
+                        timeout=timeout,
+                    )
+                    # First attempt without SMS -> returns a token dict on success
+                    token = await self.hass.async_add_executor_job(client.login)
 
-            except EzvizAuthVerificationCode:
-                self.username = user_input[CONF_USERNAME]
-                self.password = user_input[CONF_PASSWORD]
-                self.ezviz_url = user_input[CONF_URL]
+                except EzvizAuthVerificationCode:
+                    # Stash pending values; request SMS code
+                    self._pending_user_username = username
+                    self._pending_user_password = password
+                    self._pending_user_url = api_url
+                    self._pending_user_timeout = timeout
+                    return await self.async_step_user_mfa_confirm()
 
-                return await self.async_step_user_mfa_confirm()
+                except (InvalidURL, HTTPError, PyEzvizError):
+                    errors["base"] = "cannot_connect"
 
-            except PyEzvizError:
-                errors["base"] = "invalid_auth"
+                except Exception:  # pragma: no cover - defensive
+                    _LOGGER.exception("Unexpected error during EZVIZ login")
+                    errors["base"] = "unknown"
 
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
+                else:
+                    # Persist token fields, not the raw password.
+                    # Store the chosen API HOST (normalized), not whatever the token echoes.
+                    return self.async_create_entry(
+                        title=username,
+                        data={
+                            CONF_TYPE: ATTR_TYPE_CLOUD,
+                            CONF_SESSION_ID: token[CONF_SESSION_ID],
+                            CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
+                            CONF_URL: api_url,  # host only, normalized
+                            CONF_USER_ID: token[
+                                "username"
+                            ],  # ezviz internal user id (MQTT)
+                        },
+                        options={
+                            CONF_TIMEOUT: timeout,
+                            OPTIONS_KEY_CAMERAS: {},  # per-camera settings only
+                        },
+                    )
 
-            else:
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
-                    data=auth_data,
-                    options=DEFAULT_OPTIONS,
-                )
-
-        data_schema = vol.Schema(
+        # Show form
+        schema = vol.Schema(
             {
                 vol.Required(CONF_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Required(CONF_URL, default=EU_URL): vol.In(
-                    [EU_URL, RUSSIA_URL, CONF_CUSTOMIZE]
+                vol.Required(CONF_REGION, default=REGION_EU): vol.In(
+                    [REGION_EU, REGION_RU, REGION_CUSTOM]
                 ),
+                vol.Optional(CONF_URL): str,  # required only when region == custom
+                vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): int,
             }
         )
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
-        return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
-        )
-
-    async def async_step_user_custom_url(
+    async def async_step_user_mfa_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle a flow initiated by the user for custom region url."""
-        errors = {}
-        auth_data = {}
+        """Handle MFA during initial cloud setup."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            user_input[CONF_USERNAME] = self.username
-            user_input[CONF_PASSWORD] = self.password
+            sms_code = user_input.get("sms_code", "")
 
             try:
-                auth_data = await self.hass.async_add_executor_job(
-                    self._validate_and_create_auth, user_input
+                client = EzvizClient(
+                    account=self._pending_user_username,
+                    password=self._pending_user_password,
+                    url=self._pending_user_url,
+                    timeout=self._pending_user_timeout,
                 )
-
-            except InvalidURL:
-                errors["base"] = "invalid_host"
-
-            except InvalidHost:
-                errors["base"] = "cannot_connect"
+                token = await self.hass.async_add_executor_job(client.login, sms_code)
 
             except EzvizAuthVerificationCode:
-                self.ezviz_url = user_input[CONF_URL]
-
-                return await self.async_step_user_mfa_confirm()
-
-            except PyEzvizError:
-                errors["base"] = "invalid_auth"
-
+                errors["base"] = "verification_required"
+            except (InvalidURL, HTTPError, PyEzvizError):
+                errors["base"] = "cannot_connect"
             except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
+                _LOGGER.exception("Unexpected error during initial MFA")
+                errors["base"] = "unknown"
             else:
                 return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
-                    data=auth_data,
-                    options=DEFAULT_OPTIONS,
+                    title=self._pending_user_username,
+                    data={
+                        CONF_TYPE: ATTR_TYPE_CLOUD,
+                        CONF_SESSION_ID: token[CONF_SESSION_ID],
+                        CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
+                        CONF_URL: self._pending_user_url,  # keep the chosen/normalized host
+                        CONF_USER_ID: token["username"],
+                    },
+                    options={
+                        CONF_TIMEOUT: self._pending_user_timeout,
+                        OPTIONS_KEY_CAMERAS: {},
+                    },
                 )
 
-        data_schema_custom_url = vol.Schema(
-            {
-                vol.Required(CONF_URL, default=EU_URL): str,
-            }
-        )
-
+        schema = vol.Schema({vol.Required("sms_code"): str})
         return self.async_show_form(
-            step_id="user_custom_url", data_schema=data_schema_custom_url, errors=errors
+            step_id="user_mfa_confirm", data_schema=schema, errors=errors
         )
 
-    async def async_step_integration_discovery(
-        self, discovery_info: dict[str, Any]
-    ) -> ConfigFlowResult:
-        """Handle a flow for discovered camera without rtsp config entry."""
-
-        await self.async_set_unique_id(discovery_info[ATTR_SERIAL])
-        self._abort_if_unique_id_configured()
-
-        if TYPE_CHECKING:
-            # A unique ID is passed in via the discovery info
-            assert self.unique_id is not None
-
-        self.context["title_placeholders"] = {ATTR_SERIAL: self.unique_id}
-        self.ip_address = discovery_info[CONF_IP_ADDRESS]
-
-        return await self.async_step_confirm()
-
-    async def async_step_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Confirm and create entry from discovery step."""
-        errors = {}
-
-        if user_input is not None:
-            user_input[ATTR_SERIAL] = self.unique_id
-            user_input[CONF_IP_ADDRESS] = self.ip_address
-            try:
-                return await self._validate_and_create_camera_rtsp(user_input)
-
-            except (InvalidHost, InvalidURL):
-                errors["base"] = "invalid_host"
-
-            except EzvizAuthVerificationCode:
-                self.username = user_input[CONF_USERNAME]
-                self.password = user_input[CONF_PASSWORD]
-                self.enc_key = user_input[CONF_ENC_KEY]
-                self.rtsp_uses_verification_code = user_input[
-                    CONF_RTSP_USES_VERIFICATION_CODE
-                ]
-                self.test_rtsp_credentials = user_input[CONF_TEST_RTSP_CREDENTIALS]
-
-                return await self.async_step_confirm_2FA()
-
-            except DeviceException:
-                errors["base"] = "device_exception"
-
-            except (PyEzvizError, AuthTestResultFailed):
-                errors["base"] = "invalid_auth"
-
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
-        discovered_camera_schema = vol.Schema(
-            {
-                vol.Required(CONF_USERNAME, default=DEFAULT_CAMERA_USERNAME): str,
-                vol.Required(CONF_PASSWORD, default="fetch_my_key"): str,
-                vol.Required(CONF_ENC_KEY, default="fetch_my_key"): str,
-                vol.Optional(CONF_RTSP_USES_VERIFICATION_CODE, default=False): bool,
-                vol.Optional(CONF_TEST_RTSP_CREDENTIALS, default=True): bool,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="confirm",
-            data_schema=discovered_camera_schema,
-            errors=errors,
-            description_placeholders={
-                ATTR_SERIAL: self.unique_id,
-                CONF_IP_ADDRESS: self.ip_address,
-            },
-        )
-
-    async def async_step_confirm_2FA(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Confirm and create entry from discovery step when 2FA is needed."""
-        errors = {}
-
-        if user_input is not None:
-            user_input[ATTR_SERIAL] = self.unique_id
-            user_input[CONF_IP_ADDRESS] = self.ip_address
-            user_input[CONF_USERNAME] = self.username
-            user_input[CONF_PASSWORD] = self.password
-            user_input[CONF_ENC_KEY] = self.enc_key
-            user_input[CONF_RTSP_USES_VERIFICATION_CODE] = (
-                self.rtsp_uses_verification_code
-            )
-            user_input[CONF_TEST_RTSP_CREDENTIALS] = self.test_rtsp_credentials
-
-            try:
-                return await self._validate_and_create_camera_rtsp(user_input)
-
-            except (InvalidHost, InvalidURL):
-                errors["base"] = "invalid_host"
-
-            except DeviceException:
-                errors["base"] = "device_exception"
-                return await self.async_step_confirm()
-
-            except (PyEzvizError, AuthTestResultFailed):
-                errors["base"] = "invalid_auth"
-
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
-        discovered_camera_schema = vol.Schema(
-            {
-                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default=""): str,
-                vol.Optional(CONF_CAM_ENC_2FA_CODE, default=""): str,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="confirm_2FA",
-            data_schema=discovered_camera_schema,
-            errors=errors,
-            description_placeholders={
-                ATTR_SERIAL: self.unique_id,
-                CONF_IP_ADDRESS: self.ip_address,
-            },
-        )
+    # --------------------------
+    # Reauth (cloud) + MFA
+    # --------------------------
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Handle a flow for reauthentication with password."""
+        """Start reauthentication for the EZVIZ account."""
+        entry: ConfigEntry | None = None
 
+        for item in self._async_current_entries():
+            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+                entry = await self.async_set_unique_id(item.unique_id)
+
+        if entry is None:
+            return self.async_abort(reason="unknown")
+
+        self._reauth_entry = entry
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle a Confirm flow for reauthentication with password."""
-        auth_data = {}
-        errors = {}
-        entry = None
-
-        for item in self._async_current_entries():
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                self.context["title_placeholders"] = {ATTR_SERIAL: item.title}
-                entry = await self.async_set_unique_id(item.unique_id)
-
-        if not entry:
-            return self.async_abort(reason="ezviz_cloud_account_missing")
+        """Collect password and try login; may require 2FA."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            user_input[CONF_URL] = entry.data[CONF_URL]
+            self._reauth_username = user_input[CONF_USERNAME]
+            self._reauth_password = user_input[CONF_PASSWORD]
+            self._reauth_url = self._reauth_entry.data[CONF_URL]
+            self._reauth_timeout = self._reauth_entry.options[CONF_TIMEOUT]
 
             try:
-                auth_data = await self.hass.async_add_executor_job(
-                    self._validate_and_create_auth, user_input
+                client = EzvizClient(
+                    account=self._reauth_username,
+                    password=self._reauth_password,
+                    url=self._reauth_url,
+                    timeout=self._reauth_timeout,
                 )
-
-            except (InvalidHost, InvalidURL):
-                errors["base"] = "invalid_host"
+                token = await self.hass.async_add_executor_job(client.login)
 
             except EzvizAuthVerificationCode:
-                self.entry_data = entry
-                self.username = user_input[CONF_USERNAME]
-                self.password = user_input[CONF_PASSWORD]
-                self.ezviz_url = user_input[CONF_URL]
-
                 return await self.async_step_reauth_mfa()
 
-            except (PyEzvizError, AuthTestResultFailed):
-                errors["base"] = "invalid_auth"
-
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
+            except (InvalidURL, HTTPError, PyEzvizError):
+                errors["base"] = "cannot_connect"
+            except Exception:  # pragma: no cover
+                _LOGGER.exception("Unexpected error during reauth")
+                errors["base"] = "unknown"
             else:
+                # Update only the rotating token fields; URL & user id are stable.
+                new_data = {
+                    **self._reauth_entry.data,
+                    CONF_SESSION_ID: token[CONF_SESSION_ID],
+                    CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
+                }
                 return self.async_update_reload_and_abort(
-                    entry,
-                    data=auth_data,
+                    self._reauth_entry, data=new_data
                 )
 
-        data_schema = vol.Schema(
+        schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME, default=entry.unique_id): vol.In(
-                    [entry.unique_id]
-                ),
+                vol.Required(
+                    CONF_USERNAME, default=self._reauth_entry.unique_id
+                ): vol.In([self._reauth_entry.unique_id]),
                 vol.Required(CONF_PASSWORD): str,
             }
         )
-
         return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=data_schema,
-            errors=errors,
+            step_id="reauth_confirm", data_schema=schema, errors=errors
         )
 
     async def async_step_reauth_mfa(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle a MFA based authentication flow for reauth."""
-        errors = {}
-        auth_data = {}
+        """Collect SMS code and complete reauth."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            user_input[CONF_USERNAME] = self.username
-            user_input[CONF_PASSWORD] = self.password
-            user_input[CONF_URL] = self.ezviz_url
-
             try:
-                auth_data = await self.hass.async_add_executor_job(
-                    self._validate_and_create_auth, user_input
+                client = EzvizClient(
+                    account=self._reauth_username,
+                    password=self._reauth_password,
+                    url=self._reauth_url,
+                    timeout=self._reauth_timeout,
+                )
+                token = await self.hass.async_add_executor_job(
+                    client.login, user_input["sms_code"]
                 )
 
-            except InvalidURL:
-                errors["base"] = "invalid_host"
-
-            except InvalidHost:
-                errors["base"] = "cannot_connect"
-
             except EzvizAuthVerificationCode:
-                errors["base"] = "mfa_required"
-
-            except PyEzvizError:
-                errors["base"] = "invalid_auth"
-
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
+                errors["base"] = "verification_required"
+            except (InvalidURL, HTTPError, PyEzvizError):
+                errors["base"] = "cannot_connect"
+            except Exception:  # pragma: no cover
+                _LOGGER.exception("Unexpected error during reauth MFA")
+                errors["base"] = "unknown"
             else:
+                new_data = {
+                    **self._reauth_entry.data,
+                    CONF_SESSION_ID: token[CONF_SESSION_ID],
+                    CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
+                }
                 return self.async_update_reload_and_abort(
-                    self.entry_data,
-                    data=auth_data,
+                    self._reauth_entry, data=new_data
                 )
 
-        data_schema_mfa_code = vol.Schema(
-            {
-                vol.Required("sms_code"): str,
-            }
-        )
-
+        schema = vol.Schema({vol.Required("sms_code"): str})
         return self.async_show_form(
-            step_id="reauth_mfa",
-            data_schema=data_schema_mfa_code,
-            errors=errors,
-        )
-
-    async def async_step_user_mfa_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle a MFA based user initiated authentication flow."""
-        errors = {}
-        auth_data = {}
-
-        if user_input is not None:
-            user_input[CONF_USERNAME] = self.username
-            user_input[CONF_PASSWORD] = self.password
-            user_input[CONF_URL] = self.ezviz_url
-
-            try:
-                auth_data = await self.hass.async_add_executor_job(
-                    self._validate_and_create_auth, user_input
-                )
-
-            except InvalidURL:
-                errors["base"] = "invalid_host"
-
-            except InvalidHost:
-                errors["base"] = "cannot_connect"
-
-            except EzvizAuthVerificationCode:
-                errors["base"] = "mfa_required"
-
-            except PyEzvizError:
-                errors["base"] = "invalid_auth"
-
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                return self.async_abort(reason="unknown")
-
-            else:
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
-                    data=auth_data,
-                    options=DEFAULT_OPTIONS,
-                )
-
-        data_schema_mfa_code = vol.Schema(
-            {
-                vol.Required("sms_code"): str,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="user_mfa_confirm", data_schema=data_schema_mfa_code, errors=errors
+            step_id="reauth_mfa", data_schema=schema, errors=errors
         )
 
 
 class EzvizOptionsFlowHandler(OptionsFlowWithReload):
-    """Handle EZVIZ client options."""
+    """Options flow to edit cloud and per-camera settings."""
 
-    async def async_step_init(
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.coordinator: EzvizDataUpdateCoordinator
+        self._cam_serial: str
+        self._pending: dict | None = None  # hold values between edit -> 2FA
+        self._prefill: dict | None = (
+            None  # one-shot defaults when returning from 2FA fallback
+        )
+
+    async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
+        """Entry menu (bootstrap coordinator)."""
+        self.coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id][
+            DATA_COORDINATOR
+        ]
+        return self.async_show_menu(
+            step_id="init", menu_options=["cloud", "camera_select"]
+        )
+
+    # ----- Cloud-level options -----
+
+    async def async_step_cloud(self, user_input: Any | None = None) -> ConfigFlowResult:
+        """Edit cloud account options (timeout only)."""
+        opts = dict(self.config_entry.options)
+
+        if user_input is not None:
+            opts[CONF_TIMEOUT] = user_input[CONF_TIMEOUT]
+            # No cloud-level CONF_FFMPEG_ARGUMENTS anymore (per-camera only)
+            return self.async_create_entry(title="", data=opts)
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_TIMEOUT, default=opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+                ): int,
+            }
+        )
+        return self.async_show_form(step_id="cloud", data_schema=schema)
+
+    # ----- Camera selection -----
+
+    async def async_step_camera_select(
+        self, user_input: Any | None = None
+    ) -> ConfigFlowResult:
+        """Choose which camera to configure.
+
+        coordinator.data is a mapping: serial -> { name, ip, device_category, ... }
+        """
+        cameras = self.coordinator.data
+        if not cameras:
+            return self.async_abort(reason="no_cameras")
+
+        choices = {
+            serial: f"{info.get('name', 'Camera')} ({serial})"
+            for serial, info in cameras.items()
+        }
+
+        if user_input is not None:
+            self._cam_serial = user_input["serial"]
+            return await self.async_step_camera_edit()
+
+        return self.async_show_form(
+            step_id="camera_select",
+            data_schema=vol.Schema({vol.Required("serial"): vol.In(choices)}),
+        )
+
+    # ----- Camera edit (may require 2FA) -----
+
+    async def async_step_camera_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage EZVIZ options."""
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+        """Edit per-camera credentials; branch to 2FA if EZVIZ requires it."""
+        base_opts = dict(self.config_entry.options or {})
+        per_cam = (base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(
+            self._cam_serial, {}
+        )
 
-        options = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_TIMEOUT,
-                    default=self.config_entry.options.get(
-                        CONF_TIMEOUT, DEFAULT_TIMEOUT
+        cam_info = self.coordinator.data[self._cam_serial]
+        inferred_ip = cam_info["local_ip"]
+        test_rtsp_default = _infer_supports_rtsp_from_category(cam_info)
+
+        errors: dict[str, str] = {}
+
+        def _make_prefill(
+            src: dict[str, Any] | None, ui: dict[str, Any] | None
+        ) -> dict[str, Any]:
+            src = src or {}
+            ui = ui or {}
+            return {
+                CONF_USERNAME: src.get(
+                    CONF_USERNAME,
+                    ui.get(
+                        CONF_USERNAME,
+                        per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
                     ),
-                ): int,
-                vol.Optional(
+                ),
+                CONF_PASSWORD: src.get(
+                    CONF_PASSWORD, ui.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY)
+                ),
+                CONF_ENC_KEY: src.get(
+                    CONF_ENC_KEY,
+                    ui.get(
+                        CONF_ENC_KEY, per_cam.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY)
+                    ),
+                ),
+                CONF_RTSP_USES_VERIFICATION_CODE: src.get(
+                    CONF_RTSP_USES_VERIFICATION_CODE,
+                    ui.get(
+                        CONF_RTSP_USES_VERIFICATION_CODE,
+                        per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
+                    ),
+                ),
+                CONF_FFMPEG_ARGUMENTS: src.get(
                     CONF_FFMPEG_ARGUMENTS,
-                    default=self.config_entry.options.get(
-                        CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                    ui.get(
+                        CONF_FFMPEG_ARGUMENTS,
+                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
                     ),
+                ),
+                "ephemeral_test_rtsp": ui.get("ephemeral_test_rtsp", test_rtsp_default),
+            }
+
+        if user_input is not None:
+            payload = {
+                **user_input,
+                CONF_IP_ADDRESS: inferred_ip,
+                "cloud_account_username": self.config_entry.unique_id,
+                ATTR_SERIAL: self._cam_serial,
+            }
+
+            try:
+                resolved = await self._test_rtsp_credentials(payload)
+
+                # Success → write fresh options dict
+                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
+                cams_new = dict(cams_old)
+                cams_new[self._cam_serial] = {
+                    CONF_USERNAME: resolved[CONF_USERNAME],
+                    CONF_PASSWORD: resolved[CONF_PASSWORD],
+                    CONF_ENC_KEY: resolved[CONF_ENC_KEY],
+                    CONF_RTSP_USES_VERIFICATION_CODE: resolved[
+                        CONF_RTSP_USES_VERIFICATION_CODE
+                    ],
+                    CONF_FFMPEG_ARGUMENTS: resolved.get(
+                        CONF_FFMPEG_ARGUMENTS,
+                        cams_old.get(self._cam_serial, {}).get(
+                            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                        ),
+                    ),
+                }
+                new_opts = dict(base_opts)
+                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+
+                self._pending = None
+                self._prefill = None
+                return self.async_create_entry(title="", data=new_opts)
+
+            except EzvizAuthVerificationCode:
+                self._pending = payload
+                self._prefill = _make_prefill(user_input, None)
+                return await self.async_step_camera_edit_2fa()
+
+            except AuthTestResultFailed as err:
+                errors["base"] = "rtsp_auth_failed"
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
+            except DeviceException as err:
+                errors["base"] = "device_exception"
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
+            except (InvalidURL, HTTPError, PyEzvizError) as err:
+                errors["base"] = "cannot_connect"
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
+            except Exception:
+                _LOGGER.exception("Unexpected error in camera_edit")
+                return self.async_abort(reason="unknown")
+
+        pf = self._prefill or _make_prefill(per_cam, None)
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_USERNAME, default=pf[CONF_USERNAME]): str,
+                vol.Required(CONF_PASSWORD, default=pf[CONF_PASSWORD]): str,
+                vol.Required(CONF_ENC_KEY, default=pf[CONF_ENC_KEY]): str,
+                vol.Required(
+                    CONF_RTSP_USES_VERIFICATION_CODE,
+                    default=pf[CONF_RTSP_USES_VERIFICATION_CODE],
+                ): bool,
+                vol.Required(
+                    "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
+                ): bool,
+                vol.Optional(
+                    CONF_FFMPEG_ARGUMENTS, default=pf[CONF_FFMPEG_ARGUMENTS]
                 ): str,
             }
         )
+        return self.async_show_form(
+            step_id="camera_edit",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "serial": self._cam_serial,
+                "ip_address": inferred_ip,
+            },
+        )
 
-        return self.async_show_form(step_id="init", data_schema=options)
+    async def async_step_camera_edit_2fa(
+        self, user_input: Any | None = None
+    ) -> ConfigFlowResult:
+        """Collect one-time 2FA codes; if VC fails but ENC works, return to camera_edit prefilled."""
+        if not self._pending:
+            return await self.async_step_camera_edit()
+
+        opts = dict(self.config_entry.options or {})
+        per_cam = (opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(self._cam_serial, {})
+
+        cam_info = (self.coordinator.data or {}).get(self._cam_serial, {}) or {}
+        inferred_ip = cam_info.get("local_ip") or ""
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {
+                **self._pending,
+                CONF_CAM_VERIFICATION_2FA_CODE: user_input.get(
+                    CONF_CAM_VERIFICATION_2FA_CODE
+                )
+                or None,
+                CONF_CAM_ENC_2FA_CODE: user_input.get(CONF_CAM_ENC_2FA_CODE) or None,
+                CONF_IP_ADDRESS: inferred_ip,
+            }
+            try:
+                resolved = await self._test_rtsp_credentials(data)
+
+                base_opts = dict(self.config_entry.options or {})
+                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
+                cams_new = dict(cams_old)
+
+                cams_new[self._cam_serial] = {
+                    CONF_USERNAME: resolved[CONF_USERNAME],
+                    CONF_PASSWORD: resolved[CONF_PASSWORD],
+                    CONF_ENC_KEY: resolved[CONF_ENC_KEY],
+                    CONF_RTSP_USES_VERIFICATION_CODE: resolved[
+                        CONF_RTSP_USES_VERIFICATION_CODE
+                    ],
+                    CONF_FFMPEG_ARGUMENTS: resolved.get(
+                        CONF_FFMPEG_ARGUMENTS,
+                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+                    ),
+                }
+
+                new_opts = dict(base_opts)
+                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+
+                # Clear ephemerals
+                self._pending = None
+                self._prefill = None
+
+                return self.async_create_entry(title="", data=new_opts)
+
+            except EzvizAuthVerificationCode:
+                # Still needs a code
+                errors["base"] = "verification_required"
+
+            except AuthTestResultFailed as err:
+                errors["base"] = "rtsp_auth_failed"
+                self._prefill = getattr(err, "data", None)
+                return await self.async_step_camera_edit()
+
+            except DeviceException as err:
+                # If VC path failed but ENC exists, bounce back to edit with ENC preselected
+                errors["base"] = "device_exception"
+                self._prefill = getattr(err, "data", None)
+                return await self.async_step_camera_edit()
+
+            except (InvalidURL, HTTPError, PyEzvizError) as err:
+                errors["base"] = "cannot_connect"
+                self._prefill = getattr(err, "data", None)
+                return await self.async_step_camera_edit()
+
+            except Exception:
+                _LOGGER.exception("Unexpected error in camera_edit_2fa")
+                return self.async_abort(reason="unknown")
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_CAM_VERIFICATION_2FA_CODE, default=""): str,
+                vol.Optional(CONF_CAM_ENC_2FA_CODE, default=""): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="camera_edit_2fa",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "serial": self._cam_serial,
+                "ip_address": inferred_ip or "",
+            },
+        )
+
+    # --------------------------
+    # Shared validator for both camera steps
+    # --------------------------
+
+    async def _test_rtsp_credentials(self, data: dict) -> dict:
+        """Resolve/fetch creds; run RTSP wake+probe only when explicitly requested.
+
+        - Fetches ENC key / verification code when the user typed 'fetch_my_key'.
+        - Accepts optional one-time 2FA codes (never persisted).
+        - If 'ephemeral_test_rtsp' is True and the camera likely supports RTSP,
+          calls _wake_camera(), which in turn calls _test_camera_rtsp_creds().
+        - Drops any one-time codes / flags from the returned dict.
+        """
+        ezviz_client: EzvizClient = self.coordinator.ezviz_client
+
+        try:
+            # ENC key (used by newer cams & for last motion images)
+            if data.get(CONF_ENC_KEY) == DEFAULT_FETCH_MY_KEY:
+                data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
+                    _get_cam_enc_key,
+                    data,
+                    ezviz_client,
+                    data.get(CONF_CAM_ENC_2FA_CODE),  # optional one-time MFA
+                )
+                _LOGGER.info("Fetched encryption key for camera %s", data[ATTR_SERIAL])
+
+            # Verification (sticker) code (older cam RTSP auth)
+            if data.get(CONF_PASSWORD) == DEFAULT_FETCH_MY_KEY:
+                data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
+                    _get_cam_verification_code,
+                    data,
+                    ezviz_client,
+                    data.get(CONF_CAM_VERIFICATION_2FA_CODE),  # optional one-time MFA
+                )
+                _LOGGER.info(
+                    "Fetched verification code for camera %s", data[ATTR_SERIAL]
+                )
+
+            # Optional one-time RTSP test: only if user requested
+            if data.get("ephemeral_test_rtsp"):
+                await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
+                _LOGGER.debug(
+                    "RTSP credentials verified for camera %s", data[ATTR_SERIAL]
+                )
+
+        except EzvizAuthVerificationCode:
+            _LOGGER.warning(
+                "EZVIZ requested 2FA code while preparing/testing %s",
+                data.get(ATTR_SERIAL),
+            )
+            raise
+
+        except DeviceException as err:
+            _LOGGER.warning(
+                "Device error while preparing/testing %s", data.get(ATTR_SERIAL)
+            )
+            # Attach whatever data we have so far for prefill
+            e = DeviceException(f"EZVIZ Device error: {err}")
+            e.data = data
+            raise e from err
+
+        except AuthTestResultFailed as err:
+            _LOGGER.warning("RTSP auth failed for camera %s", data.get(ATTR_SERIAL))
+            e = AuthTestResultFailed("RTSP DESCRIBE auth test failed")
+            e.data = data
+            raise e from err
+
+        except PyEzvizError as err:
+            _LOGGER.warning(
+                "EZVIZ API error while preparing/testing %s", data.get(ATTR_SERIAL)
+            )
+            e = PyEzvizError(
+                f"EZVIZ API error, could be account permission for retrieving key: {err}"
+            )
+            e.data = data
+            raise e from err
+
+        # Remove ephemeral values before returning
+        data.pop(CONF_CAM_VERIFICATION_2FA_CODE, None)
+        data.pop(CONF_CAM_ENC_2FA_CODE, None)
+        data.pop("ephemeral_test_rtsp", None)
+        data.pop(CONF_IP_ADDRESS, None)
+        data.pop("cloud_account_username")
+
+        return data

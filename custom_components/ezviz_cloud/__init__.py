@@ -1,4 +1,6 @@
-"""Support for EZVIZ camera."""
+"""EZVIZ integration init."""
+
+from __future__ import annotations
 
 import logging
 from typing import Any
@@ -12,12 +14,13 @@ from pyezvizapi.exceptions import (
     PyEzvizError,
 )
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
     CONF_URL,
+    CONF_USERNAME,
     EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
@@ -34,158 +37,196 @@ from .const import (
     CONF_SESSION_ID,
     CONF_USER_ID,
     DATA_COORDINATOR,
+    DEFAULT_CAMERA_USERNAME,
+    DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
     MQTT_HANDLER,
+    OPTIONS_KEY_CAMERAS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS_BY_TYPE: dict[str, list] = {
-    ATTR_TYPE_CAMERA: [],
-    ATTR_TYPE_CLOUD: [
-        Platform.ALARM_CONTROL_PANEL,
-        Platform.BINARY_SENSOR,
-        Platform.BUTTON,
-        Platform.CAMERA,
-        Platform.IMAGE,
-        Platform.LIGHT,
-        Platform.NUMBER,
-        Platform.SELECT,
-        Platform.SENSOR,
-        Platform.SIREN,
-        Platform.SWITCH,
-        Platform.TEXT,
-        Platform.UPDATE,
-    ],
-}
+PLATFORMS: list[Platform] = [
+    Platform.ALARM_CONTROL_PANEL,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CAMERA,
+    Platform.IMAGE,
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SIREN,
+    Platform.SWITCH,
+    Platform.TEXT,
+    Platform.UPDATE,
+]
+
+TARGET_VERSION = 4
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up EZVIZ from a config entry."""
+    """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    sensor_type: str = entry.data[CONF_TYPE]
-    ezviz_client = None
 
-    if not entry.options:
-        options = {
-            CONF_FFMPEG_ARGUMENTS: DEFAULT_FFMPEG_ARGUMENTS,
-            CONF_TIMEOUT: DEFAULT_TIMEOUT,
-        }
+    # Only handle cloud entries here
+    if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
+        return True
 
-        hass.config_entries.async_update_entry(entry, options=options)
-
-    # Initialize EZVIZ cloud entities
-    if PLATFORMS_BY_TYPE[sensor_type]:
-        # Reauth if user_id or session_id is missing
-        if not entry.data.get(CONF_USER_ID) or not entry.data.get(CONF_SESSION_ID):
-            raise ConfigEntryAuthFailed("Need to reauthenticate")
-
-        ezviz_client = EzvizClient(
-            token={
-                CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
-                CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-                "api_url": entry.data[CONF_URL],
-                "username": entry.data[CONF_USER_ID],
-            },
-            timeout=entry.options[CONF_TIMEOUT],
+    # Require all token fields
+    required = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
+    if not all(k in entry.data for k in required):
+        raise ConfigEntryAuthFailed(
+            "Missing EZVIZ token fields; reauthenticate required"
         )
 
-        try:
-            await hass.async_add_executor_job(ezviz_client.login)
+    timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-        except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
-            raise ConfigEntryAuthFailed from error
-
-        except (InvalidURL, HTTPError, PyEzvizError) as error:
-            raise ConfigEntryNotReady(
-                f"Unable to connect to Ezviz service: {error}"
-            ) from error
-
-        coordinator = EzvizDataUpdateCoordinator(
-            hass, api=ezviz_client, api_timeout=entry.options[CONF_TIMEOUT]
-        )
-
-        mqtt_handler = EzvizMqttHandler(hass, ezviz_client, entry.entry_id)
-        await coordinator.async_config_entry_first_refresh()
-
-        hass.data[DOMAIN][entry.entry_id] = {
-            DATA_COORDINATOR: coordinator,
-            MQTT_HANDLER: mqtt_handler,
-        }
-
-        # Only start after coordinator is stored in hass.data
-        await hass.async_add_executor_job(
-            hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].start
-        )
-
-        async def _shutdown(event: Any) -> None:
-            """Cleanup Ezviz MQTT when HA stops."""
-            await hass.async_add_executor_job(
-                hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].stop
-            )
-
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
-
-    # Check EZVIZ cloud account entity is present, reload cloud account entities for camera entity change to take effect.
-    # Cameras are accessed via local RTSP stream with unique credentials per camera.
-    # Separate camera entities allow for credential changes per camera.
-    if sensor_type == ATTR_TYPE_CAMERA and hass.data[DOMAIN]:
-        for item in hass.config_entries.async_entries(
-            domain=DOMAIN, include_ignore=False
-        ):
-            if item.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
-                _LOGGER.debug("Reload Ezviz main account with camera entry")
-                await hass.config_entries.async_reload(item.entry_id)
-                return True
-
-    await hass.config_entries.async_forward_entry_setups(
-        entry, PLATFORMS_BY_TYPE[sensor_type]
+    client = EzvizClient(
+        token={
+            CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
+            CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
+            "api_url": entry.data[CONF_URL],
+            "username": entry.data[CONF_USER_ID],
+        },
+        timeout=timeout,
     )
+
+    # Refresh/login to validate tokens (and maybe rotate)
+    try:
+        token = await hass.async_add_executor_job(client.login)
+    except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
+        raise ConfigEntryAuthFailed from err
+    except (InvalidURL, HTTPError, PyEzvizError) as err:
+        raise ConfigEntryNotReady(f"Unable to connect to Ezviz service: {err}") from err
+    except Exception as err:
+        raise ConfigEntryNotReady(
+            f"Unexpected error logging in to Ezviz: {err}"
+        ) from err
+
+    # Persist rotated tokens if they changed
+    # EZVIZ seems to ignore rotation but this is future-proofing
+    updates: dict = {}
+    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
+        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
+    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
+        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
+    if updates:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
+
+    # Coordinator
+    coordinator = EzvizDataUpdateCoordinator(
+        hass,
+        api=client,
+        api_timeout=timeout,
+    )
+    await coordinator.async_config_entry_first_refresh()
+
+    # MQTT handler
+    mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        DATA_COORDINATOR: coordinator,
+        MQTT_HANDLER: mqtt_handler,
+    }
+
+    await hass.async_add_executor_job(mqtt_handler.start)
+
+    # Clean shutdown on HA stop (stop MQTT first)
+    async def _shutdown(_event: Any) -> None:
+        await hass.async_add_executor_job(mqtt_handler.stop)
+
+    remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
+    entry.async_on_unload(remove_shutdown)
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    sensor_type = entry.data[CONF_TYPE]
+    """Unload the EZVIZ cloud entry (stop MQTT first, then platforms)."""
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS_BY_TYPE[sensor_type]
-    )
-    if sensor_type == ATTR_TYPE_CLOUD and unload_ok:
-        await hass.async_add_executor_job(
-            hass.data[DOMAIN][entry.entry_id][MQTT_HANDLER].stop
-        )
-        hass.data[DOMAIN].pop(entry.entry_id)
+    if data and (mqtt := data.get(MQTT_HANDLER)):
+        await hass.async_add_executor_job(mqtt.stop)
+
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+    if unload_ok:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     return unload_ok
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old camera entry."""
-    _LOGGER.debug("Migrating from version %s.%s", entry.version, entry.minor_version)
+    """Migrate old config entry to the current version."""
+    if entry.version >= TARGET_VERSION:
+        return True
 
-    if entry.version <= 2:
-        if entry.data[CONF_TYPE] == ATTR_TYPE_CAMERA:
-            data = {**entry.data}
-            data[CONF_RTSP_USES_VERIFICATION_CODE] = True
-            if not data.get(CONF_ENC_KEY):
-                data[CONF_ENC_KEY] = data[CONF_PASSWORD]
+    _LOGGER.debug("Migrating entry %s from v%s", entry.entry_id, entry.version)
+    etype = entry.data.get(CONF_TYPE)
+    if etype == ATTR_TYPE_CAMERA:
+        # Per-camera placeholders will be removed by the cloud migration
+        return True
+    if etype != ATTR_TYPE_CLOUD:
+        return True
 
-            hass.config_entries.async_update_entry(entry, data=data, version=3)
+    # Consolidate legacy camera entries into cloud options
+    prev_opts = dict(entry.options or {})
+    cameras_map = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
+    timeout_val = prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-        if entry.data[CONF_TYPE] == ATTR_TYPE_CLOUD:
-            hass.config_entries.async_update_entry(entry, data=entry.data, version=3)
+    legacy_cams = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
+    ]
+    for cam in legacy_cams:
+        serial = cam.unique_id  # strict
+        if serial in cameras_map:
+            _LOGGER.warning(
+                "Skipping duplicate camera serial during migration: %s", serial
+            )
+            continue
+        cameras_map[serial] = {
+            CONF_USERNAME: cam.data.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
+            CONF_PASSWORD: cam.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
+            CONF_ENC_KEY: cam.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
+            CONF_RTSP_USES_VERIFICATION_CODE: cam.data.get(
+                CONF_RTSP_USES_VERIFICATION_CODE, False
+            ),
+            CONF_FFMPEG_ARGUMENTS: cam.options.get(
+                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            ),
+        }
 
-        _LOGGER.info(
-            "Migration to version %s.%s successful for %s account",
-            entry.version,
-            entry.minor_version,
-            entry.data[CONF_TYPE],
-        )
+    hass.config_entries.async_update_entry(
+        entry,
+        options={CONF_TIMEOUT: timeout_val, OPTIONS_KEY_CAMERAS: cameras_map},
+        version=TARGET_VERSION,
+        minor_version=entry.minor_version,
+    )
 
+    # Strict purge: only entries with explicit version < 4
+    victims = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id
+        and e.version < TARGET_VERSION
+        and (e.source == SOURCE_IGNORE or e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA)
+    ]
+    for v in victims:
+        try:
+            await hass.config_entries.async_remove(v.entry_id)
+        except Exception:
+            _LOGGER.exception(
+                "Failed to remove legacy entry %s during migration", v.entry_id
+            )
+
+    _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True
