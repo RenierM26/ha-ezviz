@@ -115,6 +115,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ) from err
 
     # Persist rotated tokens if they changed
+    # EZVIZ seems to ignore rotation but this is future-proofing
     updates: dict = {}
     if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
         updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
@@ -145,7 +146,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _shutdown(_event: Any) -> None:
         await hass.async_add_executor_job(mqtt_handler.stop)
 
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
+    remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
+    entry.async_on_unload(remove_shutdown)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -154,17 +156,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the EZVIZ cloud entry (stop MQTT first, then platforms)."""
-    data = hass.data[DOMAIN][entry.entry_id]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
-    # 1) Stop MQTT first
-    await hass.async_add_executor_job(data[MQTT_HANDLER].stop)
+    if data and (mqtt := data.get(MQTT_HANDLER)):
+        await hass.async_add_executor_job(mqtt.stop)
 
-    # 2) Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # 3) Cleanup stored data
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     return unload_ok
 
