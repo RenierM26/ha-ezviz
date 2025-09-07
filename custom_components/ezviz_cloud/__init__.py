@@ -28,25 +28,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
-    ATTR_SERIAL,
     ATTR_TYPE_CAMERA,
-    # Entry/data typing
     ATTR_TYPE_CLOUD,
-    # Per-camera fields
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,  # per-camera only
+    CONF_FFMPEG_ARGUMENTS,
     CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
-    # Token-based cloud fields
     CONF_SESSION_ID,
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
-    # Options defaults
     DEFAULT_TIMEOUT,
-    # Domain / keys
     DOMAIN,
     MQTT_HANDLER,
     OPTIONS_KEY_CAMERAS,
@@ -193,7 +187,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if e.entry_id != entry.entry_id and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
     ]
     for cam in legacy_cams:
-        serial = cam.data[ATTR_SERIAL]  # strict
+        serial = cam.unique_id  # strict
         if serial in cameras_map:
             _LOGGER.warning(
                 "Skipping duplicate camera serial during migration: %s", serial
