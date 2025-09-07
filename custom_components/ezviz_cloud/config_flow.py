@@ -53,6 +53,7 @@ from .const import (
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
+    DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -548,10 +549,10 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             CONF_USERNAME, DEFAULT_CAMERA_USERNAME
         )
         defd_password = (self._prefill or {}).get(CONF_PASSWORD) or per_cam.get(
-            CONF_PASSWORD, "fetch_my_key"
+            CONF_PASSWORD, DEFAULT_FETCH_MY_KEY
         )
         defd_enc_key = (self._prefill or {}).get(CONF_ENC_KEY) or per_cam.get(
-            CONF_ENC_KEY, "fetch_my_key"
+            CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY
         )
         defd_vc_mode = (
             (self._prefill or {}).get(CONF_RTSP_USES_VERIFICATION_CODE)
@@ -649,7 +650,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             except DeviceException as err:
                 # If VC path failed but ENC exists, bounce back to edit with ENC preselected
                 has_enc = bool(
-                    data.get(CONF_ENC_KEY) and data[CONF_ENC_KEY] != "fetch_my_key"
+                    data.get(CONF_ENC_KEY)
+                    and data[CONF_ENC_KEY] != DEFAULT_FETCH_MY_KEY
                 )
                 if has_enc:
                     _LOGGER.warning(
@@ -662,7 +664,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                             CONF_USERNAME,
                             per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
                         ),
-                        CONF_PASSWORD: per_cam.get(CONF_PASSWORD, "fetch_my_key"),
+                        CONF_PASSWORD: per_cam.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
                         CONF_ENC_KEY: data[CONF_ENC_KEY],
                         CONF_RTSP_USES_VERIFICATION_CODE: False,
                         CONF_FFMPEG_ARGUMENTS: per_cam.get(
@@ -713,7 +715,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         try:
             # ENC key (used by newer cams & for last motion images)
-            if data.get(CONF_ENC_KEY) == "fetch_my_key":
+            if data.get(CONF_ENC_KEY) == DEFAULT_FETCH_MY_KEY:
                 data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
                     _get_cam_enc_key,
                     data,
@@ -723,7 +725,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 _LOGGER.info("Fetched encryption key for camera %s", data[ATTR_SERIAL])
 
             # Verification (sticker) code (older cam RTSP auth)
-            if data.get(CONF_PASSWORD) == "fetch_my_key":
+            if data.get(CONF_PASSWORD) == DEFAULT_FETCH_MY_KEY:
                 data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
                     _get_cam_verification_code,
                     data,

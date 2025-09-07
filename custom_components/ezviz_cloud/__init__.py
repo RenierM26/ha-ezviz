@@ -14,7 +14,7 @@ from pyezvizapi.exceptions import (
     PyEzvizError,
 )
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
@@ -42,6 +42,7 @@ from .const import (
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
+    DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     # Options defaults
     DEFAULT_TIMEOUT,
@@ -71,7 +72,6 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
 ]
 
-FETCH = "fetch_my_key"
 TARGET_VERSION = 4
 
 
@@ -103,7 +103,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         token={
             CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
             CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-            "api_url": entry.data[CONF_URL],  # region URL is stable
+            "api_url": entry.data[CONF_URL],
             "username": entry.data[CONF_USER_ID],  # EZVIZ internal user id (MQTT)
         },
         timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
@@ -156,7 +156,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
 
-    # Forward platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -207,7 +206,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
         ]
 
-        # Strict consolidation: serial required, normalized, duplicates = error
+        # Strict consolidation: serial required, duplicates = error
         for cam_entry in legacy_cam_entries:
             serial = cam_entry.data[ATTR_SERIAL]  # strict: KeyError if missing
 
@@ -218,8 +217,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 CONF_USERNAME: cam_entry.data.get(
                     CONF_USERNAME, DEFAULT_CAMERA_USERNAME
                 ),
-                CONF_PASSWORD: cam_entry.data.get(CONF_PASSWORD, FETCH),
-                CONF_ENC_KEY: cam_entry.data.get(CONF_ENC_KEY, FETCH),
+                CONF_PASSWORD: cam_entry.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
+                CONF_ENC_KEY: cam_entry.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
                 CONF_RTSP_USES_VERIFICATION_CODE: cam_entry.data.get(
                     CONF_RTSP_USES_VERIFICATION_CODE, False
                 ),
@@ -237,8 +236,26 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for cam_entry in legacy_cam_entries:
             await hass.config_entries.async_remove(cam_entry.entry_id)
 
+        # Purge ignored legacy entries (strict: version < 4)
+        await _purge_ignored_legacy_entries(hass, keep_entry_id=entry.entry_id)
+
         _LOGGER.info("Migrated cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
         return True
 
     _LOGGER.warning("Entry %s has unexpected type %s", entry.entry_id, etype)
     return True
+
+
+async def _purge_ignored_legacy_entries(
+    hass: HomeAssistant, keep_entry_id: str
+) -> None:
+    """Remove ignored legacy per-camera entries (strict: version < 4)."""
+    victims = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != keep_entry_id and e.source == SOURCE_IGNORE and e.version < 4
+    ]
+    if victims:
+        _LOGGER.debug("Purging %d ignored legacy entries (<v4)", len(victims))
+        for e in victims:
+            await hass.config_entries.async_remove(e.entry_id)

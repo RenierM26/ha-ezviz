@@ -57,6 +57,7 @@ REGION_URLS: Final = {
 DEFAULT_CAMERA_USERNAME: Final = "admin"
 DEFAULT_TIMEOUT: Final = 25
 DEFAULT_FFMPEG_ARGUMENTS: Final = "/Streaming/Channels/102"  # substream = safer default
+DEFAULT_FETCH_MY_KEY: Final = "fetch_my_key"
 
 # ---------------------------
 # Services
