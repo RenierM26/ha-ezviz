@@ -32,7 +32,7 @@ This integration logs into **EZVIZ Cloud**, subscribes to **MQTT** events, and l
 
 ## Configure per-camera options
 
-Open **Settings → Devices & Services → EZVIZ Cloud → Configure**, then select a camera to **Edit**.
+Open **Settings → Devices & Services → Ezviz(Beta) → Configure**, then select a camera to **Edit**.
 
 You’ll see the following fields:
 
@@ -59,7 +59,7 @@ You’ll see the following fields:
 
 - **Encryption Key**  
   The device **Encryption Key** (used when encryption is **enabled** on the device).  
-  > Encryption can be **disabled** on the device. If disabled, you can leave this as “fetch” or blank and use VC mode instead.
+  > Encryption can be **disabled** on the device. If disabled, you can leave this as “fetch_my_key” or blank and use VC mode instead.
 
 - **Validate credentials now** *(checkbox)*  
   One-time RTSP validation. When checked, the form will **test** the RTSP credentials before saving.  
