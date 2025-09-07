@@ -512,7 +512,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 resolved = await self._test_rtsp_credentials(user_input)
 
                 base_opts = dict(self.config_entry.options or {})
-                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {})
+                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
                 cams_new = dict(cams_old)
 
                 cams_new[self._cam_serial] = {
@@ -522,11 +522,18 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     CONF_RTSP_USES_VERIFICATION_CODE: resolved[
                         CONF_RTSP_USES_VERIFICATION_CODE
                     ],
-                    CONF_FFMPEG_ARGUMENTS: user_input[CONF_FFMPEG_ARGUMENTS],
+                    CONF_FFMPEG_ARGUMENTS: resolved.get(
+                        CONF_FFMPEG_ARGUMENTS,
+                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+                    ),
                 }
 
                 new_opts = dict(base_opts)
                 new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+
+                # Clear ephemerals
+                self._pending = None
+                self._prefill = None
 
                 return self.async_create_entry(title="", data=new_opts)
 
