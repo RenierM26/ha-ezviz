@@ -76,78 +76,69 @@ TARGET_VERSION = 4
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up EZVIZ cloud entry."""
+    """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Only cloud entries are supported; ignore legacy per-camera entries.
+    # Only handle cloud entries here
     if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
         return True
 
-    # Ensure minimal default options exist (fresh dict)
-    if not entry.options:
-        hass.config_entries.async_update_entry(
-            entry,
-            options={
-                CONF_TIMEOUT: DEFAULT_TIMEOUT,
-                OPTIONS_KEY_CAMERAS: {},
-            },
+    # Require all token fields
+    required = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
+    if not all(k in entry.data for k in required):
+        raise ConfigEntryAuthFailed(
+            "Missing EZVIZ token fields; reauthenticate required"
         )
 
-    # Must have stable token fields; otherwise kick reauth
-    required_token_keys = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
-    if not all(k in entry.data for k in required_token_keys):
-        raise ConfigEntryAuthFailed("Need to reauthenticate to obtain EZVIZ tokens")
+    timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-    # Build API client from tokens
     client = EzvizClient(
         token={
             CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
             CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
             "api_url": entry.data[CONF_URL],
-            "username": entry.data[CONF_USER_ID],  # EZVIZ internal user id (MQTT)
+            "username": entry.data[CONF_USER_ID],
         },
-        timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+        timeout=timeout,
     )
 
+    # Refresh/login to validate tokens (and maybe rotate)
     try:
-        # Validate tokens; library will refresh them transparently
         token = await hass.async_add_executor_job(client.login)
-
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
         raise ConfigEntryAuthFailed from err
-
     except (InvalidURL, HTTPError, PyEzvizError) as err:
         raise ConfigEntryNotReady(f"Unable to connect to Ezviz service: {err}") from err
+    except Exception as err:
+        raise ConfigEntryNotReady(
+            f"Unexpected error logging in to Ezviz: {err}"
+        ) from err
 
-    # Persist only if the library rotated session tokens
-    to_update: dict[str, Any] = {}
-    sid = token[CONF_SESSION_ID]
-    if sid and sid != entry.data[CONF_SESSION_ID]:
-        to_update[CONF_SESSION_ID] = sid
-    rf = token[CONF_RF_SESSION_ID]
-    if rf and rf != entry.data[CONF_RF_SESSION_ID]:
-        to_update[CONF_RF_SESSION_ID] = rf
-    if to_update:
-        hass.config_entries.async_update_entry(entry, data={**entry.data, **to_update})
+    # Persist rotated tokens if they changed
+    updates: dict = {}
+    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
+        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
+    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
+        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
+    if updates:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
 
-    # Coordinator (refresh for initial data)
+    # Coordinator
     coordinator = EzvizDataUpdateCoordinator(
         hass,
         api=client,
-        api_timeout=entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+        api_timeout=timeout,
     )
     await coordinator.async_config_entry_first_refresh()
 
-    # MQTT
+    # MQTT handler
     mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
 
-    # Store references
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_COORDINATOR: coordinator,
         MQTT_HANDLER: mqtt_handler,
     }
 
-    # Start MQTT
     await hass.async_add_executor_job(mqtt_handler.start)
 
     # Clean shutdown on HA stop (stop MQTT first)
@@ -157,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     return True
 
 
@@ -172,90 +164,75 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 3) Cleanup stored data
     if unload_ok:
-        del hass.data[DOMAIN][entry.entry_id]
+        hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate EZVIZ entries to v4 (no cross-domain handling)."""
+    """Migrate old config entry to the current version."""
     if entry.version >= TARGET_VERSION:
         return True
 
     _LOGGER.debug("Migrating entry %s from v%s", entry.entry_id, entry.version)
     etype = entry.data.get(CONF_TYPE)
-
-    # Legacy per-camera entries: cloud migration absorbs & removes them; no-op here.
     if etype == ATTR_TYPE_CAMERA:
+        # Per-camera placeholders will be removed by the cloud migration
+        return True
+    if etype != ATTR_TYPE_CLOUD:
         return True
 
-    if etype == ATTR_TYPE_CLOUD:
-        # Minimal options: timeout + cameras
-        prev_opts: dict[str, Any] = dict(entry.options or {})
-        cameras_map: dict[str, Any] = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
-        new_options: dict[str, Any] = {
-            CONF_TIMEOUT: prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
-            OPTIONS_KEY_CAMERAS: cameras_map,
+    # Consolidate legacy camera entries into cloud options
+    prev_opts = dict(entry.options or {})
+    cameras_map = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
+    timeout_val = prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+
+    legacy_cams = [
+        e
+        for e in hass.config_entries.async_entries(DOMAIN)
+        if e.entry_id != entry.entry_id and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
+    ]
+    for cam in legacy_cams:
+        serial = cam.data[ATTR_SERIAL]  # strict
+        if serial in cameras_map:
+            _LOGGER.warning(
+                "Skipping duplicate camera serial during migration: %s", serial
+            )
+            continue
+        cameras_map[serial] = {
+            CONF_USERNAME: cam.data.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
+            CONF_PASSWORD: cam.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
+            CONF_ENC_KEY: cam.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
+            CONF_RTSP_USES_VERIFICATION_CODE: cam.data.get(
+                CONF_RTSP_USES_VERIFICATION_CODE, False
+            ),
+            CONF_FFMPEG_ARGUMENTS: cam.options.get(
+                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            ),
         }
 
-        # Gather legacy camera entries in the same domain
-        legacy_cam_entries = [
-            e
-            for e in hass.config_entries.async_entries(domain=DOMAIN)
-            if e.entry_id != entry.entry_id
-            and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
-        ]
+    hass.config_entries.async_update_entry(
+        entry,
+        options={CONF_TIMEOUT: timeout_val, OPTIONS_KEY_CAMERAS: cameras_map},
+        version=TARGET_VERSION,
+        minor_version=entry.minor_version,
+    )
 
-        # Strict consolidation: serial required, duplicates = error
-        for cam_entry in legacy_cam_entries:
-            serial = cam_entry.data[ATTR_SERIAL]  # strict: KeyError if missing
-
-            if serial in cameras_map:
-                raise ValueError(f"Duplicate camera serial during migration: {serial}")
-
-            cameras_map[serial] = {
-                CONF_USERNAME: cam_entry.data.get(
-                    CONF_USERNAME, DEFAULT_CAMERA_USERNAME
-                ),
-                CONF_PASSWORD: cam_entry.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
-                CONF_ENC_KEY: cam_entry.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
-                CONF_RTSP_USES_VERIFICATION_CODE: cam_entry.data.get(
-                    CONF_RTSP_USES_VERIFICATION_CODE, False
-                ),
-                CONF_FFMPEG_ARGUMENTS: cam_entry.options.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                ),
-            }
-
-        # Persist cloud options and bump only the cloud entry
-        hass.config_entries.async_update_entry(
-            entry, options=new_options, version=TARGET_VERSION
-        )
-
-        # Remove legacy camera entries (same domain)
-        for cam_entry in legacy_cam_entries:
-            await hass.config_entries.async_remove(cam_entry.entry_id)
-
-        # Purge ignored legacy entries (strict: version < 4)
-        await _purge_ignored_legacy_entries(hass, keep_entry_id=entry.entry_id)
-
-        _LOGGER.info("Migrated cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
-        return True
-
-    _LOGGER.warning("Entry %s has unexpected type %s", entry.entry_id, etype)
-    return True
-
-
-async def _purge_ignored_legacy_entries(
-    hass: HomeAssistant, keep_entry_id: str
-) -> None:
-    """Remove ignored legacy per-camera entries (strict: version < 4)."""
+    # Strict purge: only entries with explicit version < 4
     victims = [
         e
         for e in hass.config_entries.async_entries(DOMAIN)
-        if e.entry_id != keep_entry_id and e.source == SOURCE_IGNORE and e.version < 4
+        if e.entry_id != entry.entry_id
+        and e.version < TARGET_VERSION
+        and (e.source == SOURCE_IGNORE or e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA)
     ]
-    if victims:
-        _LOGGER.debug("Purging %d ignored legacy entries (<v4)", len(victims))
-        for e in victims:
-            await hass.config_entries.async_remove(e.entry_id)
+    for v in victims:
+        try:
+            await hass.config_entries.async_remove(v.entry_id)
+        except Exception:
+            _LOGGER.exception(
+                "Failed to remove legacy entry %s during migration", v.entry_id
+            )
+
+    _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
+    return True
