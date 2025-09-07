@@ -105,10 +105,11 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 ## Examples
 
 **Typical main stream RTSP URL (VC mode):**
-rtsp://<username>:<verification_code>@<camera-ip>:554/Streaming/Channels/101
+`rtsp://<username>:<verification_code>@<camera-ip>:554/Streaming/Channels/101`
 
 **Typical sub-stream RTSP URL (ENC mode):**
-rtsp://<username>:<encryption_key>@<camera-ip>:554/Streaming/Channels/102
+`rtsp://<username>:<encryption_key>@<camera-ip>:554/Streaming/Channels/102`
+
 
 
 > Only the **path** (`/Streaming/Channels/101` or `/Streaming/Channels/102`) is configured in Options; the integration composes the full URL for you.
