@@ -492,29 +492,73 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     # ----- Camera edit (may require 2FA) -----
 
     async def async_step_camera_edit(
-        self, user_input: Any | None = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Edit per-camera credentials; may branch to 2FA if EZVIZ requires it."""
-        opts = dict(self.config_entry.options)
-        per_cam = opts.get(OPTIONS_KEY_CAMERAS, {}).get(self._cam_serial, {})
+        """Edit per-camera credentials; branch to 2FA if EZVIZ requires it."""
+        base_opts = dict(self.config_entry.options or {})
+        per_cam = (base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(
+            self._cam_serial, {}
+        )
 
         cam_info = self.coordinator.data[self._cam_serial]
         inferred_ip = cam_info["local_ip"]
         test_rtsp_default = _infer_supports_rtsp_from_category(cam_info)
 
         errors: dict[str, str] = {}
+
+        def _make_prefill(
+            src: dict[str, Any] | None, ui: dict[str, Any] | None
+        ) -> dict[str, Any]:
+            src = src or {}
+            ui = ui or {}
+            return {
+                CONF_USERNAME: src.get(
+                    CONF_USERNAME,
+                    ui.get(
+                        CONF_USERNAME,
+                        per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
+                    ),
+                ),
+                CONF_PASSWORD: src.get(
+                    CONF_PASSWORD, ui.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY)
+                ),
+                CONF_ENC_KEY: src.get(
+                    CONF_ENC_KEY,
+                    ui.get(
+                        CONF_ENC_KEY, per_cam.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY)
+                    ),
+                ),
+                CONF_RTSP_USES_VERIFICATION_CODE: src.get(
+                    CONF_RTSP_USES_VERIFICATION_CODE,
+                    ui.get(
+                        CONF_RTSP_USES_VERIFICATION_CODE,
+                        per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
+                    ),
+                ),
+                CONF_FFMPEG_ARGUMENTS: src.get(
+                    CONF_FFMPEG_ARGUMENTS,
+                    ui.get(
+                        CONF_FFMPEG_ARGUMENTS,
+                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+                    ),
+                ),
+                "ephemeral_test_rtsp": ui.get("ephemeral_test_rtsp", test_rtsp_default),
+            }
+
         if user_input is not None:
-            user_input[CONF_IP_ADDRESS] = inferred_ip  # for RTSP test
-            user_input["cloud_account_username"] = self.config_entry.unique_id
-            user_input[ATTR_SERIAL] = self._cam_serial
+            payload = {
+                **user_input,
+                CONF_IP_ADDRESS: inferred_ip,
+                "cloud_account_username": self.config_entry.unique_id,
+                ATTR_SERIAL: self._cam_serial,
+            }
 
             try:
-                resolved = await self._test_rtsp_credentials(user_input)
+                resolved = await self._test_rtsp_credentials(payload)
 
-                base_opts = dict(self.config_entry.options or {})
+                # Success → write fresh options dict
                 cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
                 cams_new = dict(cams_old)
-
                 cams_new[self._cam_serial] = {
                     CONF_USERNAME: resolved[CONF_USERNAME],
                     CONF_PASSWORD: resolved[CONF_PASSWORD],
@@ -524,64 +568,55 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     ],
                     CONF_FFMPEG_ARGUMENTS: resolved.get(
                         CONF_FFMPEG_ARGUMENTS,
-                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+                        cams_old.get(self._cam_serial, {}).get(
+                            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                        ),
                     ),
                 }
-
                 new_opts = dict(base_opts)
                 new_opts[OPTIONS_KEY_CAMERAS] = cams_new
 
-                # Clear ephemerals
                 self._pending = None
                 self._prefill = None
-
                 return self.async_create_entry(title="", data=new_opts)
 
             except EzvizAuthVerificationCode:
-                self._pending = user_input
+                self._pending = payload
+                self._prefill = _make_prefill(user_input, None)
                 return await self.async_step_camera_edit_2fa()
 
-            except AuthTestResultFailed:
+            except AuthTestResultFailed as err:
                 errors["base"] = "rtsp_auth_failed"
-            except DeviceException:
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
+            except DeviceException as err:
                 errors["base"] = "device_exception"
-            except (InvalidURL, HTTPError, PyEzvizError):
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
+            except (InvalidURL, HTTPError, PyEzvizError) as err:
                 errors["base"] = "cannot_connect"
+                self._prefill = _make_prefill(getattr(err, "data", None), user_input)
+
             except Exception:
                 _LOGGER.exception("Unexpected error in camera_edit")
                 return self.async_abort(reason="unknown")
 
-        # Defaults for the form: prefer prefill (one-shot), then stored per-camera
-        defd_username = (self._prefill or {}).get(CONF_USERNAME) or per_cam.get(
-            CONF_USERNAME, DEFAULT_CAMERA_USERNAME
-        )
-        defd_password = (self._prefill or {}).get(CONF_PASSWORD) or per_cam.get(
-            CONF_PASSWORD, DEFAULT_FETCH_MY_KEY
-        )
-        defd_enc_key = (self._prefill or {}).get(CONF_ENC_KEY) or per_cam.get(
-            CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY
-        )
-        defd_vc_mode = (
-            (self._prefill or {}).get(CONF_RTSP_USES_VERIFICATION_CODE)
-            if (self._prefill and CONF_RTSP_USES_VERIFICATION_CODE in self._prefill)
-            else per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
-        )
-        defd_ffmpeg = (self._prefill or {}).get(CONF_FFMPEG_ARGUMENTS) or per_cam.get(
-            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-        )
-
+        pf = self._prefill or _make_prefill(per_cam, None)
         schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME, default=defd_username): str,
-                vol.Required(CONF_PASSWORD, default=defd_password): str,
-                vol.Required(CONF_ENC_KEY, default=defd_enc_key): str,
+                vol.Required(CONF_USERNAME, default=pf[CONF_USERNAME]): str,
+                vol.Required(CONF_PASSWORD, default=pf[CONF_PASSWORD]): str,
+                vol.Required(CONF_ENC_KEY, default=pf[CONF_ENC_KEY]): str,
                 vol.Required(
-                    CONF_RTSP_USES_VERIFICATION_CODE, default=defd_vc_mode
+                    CONF_RTSP_USES_VERIFICATION_CODE,
+                    default=pf[CONF_RTSP_USES_VERIFICATION_CODE],
                 ): bool,
                 vol.Required(
-                    "ephemeral_test_rtsp", default=test_rtsp_default
-                ): bool,  # one-time; NOT stored
-                vol.Optional(CONF_FFMPEG_ARGUMENTS, default=defd_ffmpeg): str,
+                    "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
+                ): bool,
+                vol.Optional(
+                    CONF_FFMPEG_ARGUMENTS, default=pf[CONF_FFMPEG_ARGUMENTS]
+                ): str,
             }
         )
         return self.async_show_form(
@@ -590,7 +625,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             errors=errors,
             description_placeholders={
                 "serial": self._cam_serial,
-                "ip_address": inferred_ip or "",
+                "ip_address": inferred_ip,
             },
         )
 
@@ -653,37 +688,16 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
             except AuthTestResultFailed:
                 errors["base"] = "rtsp_auth_failed"
+                return await self.async_step_camera_edit()
 
-            except DeviceException as err:
+            except DeviceException:
                 # If VC path failed but ENC exists, bounce back to edit with ENC preselected
-                has_enc = bool(
-                    data.get(CONF_ENC_KEY)
-                    and data[CONF_ENC_KEY] != DEFAULT_FETCH_MY_KEY
-                )
-                if has_enc:
-                    _LOGGER.warning(
-                        "VC fetch failed for %s; falling back to ENC and returning to edit: %s",
-                        self._cam_serial,
-                        err,
-                    )
-                    self._prefill = {
-                        CONF_USERNAME: data.get(
-                            CONF_USERNAME,
-                            per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
-                        ),
-                        CONF_PASSWORD: per_cam.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
-                        CONF_ENC_KEY: data[CONF_ENC_KEY],
-                        CONF_RTSP_USES_VERIFICATION_CODE: False,
-                        CONF_FFMPEG_ARGUMENTS: per_cam.get(
-                            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                        ),
-                    }
-                    self._pending = None
-                    return await self.async_step_camera_edit()
                 errors["base"] = "device_exception"
+                return await self.async_step_camera_edit()
 
             except (InvalidURL, HTTPError, PyEzvizError):
                 errors["base"] = "cannot_connect"
+                return await self.async_step_camera_edit()
 
             except Exception:
                 _LOGGER.exception("Unexpected error in camera_edit_2fa")
@@ -750,11 +764,30 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     "RTSP credentials verified for camera %s", data[ATTR_SERIAL]
                 )
 
-        except DeviceException:
+        except DeviceException as err:
             _LOGGER.warning(
                 "Device error while preparing/testing %s", data.get(ATTR_SERIAL)
             )
-            raise
+            # Attach whatever data we have so far for prefill
+            e = DeviceException(f"EZVIZ Device error: {err}")
+            e.data = data
+            raise e from err
+
+        except AuthTestResultFailed as err:
+            _LOGGER.warning("RTSP auth failed for camera %s", data.get(ATTR_SERIAL))
+            e = AuthTestResultFailed("RTSP DESCRIBE auth test failed")
+            e.data = data
+            raise e from err
+
+        except PyEzvizError as err:
+            _LOGGER.warning(
+                "EZVIZ API error while preparing/testing %s", data.get(ATTR_SERIAL)
+            )
+            e = PyEzvizError(
+                f"EZVIZ API error, could be account permission for retrieving key: {err}"
+            )
+            e.data = data
+            raise e from err
 
         # Remove ephemeral values before returning
         data.pop(CONF_CAM_VERIFICATION_2FA_CODE, None)
