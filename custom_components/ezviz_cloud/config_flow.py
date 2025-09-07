@@ -686,17 +686,20 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 # Still needs a code
                 errors["base"] = "verification_required"
 
-            except AuthTestResultFailed:
+            except AuthTestResultFailed as err:
                 errors["base"] = "rtsp_auth_failed"
+                self._prefill = getattr(err, "data", None)
                 return await self.async_step_camera_edit()
 
-            except DeviceException:
+            except DeviceException as err:
                 # If VC path failed but ENC exists, bounce back to edit with ENC preselected
                 errors["base"] = "device_exception"
+                self._prefill = getattr(err, "data", None)
                 return await self.async_step_camera_edit()
 
-            except (InvalidURL, HTTPError, PyEzvizError):
+            except (InvalidURL, HTTPError, PyEzvizError) as err:
                 errors["base"] = "cannot_connect"
+                self._prefill = getattr(err, "data", None)
                 return await self.async_step_camera_edit()
 
             except Exception:
@@ -763,6 +766,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 _LOGGER.debug(
                     "RTSP credentials verified for camera %s", data[ATTR_SERIAL]
                 )
+
+        except EzvizAuthVerificationCode:
+            _LOGGER.warning(
+                "EZVIZ requested 2FA code while preparing/testing %s",
+                data.get(ATTR_SERIAL),
+            )
+            raise
 
         except DeviceException as err:
             _LOGGER.warning(
