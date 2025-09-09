@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -25,19 +26,36 @@ PARALLEL_UPDATES = 1
 
 @dataclass(frozen=True, kw_only=True)
 class EzvizBinarySensorEntityDescription(BinarySensorEntityDescription):
-    """EZVIZ binary sensor description with value & capability gating."""
+    """EZVIZ binary sensor description with value, capability & device-category gating."""
 
-    value_fn: Callable[[dict], bool]
+    value_fn: Callable[[dict[str, Any]], bool]
+
+    # Capability gating via camera_data["supportExt"].
+    # If supported_ext_key is None -> always supported (subject to device-category).
+    # If set -> camera_data["supportExt"][supported_ext_key] must equal one of the raw strings
+    # in supported_ext_value (e.g., ["1,2,3", "2", "3"]).
     supported_ext_key: str | None = None
-    supported_ext_value: tuple[str, ...] | None = None
+    supported_ext_value: list[str] | None = None
+
+    # Device-category gating via camera_data["device_category"].
+    # None => no gating; tuple => must match one of these categories exactly.
+    required_device_categories: tuple[str, ...] | None = None
 
 
 def _is_desc_supported(
-    camera_data: dict, desc: EzvizBinarySensorEntityDescription
+    camera_data: dict[str, Any],
+    desc: EzvizBinarySensorEntityDescription,
 ) -> bool:
-    """Return True if this entity description is supported by the camera."""
-    # No gating configured: always supported
-    if desc.supported_ext_key is None and desc.supported_ext_value is None:
+    """Return True if this binary sensor description is supported by the camera."""
+
+    # 1) Device-category gating
+    if desc.required_device_categories is not None:
+        device_category = camera_data.get("device_category")
+        if device_category not in desc.required_device_categories:
+            return False
+
+    # 2) supportExt gating
+    if desc.supported_ext_key is None:
         return True
 
     support_ext = camera_data.get("supportExt") or {}
@@ -48,11 +66,14 @@ def _is_desc_supported(
     if current_val is None:
         return False
 
-    # If supported_ext_value is None -> presence of the key is enough
-    if desc.supported_ext_value is None:
+    current_val_str = str(current_val).strip()
+
+    # If supported_ext_value is missing/empty, treat as presence-only
+    if not desc.supported_ext_value:
         return True
 
-    return str(current_val) in desc.supported_ext_value
+    # Exact string match against any provided option
+    return any(current_val_str == option.strip() for option in desc.supported_ext_value)
 
 
 BINARY_SENSORS: tuple[EzvizBinarySensorEntityDescription, ...] = (
@@ -61,15 +82,11 @@ BINARY_SENSORS: tuple[EzvizBinarySensorEntityDescription, ...] = (
         translation_key="motion_trigger",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda d: bool(d.get("Motion_Trigger")),
-        supported_ext_key=None,
-        supported_ext_value=None,
     ),
     EzvizBinarySensorEntityDescription(
         key="alarm_schedules_enabled",
         translation_key="alarm_schedules_enabled",
         value_fn=lambda d: bool(d.get("alarm_schedules_enabled")),
-        supported_ext_key=None,
-        supported_ext_value=None,
     ),
     EzvizBinarySensorEntityDescription(
         key="encrypted",
@@ -77,8 +94,6 @@ BINARY_SENSORS: tuple[EzvizBinarySensorEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: bool(d.get("encrypted")),
-        supported_ext_key=None,
-        supported_ext_value=None,
     ),
 )
 
@@ -91,14 +106,13 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    # One-time registry migration: "<serial>_<camera name>.<key>" -> "{serial}_{key}"
+    # Registry unique_id migration: "<serial>_<camera name>.<key>" -> "{serial}_{key}"
     await migrate_unique_ids_with_coordinator(
         hass=hass,
         entry=entry,
         coordinator=coordinator,
         platform_domain="binary_sensor",
         allowed_keys=tuple(desc.key for desc in BINARY_SENSORS),
-        mark_once_option="uid_migrated_v1_binary_sensor",
     )
 
     entities: list[EzvizBinarySensor] = []
@@ -125,9 +139,10 @@ class EzvizBinarySensor(EzvizEntity, BinarySensorEntity):
         serial: str,
         description: EzvizBinarySensorEntityDescription,
     ) -> None:
-        """Initialize the binary sensor."""
+        """Initialize the binary_sensor."""
         super().__init__(coordinator, serial)
         self.entity_description = description
+        # Stable unique_id: "{serial}_{key}" (no camera name)
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property

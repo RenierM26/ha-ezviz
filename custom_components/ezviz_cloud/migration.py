@@ -1,12 +1,14 @@
 """Entity-registry unique_id migration utilities for ha-ezviz.
 
-Migrate legacy unique_ids that embed the camera name to the stable format:
+Migrates legacy unique_ids that embed the camera name to a stable format:
 
     "<SERIAL>_<CAMERA NAME>.<KEY>"  →  "<SERIAL>_<KEY>"
 
-This version STRICTLY verifies the camera name in the UID matches the
-current coordinator-provided name (case/space-normalized). Mismatches
-are skipped and listed in a Repairs issue.
+Design:
+- Idempotent and cheap; safe to run each setup.
+- Strict camera-name verification (normalized).
+- No persistence of transient stats/options.
+- Uses Repairs issues (translation_key) to inform the user of skipped items.
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import logging
 import re
-import time
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -32,8 +33,8 @@ from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Only migrate name-bearing legacy UIDs of the form:
-# "<SERIAL>_<CAMERA NAME>.<KEY>"
+# Migrate ONLY name-bearing legacy UIDs:
+#   "<SERIAL>_<CAMERA NAME>.<KEY>"  →  "{serial}_{key}"
 LEGACY_UID_REGEX = re.compile(
     r"^(?P<serial>[A-Za-z0-9]+)_(?P<camera_name>.+)\.(?P<key>[^.]+)$"
 )
@@ -41,7 +42,7 @@ LEGACY_UID_REGEX = re.compile(
 
 @dataclass
 class MigrationStats:
-    """Counters for a migration pass."""
+    """Counters for a migration pass (returned for tests/logging only)."""
 
     examined: int = 0
     migrated: int = 0
@@ -53,8 +54,8 @@ class MigrationStats:
     skipped_collision: int = 0  # target UID already taken
 
 
-def _norm_name(value: str | None) -> str | None:
-    """Normalize camera names for comparison (case/whitespace-insensitive)."""
+def _normalize_name(value: str | None) -> str | None:
+    """Normalize names for comparison (case/whitespace-insensitive)."""
     if not value:
         return None
     return " ".join(value.strip().lower().split())
@@ -68,24 +69,19 @@ async def migrate_unique_ids_with_coordinator(
     platform_domain: str,  # "sensor", "binary_sensor", "switch"
     allowed_keys: Iterable[str],  # valid entity description keys for this platform
     key_renames: Mapping[str, str] | None = None,  # optional: map old_key -> new_key
-    mark_once_option: str | None = None,  # e.g. "uid_migrated_v1_sensor"
 ) -> MigrationStats:
     """Migrate legacy unique_ids for one platform using coordinator data.
 
-    Strict rules:
+    Rules:
       - UID must match "<serial>_<camera name>.<key>".
       - Serial must exist in coordinator.data.
-      - Camera name in UID must equal current coordinator name (normalized).
-      - Key must be in `allowed_keys` and present for that camera.
+      - Camera name in UID must equal coordinator name (normalized).
+      - Key must be in `allowed_keys` AND present in that camera's data.
       - Renames via `key_renames` are applied before validation.
-      - Disabled entities are migrated as well (state unchanged).
-      - Skips are summarized in a Repairs issue; the issue is cleared when clean.
+      - Disabled entities are included; we do not change their disabled state.
+      - Skips are summarized in a Repairs issue (with translation_key).
     """
     stats = MigrationStats()
-
-    # Optional run-once guard per entry+platform
-    if mark_once_option and entry.options.get(mark_once_option):
-        return stats
 
     entity_registry = er.async_get(hass)
     devices_by_serial: dict[str, dict[str, Any]] = coordinator.data or {}
@@ -93,19 +89,29 @@ async def migrate_unique_ids_with_coordinator(
     allowed_key_set = set(allowed_keys)
     rename_map = dict(key_renames or {})
 
+    # Fast exit: nothing to scan for this platform if no entities have legacy (dot) UIDs
+    if not any(
+        reg_entry.platform == DOMAIN
+        and reg_entry.domain == platform_domain
+        and "." in reg_entry.unique_id
+        for reg_entry in entity_registry.entities.values()
+    ):
+        _LOGGER.debug("[%s] UID migration: no legacy IDs found", platform_domain)
+        return stats
+
     skipped_entity_ids: list[str] = []
 
     def compute_change(reg_entry: er.RegistryEntry) -> dict[str, Any] | None:
         nonlocal stats
 
-        # Only act on our integration + requested HA platform
+        # Only act on our integration + requested platform
         if reg_entry.platform != DOMAIN or reg_entry.domain != platform_domain:
             return None
 
         old_uid = reg_entry.unique_id
         stats.examined += 1
 
-        # Already in new scheme (no dot: "<serial>_<key>") → nothing to do
+        # Already in new scheme (no dot) → nothing to do
         if "." not in old_uid:
             return None
 
@@ -119,29 +125,31 @@ async def migrate_unique_ids_with_coordinator(
         name_in_uid = match.group("camera_name")
         key_in_uid = match.group("key")
 
-        # Serial must exist
         camera_data = devices_by_serial.get(serial_in_uid)
         if camera_data is None:
             stats.skipped_unknown_serial += 1
             skipped_entity_ids.append(reg_entry.entity_id)
             return None
 
-        # Camera name must match coordinator (normalized)
-        current_name = _norm_name(camera_data.get("name"))
-        uid_name_norm = _norm_name(name_in_uid)
-        if not current_name or not uid_name_norm or uid_name_norm != current_name:
+        # Strict camera-name check
+        coordinator_name_norm = _normalize_name(camera_data.get("name"))
+        uid_name_norm = _normalize_name(name_in_uid)
+        if (
+            not coordinator_name_norm
+            or not uid_name_norm
+            or uid_name_norm != coordinator_name_norm
+        ):
             stats.skipped_name_mismatch += 1
             skipped_entity_ids.append(reg_entry.entity_id)
             return None
 
-        # Map/validate key
         effective_key = rename_map.get(key_in_uid, key_in_uid)
+
         if effective_key not in allowed_key_set:
             stats.skipped_key_not_allowed += 1
             skipped_entity_ids.append(reg_entry.entity_id)
             return None
 
-        # Key must exist in this camera's dict (top-level)
         if effective_key not in camera_data:
             stats.skipped_key_not_present += 1
             skipped_entity_ids.append(reg_entry.entity_id)
@@ -179,23 +187,6 @@ async def migrate_unique_ids_with_coordinator(
     # Perform migration across all entities in the config entry
     await er.async_migrate_entries(hass, entry.entry_id, compute_change)
 
-    # Optional run-once marker (store summary)
-    if mark_once_option:
-        opts = dict(entry.options)
-        opts[mark_once_option] = {
-            "ts": int(time.time()),
-            "platform": platform_domain,
-            "examined": stats.examined,
-            "migrated": stats.migrated,
-            "skipped_bad_format": stats.skipped_bad_format,
-            "skipped_unknown_serial": stats.skipped_unknown_serial,
-            "skipped_name_mismatch": stats.skipped_name_mismatch,
-            "skipped_key_not_allowed": stats.skipped_key_not_allowed,
-            "skipped_key_not_present": stats.skipped_key_not_present,
-            "skipped_collision": stats.skipped_collision,
-        }
-        hass.config_entries.async_update_entry(entry, options=opts)
-
     # Repairs issue: create/update when there are skips; delete when clean
     issue_id = f"uid_migration_review_{platform_domain}_{entry.entry_id}"
     total_skipped = (
@@ -208,10 +199,8 @@ async def migrate_unique_ids_with_coordinator(
     )
 
     if total_skipped:
-        example_ids = sorted(set(skipped_entity_ids))[:20]
-        examples_text = (
-            "\n".join(f"- {eid}" for eid in example_ids) if example_ids else ""
-        )
+        sample_entity_ids = sorted(set(skipped_entity_ids))[:20]
+        examples_text = "\n".join(f"- {entity_id}" for entity_id in sample_entity_ids)
 
         async_create_issue(
             hass=hass,
@@ -226,7 +215,7 @@ async def migrate_unique_ids_with_coordinator(
                 "migrated": str(stats.migrated),
                 "count_bad_format": str(stats.skipped_bad_format),
                 "count_unknown_serial": str(stats.skipped_unknown_serial),
-                "count_name_mismatch": str(getattr(stats, "skipped_name_mismatch", 0)),
+                "count_name_mismatch": str(stats.skipped_name_mismatch),
                 "count_key_not_allowed": str(stats.skipped_key_not_allowed),
                 "count_key_not_present": str(stats.skipped_key_not_present),
                 "count_collision": str(stats.skipped_collision),
@@ -236,7 +225,7 @@ async def migrate_unique_ids_with_coordinator(
     else:
         async_delete_issue(hass, DOMAIN, issue_id)
 
-    # Log summary
+    # Concise summary
     log_fn = _LOGGER.info if stats.migrated else _LOGGER.debug
     log_fn(
         "[%s] UID migration: migrated=%s examined=%s "

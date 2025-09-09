@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -10,71 +12,135 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .migration import migrate_unique_ids_with_coordinator
 
 PARALLEL_UPDATES = 1
 
-SENSOR_TYPES: dict[str, SensorEntityDescription] = {
-    "battery_level": SensorEntityDescription(
+
+@dataclass(frozen=True, kw_only=True)
+class EzvizSensorEntityDescription(SensorEntityDescription):
+    """EZVIZ sensor with value, capability & device-category gating."""
+
+    value_fn: Callable[[dict[str, Any]], Any]
+    supported_ext_key: str | None = None
+    supported_ext_value: list[str] | None = None
+    required_device_categories: tuple[str, ...] | None = None
+
+
+def _is_desc_supported(
+    camera_data: dict[str, Any],
+    desc: EzvizSensorEntityDescription,
+) -> bool:
+    """Return True if this sensor description is supported by the camera."""
+
+    if desc.required_device_categories is not None:
+        device_category = camera_data.get("device_category")
+        if device_category not in desc.required_device_categories:
+            return False
+
+    if desc.supported_ext_key is None:
+        return True
+
+    support_ext = camera_data.get("supportExt") or {}
+    if not isinstance(support_ext, dict):
+        return False
+
+    current_val = support_ext.get(desc.supported_ext_key)
+    if current_val is None:
+        return False
+
+    current_val_str = str(current_val).strip()
+
+    if not desc.supported_ext_value:
+        return True
+
+    return any(current_val_str == option.strip() for option in desc.supported_ext_value)
+
+
+SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
+    EzvizSensorEntityDescription(
         key="battery_level",
-        native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=lambda d: d.get("battery_level"),
+        required_device_categories=("BatteryCamera",),
     ),
-    "alarm_sound_mod": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="alarm_sound_mod",
         translation_key="alarm_sound_mod",
         entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("alarm_sound_mod"),
     ),
-    "last_alarm_time": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="last_alarm_time",
         translation_key="last_alarm_time",
         entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("last_alarm_time"),
     ),
-    "Seconds_Last_Trigger": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="Seconds_Last_Trigger",
         translation_key="seconds_last_trigger",
         entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("Seconds_Last_Trigger"),
     ),
-    "last_alarm_pic": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="last_alarm_pic",
         translation_key="last_alarm_pic",
         entity_registry_enabled_default=False,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("last_alarm_pic"),
     ),
-    "supported_channels": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="supported_channels",
         translation_key="supported_channels",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("supported_channels"),
     ),
-    "local_ip": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="local_ip",
         translation_key="local_ip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("local_ip"),
     ),
-    "wan_ip": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="wan_ip",
         translation_key="wan_ip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("wan_ip"),
     ),
-    "PIR_Status": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="PIR_Status",
         translation_key="pir_status",
+        value_fn=lambda d: d.get("PIR_Status"),
+        # Example:
+        # supported_ext_key="456", supported_ext_value=["1", "3"]
     ),
-    "last_alarm_type_code": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="last_alarm_type_code",
         translation_key="last_alarm_type_code",
+        value_fn=lambda d: d.get("last_alarm_type_code"),
     ),
-    "last_alarm_type_name": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="last_alarm_type_name",
         translation_key="last_alarm_type_name",
+        value_fn=lambda d: d.get("last_alarm_type_name"),
     ),
-    "last_offline_time": SensorEntityDescription(
+    EzvizSensorEntityDescription(
         key="last_offline_time",
         translation_key="last_offline_time",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("last_offline_time"),
     ),
-}
+)
 
 
 async def async_setup_entry(
@@ -85,30 +151,44 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(
-        [
-            EzvizSensor(coordinator, camera, sensor)
-            for camera in coordinator.data
-            for sensor, value in coordinator.data[camera].items()
-            if sensor in SENSOR_TYPES
-            if value is not None
-        ]
+    await migrate_unique_ids_with_coordinator(
+        hass,
+        entry,
+        coordinator,
+        platform_domain="sensor",
+        allowed_keys=tuple(desc.key for desc in SENSORS),
     )
+
+    entities: list[EzvizSensor] = []
+    for serial, camera_data in coordinator.data.items():
+        for desc in SENSORS:
+            if not _is_desc_supported(camera_data, desc):
+                continue
+            if desc.key in camera_data and camera_data[desc.key] is not None:
+                entities.append(EzvizSensor(coordinator, serial, desc))
+
+    if entities:
+        async_add_entities(entities)
 
 
 class EzvizSensor(EzvizEntity, SensorEntity):
-    """Representation of a EZVIZ sensor."""
+    """Representation of an EZVIZ sensor."""
+
+    _attr_has_entity_name = True
+    entity_description: EzvizSensorEntityDescription
 
     def __init__(
-        self, coordinator: EzvizDataUpdateCoordinator, serial: str, sensor: str
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        description: EzvizSensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, serial)
-        self._sensor_name = sensor
-        self._attr_unique_id = f"{serial}_{self._camera_name}.{sensor}"
-        self.entity_description = SENSOR_TYPES[sensor]
+        self.entity_description = description
+        self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
     def native_value(self) -> Any:
-        """Return the state of the sensor."""
-        return self.data[self._sensor_name]
+        """Return the sensor's value from the coordinator snapshot."""
+        return self.entity_description.value_fn(self.data)
