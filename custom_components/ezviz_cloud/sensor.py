@@ -172,7 +172,7 @@ async def async_setup_entry(
 
 
 class EzvizSensor(EzvizEntity, SensorEntity):
-    """Representation of an EZVIZ sensor."""
+    """Set up EZVIZ sensors from coordinator data."""
 
     _attr_has_entity_name = True
     entity_description: EzvizSensorEntityDescription

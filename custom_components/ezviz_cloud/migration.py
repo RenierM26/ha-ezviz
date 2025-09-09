@@ -1,19 +1,20 @@
-"""Unique ID migration utilities for ha-ezviz.
+"""Unique ID migration utilities for ha-ezviz (exact-match, no regex).
 
-Strategy (exact match, no regex):
+Strategy:
 - Build legacy unique_ids directly from coordinator data:
     legacy = f"{serial}_{name}.{key}"
-- If an entity's unique_id equals that legacy string, migrate to:
+- If an entity's unique_id equals that legacy string (case-sensitive), migrate to:
     new = f"{serial}_{key}"
-- Otherwise skip.
-- Optional key_renames: migrate "<serial>_<name>.<old_key>" → "<serial>_<new_key>"
+- Tolerate past *key* case drift by also generating {key.lower()} and {key.upper()}
+  legacy variants that map to the canonical new key.
+- Optional key_renames: migrate "<serial>_<name>.<old_key>" → "<serial>_<new_key>".
 
 Idempotent, no persistent stats; uses Repairs issues (translation_key) for skipped items.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 import logging
 from typing import Any
@@ -51,16 +52,20 @@ async def migrate_unique_ids_with_coordinator(
     platform_domain: str,  # "sensor", "binary_sensor", "switch"
     allowed_keys: Iterable[str],  # valid entity description keys for this platform
     key_renames: Mapping[str, str] | None = None,  # optional: old_key -> new_key
+    presence_check: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> MigrationStats:
     """Migrate legacy unique_ids for one platform using exact matching.
 
     We only migrate entries whose unique_id exactly equals:
-        f"{serial}_{name}.{key}"
+        f"{serial}_{name}.{key}"   (case-sensitive)
     where:
         - serial, name come from coordinator.data[serial]["name"]
-        - key is in `allowed_keys` and present in that camera's top-level dict
+        - `presence_check(key, camera_data)` returns True (key actually applies)
+    We also accept legacy key case variants (key.lower()/key.upper()) to avoid duplicates.
+
     For key renames, we migrate:
         f"{serial}_{name}.{old_key}" -> f"{serial}_{new_key}"
+    (only if `presence_check(new_key, camera_data)` is True).
     """
     stats = MigrationStats()
 
@@ -68,6 +73,11 @@ async def migrate_unique_ids_with_coordinator(
     devices_by_serial: dict[str, dict[str, Any]] = coordinator.data or {}
     allowed_key_set = set(allowed_keys)
     rename_map = dict(key_renames or {})
+
+    if presence_check is None:
+        # Default presence check: top-level key exists (good for sensor/binary_sensor)
+        def presence_check(key: str, camera: dict[str, Any]) -> bool:
+            return key in camera
 
     # Fast exit: nothing to scan if no entities with dot-UIDs for this platform
     if not any(
@@ -88,18 +98,23 @@ async def migrate_unique_ids_with_coordinator(
         if not isinstance(name, str):
             continue
 
-        # Current keys
+        # Current keys (presence may be nested; e.g. switches)
         for key in allowed_key_set:
-            if key in camera_data:
-                legacy_uid = f"{serial}_{name}.{key}"
-                legacy_to_target[legacy_uid] = (serial, key)
+            if presence_check(key, camera_data):
+                # tolerate past case variants of {key} to avoid duplicates
+                for variant in (key, key.lower(), key.upper()):
+                    legacy_to_target.setdefault(
+                        f"{serial}_{name}.{variant}", (serial, key)
+                    )
 
-        # Renamed keys: allow migration from old_key to new_key
+        # Renamed keys: allow migration from old_key to new_key (if new applies)
         for old_key, new_key in rename_map.items():
-            if new_key in allowed_key_set and new_key in camera_data:
-                legacy_uid_old = f"{serial}_{name}.{old_key}"
-                # don't overwrite if there happens to be a collision; first-write wins
-                legacy_to_target.setdefault(legacy_uid_old, (serial, new_key))
+            if new_key in allowed_key_set and presence_check(new_key, camera_data):
+                # accept case variants of the old key too
+                for variant in (old_key, old_key.lower(), old_key.upper()):
+                    legacy_to_target.setdefault(
+                        f"{serial}_{name}.{variant}", (serial, new_key)
+                    )
 
     skipped_entity_ids: list[str] = []
 
@@ -165,7 +180,6 @@ async def migrate_unique_ids_with_coordinator(
         sample_entity_ids = sorted(set(skipped_entity_ids))[:20]
         examples_text = "\n".join(f"- {entity_id}" for entity_id in sample_entity_ids)
 
-        # Reuse existing translation (placeholders not used are set to "0")
         async_create_issue(
             hass=hass,
             domain=DOMAIN,
@@ -192,8 +206,7 @@ async def migrate_unique_ids_with_coordinator(
     # Concise log
     log_fn = _LOGGER.info if stats.migrated else _LOGGER.debug
     log_fn(
-        "[%s] UID migration (exact match): migrated=%s examined=%s "
-        "(unmapped=%s collisions=%s)",
+        "[%s] UID migration (exact match): migrated=%s examined=%s (unmapped=%s collisions=%s)",
         platform_domain,
         stats.migrated,
         stats.examined,
