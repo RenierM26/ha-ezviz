@@ -252,12 +252,17 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
+    key_renames: dict[str, str] = {
+        "motion_detection": "alarm_notify",  # legacy key -> new canonical key
+    }
+
     await migrate_unique_ids_with_coordinator(
         hass=hass,
         entry=entry,
         coordinator=coordinator,
         platform_domain="switch",
         allowed_keys=tuple(desc.key for desc in SWITCHES),
+        key_renames=key_renames,
         presence_check=_build_switch_presence_check(),
     )
 
