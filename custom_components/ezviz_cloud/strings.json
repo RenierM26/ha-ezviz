@@ -269,5 +269,11 @@
         "custom": "Custom host"
       }
     }
+  },
+  "issues": {
+    "uid_migration_review": {
+      "title": "Review skipped {platform} unique_id migrations",
+      "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}"
+    }
   }
 }
