@@ -224,26 +224,6 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
 )
 
 
-def _build_switch_presence_check() -> Callable[[str, dict[str, Any]], bool]:
-    """Presence check using value_fn (handles nested switches)."""
-    value_fn_by_key: dict[str, Callable[[dict[str, Any]], Any]] = {
-        desc.key: desc.value_fn for desc in SWITCHES
-    }
-
-    def _presence(key: str, camera_data: dict[str, Any]) -> bool:
-        fn = value_fn_by_key.get(key)
-        if fn is None:
-            return False
-        try:
-            value = fn(camera_data)
-        except (KeyError, TypeError, AttributeError):
-            # Bad/missing structure (e.g. camera_data is missing keys or not a dict)
-            return False
-        return value is not None  # treat 0/False as valid presence
-
-    return _presence
-
-
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -263,7 +243,6 @@ async def async_setup_entry(
         platform_domain="switch",
         allowed_keys=tuple(desc.key for desc in SWITCHES),
         key_renames=key_renames,
-        presence_check=_build_switch_presence_check(),
     )
 
     entities: list[EzvizSwitch] = []
