@@ -121,8 +121,6 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         key="PIR_Status",
         translation_key="pir_status",
         value_fn=lambda d: d.get("PIR_Status"),
-        # Example:
-        # supported_ext_key="456", supported_ext_value=["1", "3"]
     ),
     EzvizSensorEntityDescription(
         key="last_alarm_type_code",

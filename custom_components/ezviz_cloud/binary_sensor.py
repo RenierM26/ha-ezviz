@@ -29,16 +29,8 @@ class EzvizBinarySensorEntityDescription(BinarySensorEntityDescription):
     """EZVIZ binary sensor description with value, capability & device-category gating."""
 
     value_fn: Callable[[dict[str, Any]], bool]
-
-    # Capability gating via camera_data["supportExt"].
-    # If supported_ext_key is None -> always supported (subject to device-category).
-    # If set -> camera_data["supportExt"][supported_ext_key] must equal one of the raw strings
-    # in supported_ext_value (e.g., ["1,2,3", "2", "3"]).
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
-
-    # Device-category gating via camera_data["device_category"].
-    # None => no gating; tuple => must match one of these categories exactly.
     required_device_categories: tuple[str, ...] | None = None
 
 
@@ -106,7 +98,6 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    # Registry unique_id migration: "<serial>_<camera name>.<key>" -> "{serial}_{key}"
     await migrate_unique_ids_with_coordinator(
         hass=hass,
         entry=entry,
@@ -142,7 +133,6 @@ class EzvizBinarySensor(EzvizEntity, BinarySensorEntity):
         """Initialize the binary_sensor."""
         super().__init__(coordinator, serial)
         self.entity_description = description
-        # Stable unique_id: "{serial}_{key}" (no camera name)
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
