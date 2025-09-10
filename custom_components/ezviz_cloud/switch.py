@@ -76,7 +76,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="voice_prompt",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAlarmVoice.value),
-        supported_ext_value=None,  # presence of capability is enough
+        supported_ext_value=None,
         value_fn=lambda d: (d.get("switches") or {}).get(1),
         method=lambda client, serial, enable: client.switch_status(serial, 1, enable),
     ),
@@ -245,17 +245,12 @@ async def async_setup_entry(
         key_renames=key_renames,
     )
 
-    entities: list[EzvizSwitch] = []
-    for serial, camera_data in coordinator.data.items():
-        for desc in SWITCHES:
-            if not _is_desc_supported(camera_data, desc):
-                continue
-            state_val = desc.value_fn(camera_data)
-            if state_val is not None:
-                entities.append(EzvizSwitch(coordinator, serial, desc))
-
-    if entities:
-        async_add_entities(entities)
+    async_add_entities(
+        EzvizSwitch(coordinator, serial, desc)
+        for serial, camera_data in coordinator.data.items()
+        for desc in SWITCHES
+        if _is_desc_supported(camera_data, desc)
+    )
 
 
 class EzvizSwitch(EzvizEntity, SwitchEntity):

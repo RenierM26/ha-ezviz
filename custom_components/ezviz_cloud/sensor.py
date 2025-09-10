@@ -157,16 +157,12 @@ async def async_setup_entry(
         allowed_keys=tuple(desc.key for desc in SENSORS),
     )
 
-    entities: list[EzvizSensor] = []
-    for serial, camera_data in coordinator.data.items():
-        for desc in SENSORS:
-            if not _is_desc_supported(camera_data, desc):
-                continue
-            if desc.key in camera_data and camera_data[desc.key] is not None:
-                entities.append(EzvizSensor(coordinator, serial, desc))
-
-    if entities:
-        async_add_entities(entities)
+    async_add_entities(
+        EzvizSensor(coordinator, serial, desc)
+        for serial, camera_data in coordinator.data.items()
+        for desc in SENSORS
+        if _is_desc_supported(camera_data, desc)
+    )
 
 
 class EzvizSensor(EzvizEntity, SensorEntity):
