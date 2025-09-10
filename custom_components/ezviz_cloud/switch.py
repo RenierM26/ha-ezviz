@@ -215,7 +215,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         ),
     ),
     EzvizSwitchEntityDescription(
-        key="alarm_notify",
+        key="motion_detection",
         translation_key="motion_detection",
         supported_ext_key=str(SupportExt.SupportDefence.value),
         value_fn=lambda d: d.get("alarm_notify"),
@@ -232,17 +232,12 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    key_renames: dict[str, str] = {
-        "motion_detection": "alarm_notify",  # legacy key -> new canonical key
-    }
-
     await migrate_unique_ids_with_coordinator(
         hass=hass,
         entry=entry,
         coordinator=coordinator,
         platform_domain="switch",
         allowed_keys=tuple(desc.key for desc in SWITCHES),
-        key_renames=key_renames,
     )
 
     async_add_entities(
