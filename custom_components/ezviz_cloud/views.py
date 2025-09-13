@@ -8,6 +8,8 @@ from http import HTTPStatus
 import logging
 
 from aiohttp import ClientError, ClientTimeout, web
+from pyezvizapi.exceptions import PyEzvizError
+from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.text import DOMAIN as TEXT_PLATFORM
@@ -16,16 +18,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import CONF_ENC_KEY, DOMAIN, OPTIONS_KEY_CAMERAS
-from .pyezvizapi.exceptions import PyEzvizError
-from .pyezvizapi.utils import decrypt_image
 
 _LOGGER = logging.getLogger(__name__)
 
 
 @callback
-def async_generate_image_proxy_url(
-    config_entry_id: str, serial: str, url: str
-) -> str:
+def async_generate_image_proxy_url(config_entry_id: str, serial: str, url: str) -> str:
     """Generate proxy URL for alarm image (decrypted if needed)."""
     return ImageProxyView.url.format(
         config_entry_id=config_entry_id,
