@@ -84,9 +84,12 @@ class ImageProxyView(HomeAssistantView):
                 .get(CONF_ENC_KEY)
             )
 
-        headers = dict(request.headers)
-        headers.pop("Host", None)
-        headers.pop("Referer", None)
+        # Security: never forward HA's incoming request headers (e.g., Authorization)
+        # to third-party endpoints. Build a minimal, safe header set.
+        headers = {
+            "User-Agent": "HomeAssistant/ezviz_cloud",
+            "Accept": "*/*",
+        }
 
         try:
             resp = await self.session.get(
