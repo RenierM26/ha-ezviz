@@ -3,7 +3,7 @@
   "name": "Ezviz(Beta)",
   "codeowners": ["@RenierM26"],
   "config_flow": true,
-  "dependencies": ["ffmpeg"],
+  "dependencies": ["ffmpeg", "http"],
   "documentation": "https://github.com/RenierM26/ha-ezviz",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/RenierM26/ha-ezviz/issues",
