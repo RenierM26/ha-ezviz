@@ -15,13 +15,13 @@ from pyezvizapi.utils import return_password_hash
 
 from homeassistant.components.text import TextEntity, TextEntityDescription, TextMode
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNKNOWN
+from homeassistant.const import STATE_UNKNOWN, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity
 
@@ -32,9 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 
 TEXT_TYPE = TextEntityDescription(
     key="camera_enc_key",
-    name="Camera encryption key",
+    translation_key="camera_enc_key",
     mode=TextMode.PASSWORD,
     entity_registry_enabled_default=False,
+    entity_category=EntityCategory.CONFIG,
 )
 
 
@@ -46,7 +47,7 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(EzvizText(coordinator, camera) for camera in coordinator.data)
+    async_add_entities(EzvizText(coordinator, camera, entry) for camera in coordinator.data)
 
 
 class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
@@ -56,6 +57,7 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self,
         coordinator: EzvizDataUpdateCoordinator,
         serial: str,
+        entry: ConfigEntry,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, serial)
@@ -64,6 +66,17 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self._attr_native_value = None
         self.current_enc_key_hash: str | None = None
         self.mfa_enabled: bool = True
+        self._entry = entry
+
+    def _persist_key_to_options(self, key: str) -> None:
+        """Persist the encryption key to the config entry options for this camera."""
+        options = dict(self._entry.options or {})
+        cameras: dict[str, dict] = dict(options.get(OPTIONS_KEY_CAMERAS, {}))
+        cam_opts = dict(cameras.get(self._serial, {}))
+        cam_opts[CONF_ENC_KEY] = key
+        cameras[self._serial] = cam_opts
+        options[OPTIONS_KEY_CAMERAS] = cameras
+        self.hass.config_entries.async_update_entry(self._entry, options=options)
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -94,13 +107,17 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self._attr_native_value = value
         self.current_enc_key_hash = return_password_hash(self._attr_native_value)
         self.async_write_ha_state()
+        # Store updated key in entry options for reuse by media proxy, etc.
+        self._persist_key_to_options(value)
 
     @property
     def available(self) -> bool:
-        """Return True if entity is available."""
-        if not self._attr_native_value:
-            return False
+        """Entity should remain available even without a key set."""
         return super().available
+
+    def _is_device_online(self) -> bool:
+        """Return True if device status != 2 (offline)."""
+        return bool(self.data.get("status") != 2)
 
     async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
@@ -110,6 +127,14 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
             not self.current_enc_key_hash
             or self.current_enc_key_hash != self.data["encrypted_pwd_hash"]
         ):
+            # Only attempt to fetch when the device is online; otherwise wait
+            if not self._is_device_online():
+                _LOGGER.debug(
+                    "%s: Device appears offline; postponing encryption key retrieval",
+                    self.entity_id,
+                )
+                return
+
             _LOGGER.warning(
                 "%s: Encryption key changed, hash_of_current = %s, hash_from_api = %s, fetching from api",
                 self.entity_id,
@@ -139,3 +164,5 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
             self._attr_native_value = new_encryption_key
             self.current_enc_key_hash = return_password_hash(self._attr_native_value)
             self.async_write_ha_state()
+            # Store fetched key in entry options
+            self._persist_key_to_options(new_encryption_key)

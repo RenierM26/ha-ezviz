@@ -145,7 +145,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(remove_shutdown)
 
     # Register HTTP view for image proxy/decryption once per instance
-    hass.http.register_view(ImageProxyView(hass))
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if not domain_data.get("_http_view_registered"):
+        hass.http.register_view(ImageProxyView(hass))
+        domain_data["_http_view_registered"] = True
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

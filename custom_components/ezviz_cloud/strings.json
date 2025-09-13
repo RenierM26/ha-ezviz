@@ -193,6 +193,11 @@
         "name": "Last motion image"
       }
     },
+    "text": {
+      "camera_enc_key": {
+        "name": "Camera encryption key"
+      }
+    },
     "button": {
       "ptz_up": { "name": "PTZ up" },
       "ptz_down": { "name": "PTZ down" },

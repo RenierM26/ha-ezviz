@@ -19,7 +19,7 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .views import async_generate_image_proxy_url
 
 ALL_CAMERAS_ID = "ALL"
-DEFAULT_LIMIT = 20
+DEFAULT_LIMIT = 50
 
 
 def _b64e(data: str) -> str:
