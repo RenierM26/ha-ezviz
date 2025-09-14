@@ -221,6 +221,16 @@
       }
     },
     "sensor": {
+      "battery_charge_state": {
+        "name": "Battery charge state",
+        "state": {
+          "not_charging": "Not charging",
+          "charging": "Charging",
+          "full": "Charged",
+          "no_battery": "No battery",
+          "fault": "Battery fault"
+        }
+      },
       "alarm_sound_mod": { "name": "Alarm sound level" },
       "last_alarm_time": { "name": "Last alarm time" },
       "seconds_last_trigger": { "name": "Seconds since last trigger" },

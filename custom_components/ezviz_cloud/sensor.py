@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
+
+from pyezvizapi.constants import SupportExt
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -32,6 +34,8 @@ class EzvizSensorEntityDescription(SensorEntityDescription):
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
     required_device_categories: tuple[str, ...] | None = None
+    # Optional predicate to decide availability based on camera data
+    available_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 def _is_desc_supported(
@@ -46,22 +50,25 @@ def _is_desc_supported(
             return False
 
     if desc.supported_ext_key is None:
-        return True
+        # No explicit supportExt requirement; continue
+        pass
+    else:
+        support_ext = camera_data.get("supportExt") or {}
+        if not isinstance(support_ext, dict):
+            return False
+        current_val = support_ext.get(desc.supported_ext_key)
+        if current_val is None:
+            return False
+        current_val_str = str(current_val).strip()
+        if desc.supported_ext_value and not any(
+            current_val_str == option.strip() for option in desc.supported_ext_value
+        ):
+            return False
+    # If an availability predicate is provided, respect it
+    if desc.available_fn is not None:
+        return bool(desc.available_fn(camera_data))
 
-    support_ext = camera_data.get("supportExt") or {}
-    if not isinstance(support_ext, dict):
-        return False
-
-    current_val = support_ext.get(desc.supported_ext_key)
-    if current_val is None:
-        return False
-
-    current_val_str = str(current_val).strip()
-
-    if not desc.supported_ext_value:
-        return True
-
-    return any(current_val_str == option.strip() for option in desc.supported_ext_value)
+    return True
 
 
 SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
@@ -70,7 +77,23 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda d: d.get("battery_level"),
-        required_device_categories=("BatteryCamera",),
+        # Available when battery_level is present in data
+        available_fn=lambda d: d.get("battery_level") is not None,
+    ),
+    # Battery charge state derived from optionals.powerStatus
+    EzvizSensorEntityDescription(
+        key="battery_charge_state",
+        translation_key="battery_charge_state",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        supported_ext_key=str(SupportExt.SupportBatteryManage.value),
+        supported_ext_value=["1"],
+        value_fn=lambda d: {
+            0: "not_charging",
+            1: "charging",
+            2: "full",
+            3: "no_battery",
+            4: "fault",
+        }.get(cast(int, (d.get("optionals") or {}).get("powerStatus"))),
     ),
     EzvizSensorEntityDescription(
         key="alarm_sound_mod",
