@@ -47,7 +47,9 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(EzvizText(coordinator, camera, entry) for camera in coordinator.data)
+    async_add_entities(
+        EzvizText(coordinator, camera, entry) for camera in coordinator.data
+    )
 
 
 class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):

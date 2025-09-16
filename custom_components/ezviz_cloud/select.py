@@ -26,16 +26,48 @@ PARALLEL_UPDATES = 1
 
 @dataclass(frozen=True, kw_only=True)
 class EzvizSelectEntityDescription(SelectEntityDescription):
-    """Describe a EZVIZ Select entity."""
+    """EZVIZ select with capability & device-category gating."""
 
-    supported_ext_key: str
-    supported_ext_value: list[str]
-    option_range: list
-    get_current_option: Callable[[dict], int]
+    # Gating
+    supported_ext_key: str | None = None
+    supported_ext_value: list[str] | None = None
+    required_device_categories: tuple[str, ...] | None = None
+    available_fn: Callable[[dict[str, Any]], bool] | None = None
+
+    # Select mapping
+    option_range: list[int]
+    get_current_option: Callable[[dict[str, Any]], int]
     set_current_option: Callable[[EzvizClient, str, int], Any]
 
 
-SELECT_TYPE = (
+def _is_desc_supported(
+    camera_data: dict[str, Any],
+    desc: EzvizSelectEntityDescription,
+) -> bool:
+    """Return True if this select description is supported by the camera."""
+    if desc.required_device_categories is not None:
+        if camera_data.get("device_category") not in desc.required_device_categories:
+            return False
+
+    if desc.supported_ext_key is not None:
+        support_ext = camera_data.get("supportExt") or {}
+        if not isinstance(support_ext, dict):
+            return False
+        current_val = support_ext.get(desc.supported_ext_key)
+        if current_val is None:
+            return False
+        if desc.supported_ext_value and str(current_val).strip() not in {
+            v.strip() for v in desc.supported_ext_value
+        }:
+            return False
+
+    if desc.available_fn is not None and not desc.available_fn(camera_data):
+        return False
+
+    return True
+
+
+SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
     EzvizSelectEntityDescription(
         key="alarm_sound_mod",
         translation_key="alarm_sound_mode",
@@ -44,9 +76,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportTalk.value),
         supported_ext_value=["1", "2", "3", "4"],
         option_range=[0, 1, 2],
-        get_current_option=lambda data: getattr(
-            SoundMode, data["alarm_sound_mod"]
-        ).value,
+        get_current_option=lambda d: getattr(SoundMode, d["alarm_sound_mod"]).value,
         set_current_option=lambda ezviz_client, serial, value: ezviz_client.alarm_sound(
             serial, value, 1
         ),
@@ -66,7 +96,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportWorkModeList.value),
         supported_ext_value=["1,2,3,4,10"],
         option_range=[0, 1, 2, 3, 4, 5],
-        get_current_option=lambda data: data["battery_camera_work_mode"],
+        get_current_option=lambda d: d["battery_camera_work_mode"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_battery_camera_work_mode(serial, value),
@@ -85,7 +115,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportNewWorkMode.value),
         supported_ext_value=["1,3,10,9,8"],
         option_range=[1, 2, 3, 4, 7],
-        get_current_option=lambda data: data["battery_camera_work_mode"],
+        get_current_option=lambda d: d["battery_camera_work_mode"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_battery_camera_work_mode(serial, value),
@@ -101,7 +131,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
         supported_ext_value=["2"],
         option_range=[0, 1],
-        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        get_current_option=lambda d: d["NightVision_Model"]["graphicType"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_night_vision_mode(serial, value),
@@ -119,7 +149,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
         supported_ext_value=["1"],
         option_range=[0, 1, 2, 5],
-        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        get_current_option=lambda d: d["NightVision_Model"]["graphicType"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_night_vision_mode(serial, value),
@@ -135,7 +165,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
         supported_ext_value=["7"],
         option_range=[0, 2],
-        get_current_option=lambda data: data["NightVision_Model"]["graphicType"],
+        get_current_option=lambda d: d["NightVision_Model"]["graphicType"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_night_vision_mode(serial, value),
@@ -151,10 +181,12 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportDefenceTypeFull.value),
         supported_ext_value=["3,6"],
         option_range=[1, 5],
-        get_current_option=lambda data: data["Alarm_DetectHumanCar"],
+        get_current_option=lambda d: d["Alarm_DetectHumanCar"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_detection_mode(serial, value),
+        available_fn=lambda d: str(SupportExt.SupportNewWorkMode.value)
+        not in (d.get("supportExt") or {}),
     ),
     EzvizSelectEntityDescription(
         key="advanced_detect_human_car",
@@ -167,7 +199,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportDetectHumanCar.value),
         supported_ext_value=["2"],
         option_range=[1, 3],
-        get_current_option=lambda data: data["Alarm_DetectHumanCar"],
+        get_current_option=lambda d: d["Alarm_DetectHumanCar"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_detection_mode(serial, value),
@@ -180,7 +212,7 @@ SELECT_TYPE = (
         supported_ext_key=str(SupportExt.SupportBackLight.value),
         supported_ext_value=["1"],
         option_range=[1, 2, 3],
-        get_current_option=lambda data: data["optionals"]["display_mode"]["mode"],
+        get_current_option=lambda d: d["optionals"]["display_mode"]["mode"],
         set_current_option=lambda ezviz_client,
         serial,
         value: ezviz_client.set_device_config_by_key(
@@ -199,18 +231,17 @@ async def async_setup_entry(
     ]
 
     async_add_entities(
-        EzvizSelect(coordinator, camera, entity_description)
-        for camera in coordinator.data
-        for capability, value in coordinator.data[camera]["supportExt"].items()
-        for entity_description in SELECT_TYPE
-        if capability == entity_description.supported_ext_key
-        if value in entity_description.supported_ext_value
+        EzvizSelect(coordinator, serial, desc)
+        for serial, camera_data in coordinator.data.items()
+        for desc in SELECTS
+        if _is_desc_supported(camera_data, desc)
     )
 
 
 class EzvizSelect(EzvizEntity, SelectEntity):
-    """Representation of a EZVIZ select entity."""
+    """Representation of an EZVIZ select entity."""
 
+    _attr_has_entity_name = True
     entity_description: EzvizSelectEntityDescription
 
     def __init__(
@@ -219,31 +250,44 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         serial: str,
         description: EzvizSelectEntityDescription,
     ) -> None:
-        """Initialize the sensor."""
+        """Initialize the select."""
         super().__init__(coordinator, serial)
-        self._attr_unique_id = f"{serial}_{description.key}"
         self.entity_description = description
+        self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
     def current_option(self) -> str | None:
-        """Return the selected entity option to represent the entity state."""
+        """Return the currently selected option."""
         current_value = self.entity_description.get_current_option(self.data)
+        try:
+            idx = self.entity_description.option_range.index(current_value)
+        except ValueError:
+            return None
+        return self.options[idx] if 0 <= idx < len(self.options) else None
 
-        if current_value in self.entity_description.option_range:
-            option_index = self.entity_description.option_range.index(current_value)
-            return self.options[option_index]
-
-        return None
-
-    def select_option(self, option: str) -> None:
+    async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        option_index = self.options.index(option)
-        option_set_value = self.entity_description.option_range[option_index]
+        try:
+            idx = self.options.index(option)
+        except ValueError as err:
+            raise HomeAssistantError(
+                f"Invalid option '{option}' for {self.entity_id}"
+            ) from err
+
+        if not (0 <= idx < len(self.entity_description.option_range)):
+            raise HomeAssistantError(f"Invalid option '{option}' for {self.entity_id}")
+
+        set_value = self.entity_description.option_range[idx]
 
         try:
-            self.entity_description.set_current_option(
-                self.coordinator.ezviz_client, self._serial, option_set_value
+            # Run potentially blocking client call in executor
+            await self.hass.async_add_executor_job(
+                self.entity_description.set_current_option,
+                self.coordinator.ezviz_client,
+                self._serial,
+                set_value,
             )
-
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot set option for {self.entity_id}") from err
+
+        await self.coordinator.async_request_refresh()
