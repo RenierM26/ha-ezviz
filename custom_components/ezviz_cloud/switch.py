@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pyezvizapi import EzvizClient
-from pyezvizapi.constants import SupportExt
+from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components.switch import (
@@ -36,59 +36,87 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     method: Callable[[EzvizClient, str, int], Any]
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
+
+    # NEW (safe no-ops until you populate these in coordinator.data):
     required_device_categories: tuple[str, ...] | None = None
+    allowed_models: tuple[str, ...] | None = None
+    blocked_models: tuple[str, ...] | None = None
+
+
+# --- NEW: tiny helpers for category/model + robust SupportExt matching ---
+def _support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
+    ext = camera_data.get("supportExt")
+    return ext if isinstance(ext, dict) else {}
+
+
+def _ext_tokens(val: Any) -> set[str]:
+    if val is None:
+        return set()
+    return {t.strip() for t in str(val).split(",") if t.strip()}
+
+
+def _get_category(camera_data: dict[str, Any]) -> str | None:
+    return camera_data.get("device_category")
+
+
+def _get_model(camera_data: dict[str, Any]) -> str | None:
+    # If you later stash model under device_info.model, this will still find it
+    return (camera_data.get("device_info") or {}).get("model") or camera_data.get(
+        "model"
+    )
 
 
 def _is_desc_supported(
     camera_data: dict[str, Any], desc: EzvizSwitchEntityDescription
 ) -> bool:
     """Return True if this switch description is supported by the camera."""
-    # 1) Device-category gating
+    # 1) Device-category gating (optional)
     if desc.required_device_categories is not None:
-        device_category = camera_data.get("device_category")
-        if device_category not in desc.required_device_categories:
+        if _get_category(camera_data) not in desc.required_device_categories:
             return False
 
-    # 2) Capability gating (supportExt)
+    # 2) Model allow/block (optional)
+    model = _get_model(camera_data)
+    if desc.allowed_models is not None and model not in desc.allowed_models:
+        return False
+    if desc.blocked_models is not None and model in desc.blocked_models:
+        return False
+
+    # 3) Capability gating (SupportExt)
     if desc.supported_ext_key is None:
         return True
-
-    support_ext = camera_data.get("supportExt") or {}
-    if not isinstance(support_ext, dict):
+    ext = _support_ext_dict(camera_data)
+    raw = ext.get(desc.supported_ext_key)
+    if raw is None:
         return False
-
-    current_val = support_ext.get(desc.supported_ext_key)
-    if current_val is None:
-        return False
-
-    # Presence-only if no explicit values provided
     if not desc.supported_ext_value:
         return True
-
-    current_val_str = str(current_val).strip()
-    return any(current_val_str == opt.strip() for opt in desc.supported_ext_value)
+    have = _ext_tokens(raw)
+    need = {v.strip() for v in desc.supported_ext_value if v.strip()}
+    return bool(have & need)
 
 
 SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
-    # Numeric "switches" from camera_data["switches"][ID]
+    # ---- Numeric "switches" from camera_data["switches"][ID] ----
     EzvizSwitchEntityDescription(
         key="ALARM_TONE",
         translation_key="voice_prompt",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAlarmVoice.value),
-        supported_ext_value=None,
-        value_fn=lambda d: (d.get("switches") or {}).get(1),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 1, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.ALARM_TONE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.ALARM_TONE.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
         key="LIGHT",
         translation_key="status_light",
         device_class=SwitchDeviceClass.SWITCH,
-        value_fn=lambda d: (d.get("switches") or {}).get(3),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 3, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(DeviceSwitchType.LIGHT.value),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.LIGHT.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -96,9 +124,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="privacy",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportPtzPrivacy.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(7),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 7, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.PRIVACY.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.PRIVACY.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -106,9 +136,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="infrared_light",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportCloseInfraredLight.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(10),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 10, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.INFRARED_LIGHT.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.INFRARED_LIGHT.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -116,9 +148,9 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="sleep",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportSleep.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(21),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 21, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(DeviceSwitchType.SLEEP.value),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.SLEEP.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -126,9 +158,9 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="audio",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAudioOnoff.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(22),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 22, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(DeviceSwitchType.SOUND.value),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.SOUND.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -136,9 +168,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="motion_tracking",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportIntelligentTrack.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(25),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 25, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.MOBILE_TRACKING.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.MOBILE_TRACKING.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -146,9 +180,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="all_day_video_recording",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportFullDayRecord.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(29),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 29, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.ALL_DAY_VIDEO.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.ALL_DAY_VIDEO.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -156,9 +192,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="auto_sleep",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAutoSleep.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(32),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 32, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.AUTO_SLEEP.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.AUTO_SLEEP.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -166,9 +204,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="flicker_light_on_movement",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportActiveDefense.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(301),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 301, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.LIGHT_FLICKER.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.LIGHT_FLICKER.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -176,9 +216,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="pir_motion_activated_light",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportLightRelate.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(305),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 305, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.ALARM_LIGHT_RELEVANCE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.ALARM_LIGHT_RELEVANCE.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -186,9 +228,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="tamper_alarm",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportTamperAlarm.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(306),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 306, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.TAMPER_ALARM.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.TAMPER_ALARM.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -196,9 +240,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="follow_movement",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportTracking.value),
-        value_fn=lambda d: (d.get("switches") or {}).get(650),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 650, enable
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.TRACKING.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.TRACKING.value, enable
         ),
     ),
     EzvizSwitchEntityDescription(
@@ -206,34 +252,129 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="watermark",
         device_class=SwitchDeviceClass.SWITCH,
         value_fn=lambda d: (d.get("switches") or {}).get(702),
-        method=lambda ezviz_client, serial, enable: ezviz_client.switch_status(
-            serial, 702, enable
+        method=lambda client, serial, enable: client.switch_status(serial, 702, enable),
+    ),
+    # ---- New: additional useful app booleans ----
+    EzvizSwitchEntityDescription(
+        key="CHANNELOFFLINE",
+        translation_key="channel_offline_notify",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportChannelOffline.value),  # 70
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.CHANNELOFFLINE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.CHANNELOFFLINE.value, enable
         ),
     ),
-    # Top-level flags in camera_data (not under "switches")
+    EzvizSwitchEntityDescription(
+        key="WIFI_LIGHT",
+        translation_key="wifi_status_light",
+        device_class=SwitchDeviceClass.SWITCH,
+        required_device_categories=(
+            DeviceCatagories.W2H_BASE_STATION_DEVICE_CATEGORY.value
+        ),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.WIFI_LIGHT.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.WIFI_LIGHT.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="OUTLET_RECOVER",
+        translation_key="outlet_power_recover",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportPoweroffRecovery.value),  # 189
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.OUTLET_RECOVER.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.OUTLET_RECOVER.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="OUTDOOR_RINGING_SOUND",
+        translation_key="outdoor_ringing_sound",
+        device_class=SwitchDeviceClass.SWITCH,
+        # Matches app gating better than 241 (ring selection)
+        supported_ext_key=str(SupportExt.SupportBellSet.value),  # 164
+        # required_device_categories=("BDoorBell",),  # uncomment once categories are present
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.OUTDOOR_RINGING_SOUND.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.OUTDOOR_RINGING_SOUND.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="INTELLIGENT_PQ_SWITCH",
+        translation_key="intelligent_picture_quality",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportIntelligentPQSwitch.value),  # 366
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.INTELLIGENT_PQ_SWITCH.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.INTELLIGENT_PQ_SWITCH.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="HUMAN_INTELLIGENT_DETECTION",
+        translation_key="people_detection",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportSmartBodyDetect.value),  # 244
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="DEFENCE_PLAN",
+        translation_key="defence_plan",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportSafeModePlan.value),  # 22
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.DEFENCE_PLAN.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.DEFENCE_PLAN.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="PARTIAL_IMAGE_OPTIMIZE",
+        translation_key="partial_image_optimize",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportPartialImageOptimize.value),  # optional
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.PARTIAL_IMAGE_OPTIMIZE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.PARTIAL_IMAGE_OPTIMIZE.value, enable
+        ),
+    ),
+    # ---- Top-level flags in camera_data (not under "switches") ----
     EzvizSwitchEntityDescription(
         key="encrypted",
         translation_key="encrypted",
         supported_ext_key=str(SupportExt.SupportEncrypt.value),
         value_fn=lambda d: d.get("encrypted"),
-        method=lambda ezviz_client, serial, enable: ezviz_client.set_video_enc(
-            serial, enable
-        ),
+        method=lambda client, serial, enable: client.set_video_enc(serial, enable),
     ),
     EzvizSwitchEntityDescription(
         key="push_notify_alarm",
         translation_key="push_notify_alarm",
         value_fn=lambda d: d.get("push_notify_alarm"),
-        method=lambda ezviz_client, serial, enable: ezviz_client.do_not_disturb(
-            serial, enable ^ 1
-        ),
+        method=lambda client, serial, enable: client.do_not_disturb(serial, enable ^ 1),
     ),
     EzvizSwitchEntityDescription(
         key="push_notify_call",
         translation_key="push_notify_call",
         supported_ext_key=str(SupportExt.SupportAlarmVoice.value),
         value_fn=lambda d: d.get("push_notify_call"),
-        method=lambda ezviz_client, serial, enable: ezviz_client.set_answer_call(
+        method=lambda client, serial, enable: client.set_answer_call(
             serial, enable ^ 1
         ),
     ),
@@ -242,18 +383,16 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="offline_notify",
         supported_ext_key=str(SupportExt.SupportAlarmVoice.value),
         value_fn=lambda d: d.get("offline_notify"),
-        method=lambda ezviz_client,
-        serial,
-        enable: ezviz_client.set_offline_notification(serial, enable),
+        method=lambda client, serial, enable: client.set_offline_notification(
+            serial, enable
+        ),
     ),
     EzvizSwitchEntityDescription(
         key="motion_detection",
         translation_key="motion_detection",
         supported_ext_key=str(SupportExt.SupportDefence.value),
         value_fn=lambda d: d.get("alarm_notify"),
-        method=lambda ezviz_client, serial, enable: ezviz_client.set_camera_defence(
-            serial, enable
-        ),
+        method=lambda client, serial, enable: client.set_camera_defence(serial, enable),
     ),
 )
 
