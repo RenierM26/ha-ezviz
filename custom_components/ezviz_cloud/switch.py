@@ -25,6 +25,7 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
+from .utility import device_category, device_model, support_ext_has
 
 PARALLEL_UPDATES = 1
 
@@ -44,40 +45,17 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     blocked_models: tuple[str, ...] | None = None
 
 
-# --- NEW: tiny helpers for category/model + robust SupportExt matching ---
-def _support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
-    ext = camera_data.get("supportExt")
-    return ext if isinstance(ext, dict) else {}
-
-
-def _ext_tokens(val: Any) -> set[str]:
-    if val is None:
-        return set()
-    return {t.strip() for t in str(val).split(",") if t.strip()}
-
-
-def _get_category(camera_data: dict[str, Any]) -> str | None:
-    return camera_data.get("device_category")
-
-
-def _get_model(camera_data: dict[str, Any]) -> str | None:
-    # If you later stash model under device_info.model, this will still find it
-    return (camera_data.get("device_info") or {}).get("model") or camera_data.get(
-        "model"
-    )
-
-
 def _is_desc_supported(
     camera_data: dict[str, Any], desc: EzvizSwitchEntityDescription
 ) -> bool:
     """Return True if this switch description is supported by the camera."""
     # 1) Device-category gating (optional)
     if desc.required_device_categories is not None:
-        if _get_category(camera_data) not in desc.required_device_categories:
+        if device_category(camera_data) not in desc.required_device_categories:
             return False
 
     # 2) Model allow/block (optional)
-    model = _get_model(camera_data)
+    model = device_model(camera_data)
     if desc.allowed_models is not None and model not in desc.allowed_models:
         return False
     if desc.blocked_models is not None and model in desc.blocked_models:
@@ -86,15 +64,9 @@ def _is_desc_supported(
     # 3) Capability gating (SupportExt)
     if desc.supported_ext_key is None:
         return True
-    ext = _support_ext_dict(camera_data)
-    raw = ext.get(desc.supported_ext_key)
-    if raw is None:
-        return False
-    if not desc.supported_ext_value:
-        return True
-    have = _ext_tokens(raw)
-    need = {v.strip() for v in desc.supported_ext_value if v.strip()}
-    return bool(have & need)
+    return support_ext_has(
+        camera_data, desc.supported_ext_key, desc.supported_ext_value
+    )
 
 
 SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (

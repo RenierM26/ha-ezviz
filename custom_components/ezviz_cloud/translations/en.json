@@ -226,16 +226,16 @@
         "name": "AI parameter ({subtype})"
       },
       "algorithm_param_human": {
-        "name": "Human detection sensitivity{channel_suffix}"
+        "name": "Human detection sensitivity"
       },
       "algorithm_param_pir": {
-        "name": "PIR detection sensitivity{channel_suffix}"
+        "name": "PIR detection sensitivity"
       },
       "algorithm_param_image_change": {
-        "name": "Image change sensitivity{channel_suffix}"
+        "name": "Image change sensitivity"
       },
       "algorithm_param_wave": {
-        "name": "Wave recognition sensitivity{channel_suffix}"
+        "name": "Wave recognition sensitivity"
       }
     },
     "sensor": {
@@ -256,6 +256,10 @@
       "supported_channels": { "name": "Supported channels" },
       "local_ip": { "name": "Local IP" },
       "wan_ip": { "name": "WAN IP" },
+      "wifi_signal": { "name": "Wi-Fi signal" },
+      "wifi_ssid": { "name": "Wi-Fi SSID" },
+      "network_type": { "name": "Network type" },
+      "sd_card_capacity": { "name": "SD card capacity" },
       "pir_status": { "name": "PIR status" },
       "last_alarm_type_code": { "name": "Last alarm type code" },
       "last_alarm_type_name": { "name": "Last alarm type name" },

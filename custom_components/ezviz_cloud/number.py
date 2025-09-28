@@ -32,8 +32,8 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizNumberEntityDescription(NumberEntityDescription):
     """Describe an EZVIZ Number entity."""
 
-    supported_ext: str
-    supported_ext_value: list
+    supported_ext: str | None
+    supported_ext_value: list[str]
     get_value: Callable[[dict[str, Any]], float | None]
     set_value: Callable[[EzvizClient, str, float], Any]
     translation_placeholders: dict[str, str] | None = None
@@ -48,6 +48,11 @@ DETECTION_TRANSLATION_KEY = "detection_sensibility"
 def _support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
     support_ext = camera_data.get("supportExt")
     return support_ext if isinstance(support_ext, dict) else {}
+
+
+def _device_sub_category(camera_data: dict[str, Any]) -> str | None:
+    sub_category = camera_data.get("device_sub_category")
+    return str(sub_category) if isinstance(sub_category, str) else None
 
 
 def _optionals_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
@@ -70,20 +75,27 @@ def _coerce_int(value: Any) -> int | None:
 def _iter_algorithm_entries(camera_data: dict[str, Any]) -> Iterable[dict[str, Any]]:
     optionals = _optionals_dict(camera_data)
     entries = optionals.get("AlgorithmInfo")
-    if isinstance(entries, list):
-        for entry in entries:
-            if isinstance(entry, dict):
-                yield entry
+    if not isinstance(entries, list):
+        return
+    for entry in entries:
+        if isinstance(entry, dict):
+            yield entry
+
+
+def _iter_channel_algorithm_entries(
+    camera_data: dict[str, Any], channel: int
+) -> Iterable[dict[str, Any]]:
+    for entry in _iter_algorithm_entries(camera_data):
+        entry_channel = _coerce_int(entry.get("channel")) or 1
+        if entry_channel == channel:
+            yield entry
 
 
 def _get_algorithm_value(
     camera_data: dict[str, Any], subtype: str, channel: int
 ) -> int | None:
-    for entry in _iter_algorithm_entries(camera_data):
+    for entry in _iter_channel_algorithm_entries(camera_data, channel):
         if entry.get("SubType") != subtype:
-            continue
-        entry_channel = _coerce_int(entry.get("channel")) or 1
-        if entry_channel != channel:
             continue
         return _coerce_int(entry.get("Value"))
     return None
@@ -128,60 +140,7 @@ def _detection_setter(type_value: int) -> Callable[[EzvizClient, str, float], An
     return _setter
 
 
-ALGORITHM_SUBTYPE_CONFIG: dict[str, dict[str, Any]] = {
-    "2": {
-        "translation_key": "algorithm_param_human",
-        "native_min_value": 1,
-        "native_max_value": 6,
-        "native_step": 1,
-        "include_channel_suffix": True,
-    },
-    "3": {
-        "translation_key": "algorithm_param_pir",
-        "native_min_value": 1,
-        "native_max_value": 100,
-        "native_step": 1,
-        "include_channel_suffix": True,
-    },
-    "4": {
-        "translation_key": "algorithm_param_image_change",
-        "native_min_value": 1,
-        "native_max_value": 100,
-        "native_step": 1,
-        "include_channel_suffix": True,
-    },
-    "5": {
-        "translation_key": "algorithm_param_wave",
-        "native_min_value": 1,
-        "native_max_value": 100,
-        "native_step": 1,
-        "include_channel_suffix": True,
-    },
-}
-
-DEFAULT_ALGORITHM_CONFIG: dict[str, Any] = {
-    "translation_key": "algorithm_parameter",
-    "native_min_value": 1,
-    "native_max_value": 100,
-    "native_step": 1,
-    "include_channel_suffix": False,
-}
-
 STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
-    EzvizNumberEntityDescription(
-        key="algorithm_sensitivity",
-        translation_key="algorithm_sensitivity",
-        native_min_value=1,
-        native_max_value=6,
-        native_step=1,
-        supported_ext=DETECTION_SENSITIVITY_EXT,
-        supported_ext_value=DETECTION_SENSITIVITY_VALUES,
-        get_value=_algorithm_value_getter("0", 1),
-        set_value=_detection_setter(0),
-        translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: _has_algorithm_subtype(data, "0", 1)
-        and _support_ext_value(data, DETECTION_SENSITIVITY_EXT) != "3",
-    ),
     EzvizNumberEntityDescription(
         key=DETECTION_TRANSLATION_KEY,
         translation_key=DETECTION_TRANSLATION_KEY,
@@ -193,10 +152,66 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
         translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: _has_algorithm_subtype(data, "0", 1)
+        available_fn=lambda data: _device_sub_category(data) == "C3A"
+        and _has_algorithm_subtype(data, "0", 1)
         and _support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "3",
     ),
+    EzvizNumberEntityDescription(
+        key="algorithm_param_0_1",
+        translation_key="algorithm_sensitivity",
+        native_min_value=1,
+        native_max_value=6,
+        native_step=1,
+        supported_ext=DETECTION_SENSITIVITY_EXT,
+        supported_ext_value=DETECTION_SENSITIVITY_VALUES,
+        get_value=_algorithm_value_getter("0", 1),
+        set_value=_detection_setter(0),
+        translation_placeholders={"channel_suffix": ""},
+        available_fn=lambda data: _has_algorithm_subtype(data, "0", 1)
+        and _support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "1",
+    ),
+    EzvizNumberEntityDescription(
+        key="algorithm_param_3_1",
+        translation_key="algorithm_param_pir",
+        native_min_value=1,
+        native_max_value=100,
+        native_step=1,
+        supported_ext=None,
+        supported_ext_value=[],
+        get_value=_algorithm_value_getter("3", 1),
+        set_value=_algorithm_param_setter("3", 1),
+        translation_placeholders={"subtype": "3"},
+        available_fn=lambda data: _has_algorithm_subtype(data, "3", 1),
+    ),
+    EzvizNumberEntityDescription(
+        key="algorithm_param_4_1",
+        translation_key="algorithm_param_human",
+        native_min_value=1,
+        native_max_value=100,
+        native_step=1,
+        supported_ext=None,
+        supported_ext_value=[],
+        get_value=_algorithm_value_getter("4", 1),
+        set_value=_algorithm_param_setter("4", 1),
+        translation_placeholders={"subtype": "4"},
+        available_fn=lambda data: _has_algorithm_subtype(data, "4", 1),
+    ),
 )
+
+
+def _is_description_supported(
+    camera_data: dict[str, Any], description: EzvizNumberEntityDescription
+) -> bool:
+    if description.available_fn and not description.available_fn(camera_data):
+        return False
+    if description.supported_ext is None:
+        return True
+    value = _support_ext_value(camera_data, description.supported_ext)
+    if value is None:
+        return False
+    if not description.supported_ext_value:
+        return True
+    return value in description.supported_ext_value
 
 
 async def async_setup_entry(
@@ -210,57 +225,10 @@ async def async_setup_entry(
     entities: list[NumberEntity] = []
 
     for serial, camera_data in coordinator.data.items():
-        descriptions: list[EzvizNumberEntityDescription] = []
-
-        for desc in STATIC_NUMBER_DESCRIPTIONS:
-            if desc.available_fn is not None and not desc.available_fn(camera_data):
+        for description in STATIC_NUMBER_DESCRIPTIONS:
+            if not _is_description_supported(camera_data, description):
                 continue
-            descriptions.append(desc)
-
-        seen_pairs: set[tuple[str, int]] = set()
-        for entry_data in _iter_algorithm_entries(camera_data):
-            subtype_any = entry_data.get("SubType")
-            if not isinstance(subtype_any, str) or subtype_any == "0":
-                continue
-
-            channel_int = _coerce_int(entry_data.get("channel")) or 1
-            key_pair = (subtype_any, channel_int)
-            if key_pair in seen_pairs:
-                continue
-            seen_pairs.add(key_pair)
-
-            if _get_algorithm_value(camera_data, subtype_any, channel_int) is None:
-                continue
-
-            config = ALGORITHM_SUBTYPE_CONFIG.get(subtype_any, DEFAULT_ALGORITHM_CONFIG)
-            placeholders = {"subtype": subtype_any}
-            if config.get("include_channel_suffix"):
-                placeholders["channel_suffix"] = (
-                    "" if channel_int == 1 else f" (channel {channel_int})"
-                )
-            if channel_int != 1:
-                placeholders.setdefault("channel", str(channel_int))
-
-            descriptions.append(
-                EzvizNumberEntityDescription(
-                    key=f"algorithm_param_{subtype_any}_{channel_int}",
-                    translation_key=config["translation_key"],
-                    native_min_value=config["native_min_value"],
-                    native_max_value=config["native_max_value"],
-                    native_step=config["native_step"],
-                    supported_ext=DETECTION_SENSITIVITY_EXT,
-                    supported_ext_value=[],
-                    get_value=_algorithm_value_getter(subtype_any, channel_int),
-                    set_value=_algorithm_param_setter(subtype_any, channel_int),
-                    translation_placeholders=placeholders,
-                )
-            )
-
-        if descriptions:
-            entities.extend(
-                EzvizNumber(coordinator, serial, description)
-                for description in descriptions
-            )
+            entities.append(EzvizNumber(coordinator, serial, description))
 
     if entities:
         async_add_entities(entities)
