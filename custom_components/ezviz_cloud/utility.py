@@ -113,9 +113,21 @@ def support_ext_has(
         return False
     if not expected_values:
         return True
+
+    raw_str = str(raw).strip()
+    normalized_expected = [value.strip() for value in expected_values if value.strip()]
+    if raw_str in normalized_expected:
+        return True
+
     have = _support_ext_tokens(raw)
-    need = {value.strip() for value in expected_values if value.strip()}
-    return bool(have & need)
+    need_tokens: set[str] = set()
+    for value in normalized_expected:
+        need_tokens.update(_support_ext_tokens(value))
+
+    if not need_tokens:
+        return False
+
+    return bool(have & need_tokens)
 
 
 def device_category(camera_data: dict[str, Any]) -> str | None:
