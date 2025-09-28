@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .utility import device_category, support_ext_has
 
 PARALLEL_UPDATES = 1
 
@@ -46,19 +47,13 @@ def _is_desc_supported(
 ) -> bool:
     """Return True if this select description is supported by the camera."""
     if desc.required_device_categories is not None:
-        if camera_data.get("device_category") not in desc.required_device_categories:
+        if device_category(camera_data) not in desc.required_device_categories:
             return False
 
     if desc.supported_ext_key is not None:
-        support_ext = camera_data.get("supportExt") or {}
-        if not isinstance(support_ext, dict):
-            return False
-        current_val = support_ext.get(desc.supported_ext_key)
-        if current_val is None:
-            return False
-        if desc.supported_ext_value and str(current_val).strip() not in {
-            v.strip() for v in desc.supported_ext_value
-        }:
+        if not support_ext_has(
+            camera_data, desc.supported_ext_key, desc.supported_ext_value
+        ):
             return False
 
     if desc.available_fn is not None and not desc.available_fn(camera_data):

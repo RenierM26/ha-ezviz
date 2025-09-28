@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -22,6 +22,12 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
+from .utility import (
+    network_type_value,
+    sd_card_capacity_gb,
+    wifi_signal_value,
+    wifi_ssid_value,
+)
 
 PARALLEL_UPDATES = 1
 
@@ -79,6 +85,37 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         value_fn=lambda d: d.get("battery_level"),
         # Available when battery_level is present in data
         available_fn=lambda d: d.get("battery_level") is not None,
+    ),
+    EzvizSensorEntityDescription(
+        key="wifi_signal",
+        translation_key="wifi_signal",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=wifi_signal_value,
+        available_fn=lambda d: wifi_signal_value(d) is not None,
+    ),
+    EzvizSensorEntityDescription(
+        key="wifi_ssid",
+        translation_key="wifi_ssid",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=wifi_ssid_value,
+        available_fn=lambda d: wifi_ssid_value(d) is not None,
+    ),
+    EzvizSensorEntityDescription(
+        key="network_type",
+        translation_key="network_type",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=network_type_value,
+        available_fn=lambda d: network_type_value(d) is not None,
+    ),
+    EzvizSensorEntityDescription(
+        key="sd_card_capacity",
+        translation_key="sd_card_capacity",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        value_fn=sd_card_capacity_gb,
+        available_fn=lambda d: sd_card_capacity_gb(d) is not None,
     ),
     # Battery charge state derived from optionals.powerStatus
     EzvizSensorEntityDescription(
