@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+import json
 from typing import Any
 
 from pyezvizapi import EzvizClient
@@ -381,7 +382,6 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
     EzvizSwitchEntityDescription(
         key="offline_notify",
         translation_key="offline_notify",
-        supported_ext_key=str(SupportExt.SupportAlarmVoice.value),
         value_fn=lambda d: d.get("offline_notify"),
         method=lambda client, serial, enable: client.set_offline_notification(
             serial, enable
@@ -397,6 +397,96 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
 )
 
 
+INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
+    "app_human_detect": "intelligent_app_human_detect",
+    "app_car_detect": "intelligent_app_car_detect",
+    "app_video_change": "intelligent_app_video_change",
+    "app_wave_recognize": "intelligent_app_wave_recognize",
+}
+
+
+def _iter_intelligent_apps(camera_data: dict[str, Any]) -> Iterator[tuple[str, bool]]:
+    """Yield tuples of (base_app_name, enabled_flag) for known intelligent apps."""
+
+    intelligent_app: Any = None
+    feature = camera_data.get("FEATURE_INFO")
+    if isinstance(feature, dict):
+        for group in feature.values():
+            if not isinstance(group, dict):
+                continue
+            video_section = group.get("Video")
+            if isinstance(video_section, dict) and "IntelligentAPP" in video_section:
+                intelligent_app = video_section["IntelligentAPP"]
+                break
+            if "IntelligentAPP" in group:
+                intelligent_app = group["IntelligentAPP"]
+                break
+    if intelligent_app is None:
+        return
+
+    if isinstance(intelligent_app, str):
+        try:
+            intelligent_app = json.loads(intelligent_app)
+        except json.JSONDecodeError:
+            intelligent_app = {}
+
+    if not isinstance(intelligent_app, dict):
+        return
+
+    downloaded: Any = intelligent_app.get("DownloadedAPP")
+    if isinstance(downloaded, str):
+        try:
+            downloaded = json.loads(downloaded)
+        except json.JSONDecodeError:
+            downloaded = {}
+
+    if not isinstance(downloaded, dict):
+        return
+
+    apps: Any = downloaded.get("APP", [])
+    if isinstance(apps, str):
+        try:
+            apps = json.loads(apps)
+        except json.JSONDecodeError:
+            apps = []
+
+    if not isinstance(apps, list):
+        return
+
+    for app in apps:
+        if not isinstance(app, dict):
+            continue
+        raw_app_id = app.get("APPID")
+        if not isinstance(raw_app_id, str):
+            continue
+        base = raw_app_id.split("$:$", 1)[0]
+        if base not in INTELLIGENT_APP_TRANSLATIONS:
+            continue
+        enabled = bool(app.get("enabled"))
+        yield base, enabled
+
+
+def _intelligent_app_value_fn(app_name: str) -> Callable[[dict[str, Any]], bool]:
+    """Construct a value extractor for the given intelligent app."""
+
+    def _value_fn(camera_data: dict[str, Any]) -> bool:
+        for name, enabled in _iter_intelligent_apps(camera_data):
+            if name == app_name:
+                return enabled
+        return False
+
+    return _value_fn
+
+
+def _intelligent_app_method(app_name: str) -> Callable[[EzvizClient, str, int], bool]:
+    """Construct a setter for the given intelligent app."""
+
+    def _method(client: EzvizClient, serial: str, enable: int) -> bool:
+        return bool(client.set_intelligent_app_state(serial, app_name, bool(enable)))
+
+    return _method
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -410,15 +500,30 @@ async def async_setup_entry(
         entry=entry,
         coordinator=coordinator,
         platform_domain="switch",
-        allowed_keys=tuple(desc.key for desc in SWITCHES),
+        allowed_keys=tuple(desc.key for desc in SWITCHES)
+        + tuple(f"intelligent_app_{name}" for name in INTELLIGENT_APP_TRANSLATIONS),
     )
 
-    async_add_entities(
+    entities: list[SwitchEntity] = [
         EzvizSwitch(coordinator, serial, desc)
         for serial, camera_data in coordinator.data.items()
         for desc in SWITCHES
         if _is_desc_supported(camera_data, desc)
-    )
+    ]
+
+    for serial, camera_data in coordinator.data.items():
+        for app_name, _enabled in _iter_intelligent_apps(camera_data):
+            translation_key = INTELLIGENT_APP_TRANSLATIONS[app_name]
+            dynamic_desc = EzvizSwitchEntityDescription(
+                key=f"intelligent_app_{app_name}",
+                translation_key=translation_key,
+                device_class=SwitchDeviceClass.SWITCH,
+                value_fn=_intelligent_app_value_fn(app_name),
+                method=_intelligent_app_method(app_name),
+            )
+            entities.append(EzvizSwitch(coordinator, serial, dynamic_desc))
+
+    async_add_entities(entities)
 
 
 class EzvizSwitch(EzvizEntity, SwitchEntity):

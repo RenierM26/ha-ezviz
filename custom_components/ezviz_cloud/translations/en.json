@@ -218,6 +218,24 @@
     "number": {
       "detection_sensibility": {
         "name": "Detection sensitivity"
+      },
+      "algorithm_sensitivity": {
+        "name": "Detection sensitivity"
+      },
+      "algorithm_parameter": {
+        "name": "AI parameter ({subtype})"
+      },
+      "algorithm_param_human": {
+        "name": "Human detection sensitivity{channel_suffix}"
+      },
+      "algorithm_param_pir": {
+        "name": "PIR detection sensitivity{channel_suffix}"
+      },
+      "algorithm_param_image_change": {
+        "name": "Image change sensitivity{channel_suffix}"
+      },
+      "algorithm_param_wave": {
+        "name": "Wave recognition sensitivity{channel_suffix}"
       }
     },
     "sensor": {
@@ -270,7 +288,12 @@
       "push_notify_alarm": { "name": "Alarm push notification" },
       "push_notify_call": { "name": "Call push notification" },
       "offline_notify": { "name": "Offline notification" },
-      "motion_detection": { "name": "Motion detection" }
+      "motion_detection": { "name": "Motion detection" },
+      "intelligent_app_human_detect": { "name": "AI human detection" },
+      "intelligent_app_car_detect": { "name": "Vehicle detection" },
+      "intelligent_app_video_change": { "name": "Image change detection" },
+      "intelligent_app_wave_recognize": { "name": "Wave recognition" },
+      "people_detection_mode": { "name": "People detection mode" }
     },
     "siren": {
       "siren": {
