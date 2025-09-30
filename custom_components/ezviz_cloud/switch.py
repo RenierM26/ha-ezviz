@@ -149,6 +149,30 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         ),
     ),
     EzvizSwitchEntityDescription(
+        key="WDR",
+        translation_key="wdr",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportWideDynamicRange.value),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.WIDE_DYNAMIC_RANGE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.WIDE_DYNAMIC_RANGE.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="DISTORTION_CORRECTION",
+        translation_key="distortion_correction",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportDistortionCorrection.value),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.DISTORTION_CORRECTION.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.DISTORTION_CORRECTION.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
         key="ALL_DAY_VIDEO",
         translation_key="all_day_video_recording",
         device_class=SwitchDeviceClass.SWITCH,
@@ -222,10 +246,15 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
     ),
     EzvizSwitchEntityDescription(
         key="WATERMARK",
-        translation_key="watermark",
+        translation_key="logo_watermark",
         device_class=SwitchDeviceClass.SWITCH,
-        value_fn=lambda d: (d.get("switches") or {}).get(702),
-        method=lambda client, serial, enable: client.switch_status(serial, 702, enable),
+        supported_ext_key=str(SupportExt.SupportLogoWatermark.value),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.LOGO_WATERMARK.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.LOGO_WATERMARK.value, enable
+        ),
     ),
     # ---- New: additional useful app booleans ----
     EzvizSwitchEntityDescription(
