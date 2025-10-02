@@ -22,6 +22,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .utility import (
+    night_vision_duration_value,
+    night_vision_luminance_value,
+    night_vision_mode_value,
+    night_vision_payload,
+    resolve_channel,
+    support_ext_has,
+)
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -35,7 +43,7 @@ class EzvizNumberEntityDescription(NumberEntityDescription):
     supported_ext: str | None
     supported_ext_value: list[str]
     get_value: Callable[[dict[str, Any]], float | None]
-    set_value: Callable[[EzvizClient, str, float], Any]
+    set_value: Callable[[EzvizClient, str, float, dict[str, Any]], Any]
     translation_placeholders: dict[str, str] | None = None
     available_fn: Callable[[dict[str, Any]], bool] | None = None
 
@@ -126,16 +134,76 @@ def _algorithm_value_getter(
 
 def _algorithm_param_setter(
     subtype: str, channel: int
-) -> Callable[[EzvizClient, str, float], Any]:
-    def _setter(client: EzvizClient, serial: str, value: float) -> Any:
+) -> Callable[[EzvizClient, str, float, dict[str, Any]], Any]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        _camera_data: dict[str, Any],
+    ) -> Any:
         return client.set_algorithm_param(serial, subtype, int(value), channel)
 
     return _setter
 
 
-def _detection_setter(type_value: int) -> Callable[[EzvizClient, str, float], Any]:
-    def _setter(client: EzvizClient, serial: str, value: float) -> Any:
+def _detection_setter(
+    type_value: int,
+) -> Callable[[EzvizClient, str, float, dict[str, Any]], Any]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        _camera_data: dict[str, Any],
+    ) -> Any:
         return client.set_detection_sensitivity(serial, 1, type_value, int(value))
+
+    return _setter
+
+
+def _night_vision_luminance_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        payload = night_vision_payload(
+            camera_data,
+            mode=night_vision_mode_value(camera_data),
+            luminance=int(round(value)),
+        )
+        client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "NightVision_Model",
+            payload,
+        )
+
+    return _setter
+
+
+def _night_vision_duration_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        payload = night_vision_payload(
+            camera_data,
+            mode=night_vision_mode_value(camera_data),
+            duration=int(round(value)),
+        )
+        client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "NightVision_Model",
+            payload,
+        )
 
     return _setter
 
@@ -195,6 +263,43 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         set_value=_algorithm_param_setter("4", 1),
         translation_placeholders={"subtype": "4"},
         available_fn=lambda data: _has_algorithm_subtype(data, "4", 1),
+    ),
+    EzvizNumberEntityDescription(
+        key="night_vision_luminance",
+        translation_key="night_vision_luminance",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        supported_ext=None,
+        supported_ext_value=[],
+        get_value=lambda data: float(night_vision_luminance_value(data)),
+        set_value=_night_vision_luminance_setter(),
+        available_fn=lambda data: (
+            support_ext_has(data, str(SupportExt.SupportNightVisionMode.value))
+            or support_ext_has(data, str(SupportExt.SupportSmartNightVision.value))
+        )
+        and night_vision_mode_value(data) in (1, 2),
+    ),
+    EzvizNumberEntityDescription(
+        key="night_vision_duration",
+        translation_key="night_vision_duration",
+        native_min_value=15,
+        native_max_value=120,
+        native_step=5,
+        native_unit_of_measurement="s",
+        supported_ext=str(
+            SupportExt.SupportIntelligentNightVisionDuration.value
+        ),
+        supported_ext_value=[],
+        get_value=lambda data: float(night_vision_duration_value(data)),
+        set_value=_night_vision_duration_setter(),
+        available_fn=lambda data: (
+            night_vision_mode_value(data) == 2
+            and (
+                support_ext_has(data, str(SupportExt.SupportNightVisionMode.value))
+                or support_ext_has(data, str(SupportExt.SupportSmartNightVision.value))
+            )
+        ),
     ),
 )
 
@@ -277,6 +382,7 @@ class EzvizNumber(EzvizEntity, NumberEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
                 value,
+                self.data,
             )
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot set value for {self.entity_id}") from err

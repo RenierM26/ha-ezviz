@@ -186,6 +186,31 @@
           "image_style_soft": "Soft",
           "image_style_vivid": "Vivid"
         }
+      },
+      "night_vision_mode": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour",
+          "night_vision_smart": "Smart mode",
+          "night_vision_super": "Super night view"
+        }
+      },
+      "day_night_mode": {
+        "name": "Day/night mode",
+        "state": {
+          "day_night_auto": "Auto",
+          "day_night_day": "Day",
+          "day_night_night": "Night"
+        }
+      },
+      "day_night_sensitivity": {
+        "name": "Day/night sensitivity",
+        "state": {
+          "day_night_sensitivity_low": "Low",
+          "day_night_sensitivity_medium": "Medium",
+          "day_night_sensitivity_high": "High"
+        }
       }
     },
     "image": {
@@ -199,16 +224,32 @@
       }
     },
     "button": {
-      "ptz_up": { "name": "PTZ up" },
-      "ptz_down": { "name": "PTZ down" },
-      "ptz_left": { "name": "PTZ left" },
-      "ptz_right": { "name": "PTZ right" },
-      "restart_device": { "name": "Restart" },
-      "flip_image": { "name": "Flip camera image" }
+      "ptz_up": {
+        "name": "PTZ up"
+      },
+      "ptz_down": {
+        "name": "PTZ down"
+      },
+      "ptz_left": {
+        "name": "PTZ left"
+      },
+      "ptz_right": {
+        "name": "PTZ right"
+      },
+      "restart_device": {
+        "name": "Restart"
+      },
+      "flip_image": {
+        "name": "Flip camera image"
+      }
     },
     "binary_sensor": {
-      "alarm_schedules_enabled": { "name": "Alarm schedules enabled" },
-      "encrypted": { "name": "Encryption" }
+      "alarm_schedules_enabled": {
+        "name": "Alarm schedules enabled"
+      },
+      "encrypted": {
+        "name": "Encryption"
+      }
     },
     "light": {
       "light": {
@@ -236,6 +277,12 @@
       },
       "algorithm_param_wave": {
         "name": "Wave recognition sensitivity"
+      },
+      "night_vision_luminance": {
+        "name": "Warm light brightness"
+      },
+      "night_vision_duration": {
+        "name": "Night vision duration"
       }
     },
     "sensor": {
@@ -249,57 +296,158 @@
           "fault": "Battery fault"
         }
       },
-      "alarm_sound_mod": { "name": "Alarm sound level" },
-      "last_alarm_time": { "name": "Last alarm time" },
-      "seconds_last_trigger": { "name": "Seconds since last trigger" },
-      "last_alarm_pic": { "name": "Last alarm picture URL" },
-      "supported_channels": { "name": "Supported channels" },
-      "local_ip": { "name": "Local IP" },
-      "wan_ip": { "name": "WAN IP" },
-      "wifi_signal": { "name": "Wi-Fi signal" },
-      "wifi_ssid": { "name": "Wi-Fi SSID" },
-      "network_type": { "name": "Network type" },
-      "sd_card_capacity": { "name": "SD card capacity" },
-      "pir_status": { "name": "PIR status" },
-      "last_alarm_type_code": { "name": "Last alarm type code" },
-      "last_alarm_type_name": { "name": "Last alarm type name" },
-      "last_offline_time": { "name": "Last offline" }
+      "alarm_sound_mod": {
+        "name": "Alarm sound level"
+      },
+      "last_alarm_time": {
+        "name": "Last alarm time"
+      },
+      "seconds_last_trigger": {
+        "name": "Seconds since last trigger"
+      },
+      "last_alarm_pic": {
+        "name": "Last alarm picture URL"
+      },
+      "supported_channels": {
+        "name": "Supported channels"
+      },
+      "local_ip": {
+        "name": "Local IP"
+      },
+      "wan_ip": {
+        "name": "WAN IP"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "wifi_ssid": {
+        "name": "Wi-Fi SSID"
+      },
+      "network_type": {
+        "name": "Network type"
+      },
+      "sd_card_capacity": {
+        "name": "SD card capacity"
+      },
+      "pir_status": {
+        "name": "PIR status"
+      },
+      "last_alarm_type_code": {
+        "name": "Last alarm type code"
+      },
+      "last_alarm_type_name": {
+        "name": "Last alarm type name"
+      },
+      "last_offline_time": {
+        "name": "Last offline"
+      }
     },
     "switch": {
-      "voice_prompt": { "name": "Voice prompt" },
-      "status_light": { "name": "Status light" },
-      "privacy": { "name": "Privacy" },
-      "infrared_light": { "name": "Infrared light" },
-      "sleep": { "name": "Sleep" },
-      "audio": { "name": "Audio" },
-      "motion_tracking": { "name": "Motion tracking" },
-      "wdr": { "name": "Wide dynamic range" },
-      "distortion_correction": { "name": "Distortion correction" },
-      "all_day_video_recording": { "name": "All day video recording" },
-      "auto_sleep": { "name": "Auto sleep" },
-      "flicker_light_on_movement": { "name": "Flicker light on movement" },
-      "pir_motion_activated_light": { "name": "PIR motion activated light" },
-      "tamper_alarm": { "name": "Tamper alarm" },
-      "follow_movement": { "name": "Follow movement" },
-      "logo_watermark": { "name": "Logo watermark" },
-      "partial_image_optimize": { "name": "Partial image optimize" },
-      "channel_offline_notify": { "name": "Channel offline notification" },
-      "wifi_status_light": { "name": "Wi-Fi status light" },
-      "outlet_power_recover": { "name": "Outlet power restore" },
-      "outdoor_ringing_sound": { "name": "Outdoor ringing sound" },
-      "intelligent_picture_quality": { "name": "Intelligent picture quality" },
-      "people_detection": { "name": "People detection" },
-      "defence_plan": { "name": "Defence plan" },
-      "encrypted": { "name": "Encryption" },
-      "push_notify_alarm": { "name": "Alarm push notification" },
-      "push_notify_call": { "name": "Call push notification" },
-      "offline_notify": { "name": "Offline notification" },
-      "motion_detection": { "name": "Motion detection" },
-      "intelligent_app_human_detect": { "name": "AI human detection" },
-      "intelligent_app_car_detect": { "name": "Vehicle detection" },
-      "intelligent_app_video_change": { "name": "Image change detection" },
-      "intelligent_app_wave_recognize": { "name": "Wave recognition" },
-      "people_detection_mode": { "name": "People detection mode" }
+      "voice_prompt": {
+        "name": "Voice prompt"
+      },
+      "status_light": {
+        "name": "Status light"
+      },
+      "privacy": {
+        "name": "Privacy"
+      },
+      "infrared_light": {
+        "name": "Infrared light"
+      },
+      "sleep": {
+        "name": "Sleep"
+      },
+      "audio": {
+        "name": "Audio"
+      },
+      "motion_tracking": {
+        "name": "Motion tracking"
+      },
+      "osd_overlay": {
+        "name": "On-screen display"
+      },
+      "wdr": {
+        "name": "Wide dynamic range"
+      },
+      "distortion_correction": {
+        "name": "Distortion correction"
+      },
+      "all_day_video_recording": {
+        "name": "All day video recording"
+      },
+      "auto_sleep": {
+        "name": "Auto sleep"
+      },
+      "flicker_light_on_movement": {
+        "name": "Flicker light on movement"
+      },
+      "pir_motion_activated_light": {
+        "name": "PIR motion activated light"
+      },
+      "tamper_alarm": {
+        "name": "Tamper alarm"
+      },
+      "follow_movement": {
+        "name": "Follow movement"
+      },
+      "logo_watermark": {
+        "name": "Logo watermark"
+      },
+      "partial_image_optimize": {
+        "name": "Partial image optimize"
+      },
+      "channel_offline_notify": {
+        "name": "Channel offline notification"
+      },
+      "wifi_status_light": {
+        "name": "Wi-Fi status light"
+      },
+      "outlet_power_recover": {
+        "name": "Outlet power restore"
+      },
+      "outdoor_ringing_sound": {
+        "name": "Outdoor ringing sound"
+      },
+      "intelligent_picture_quality": {
+        "name": "Intelligent picture quality"
+      },
+      "people_detection": {
+        "name": "People detection"
+      },
+      "defence_plan": {
+        "name": "Defence plan"
+      },
+      "encrypted": {
+        "name": "Encryption"
+      },
+      "push_notify_alarm": {
+        "name": "Alarm push notification"
+      },
+      "push_notify_call": {
+        "name": "Call push notification"
+      },
+      "offline_notify": {
+        "name": "Offline notification"
+      },
+      "motion_detection": {
+        "name": "Motion detection"
+      },
+      "intelligent_app_human_detect": {
+        "name": "AI human detection"
+      },
+      "intelligent_app_car_detect": {
+        "name": "Vehicle detection"
+      },
+      "intelligent_app_video_change": {
+        "name": "Image change detection"
+      },
+      "intelligent_app_wave_recognize": {
+        "name": "Wave recognition"
+      },
+      "people_detection_mode": {
+        "name": "People detection mode"
+      }
     },
     "siren": {
       "siren": {
