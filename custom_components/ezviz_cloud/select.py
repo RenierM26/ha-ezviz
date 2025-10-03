@@ -204,11 +204,10 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         set_current_option=lambda ezviz_client,
         serial,
         value,
-        camera_data: ezviz_client.set_dev_config_kv(
+        camera_data: ezviz_client.set_device_config_by_key(
             serial,
-            resolve_channel(camera_data),
-            "display_mode",
-            {"mode": value},
+            value=f'{{"mode":{value}}}',
+            key="display_mode",
         ),
     ),
     EzvizSelectEntityDescription(
