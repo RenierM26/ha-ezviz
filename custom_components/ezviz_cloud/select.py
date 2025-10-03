@@ -253,8 +253,11 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         translation_key="day_night_mode",
         entity_category=EntityCategory.CONFIG,
         options=["day_night_auto", "day_night_day", "day_night_night"],
-        supported_ext_key=str(SupportExt.SupportDayNightSwitch.value),
         option_range=[0, 1, 2],
+        available_fn=lambda d: (
+            support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
+            or bool(device_icr_dss_config(d))
+        ),
         get_current_option=day_night_mode_value,
         set_current_option=lambda ezviz_client,
         serial,
@@ -278,9 +281,12 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
             "day_night_sensitivity_medium",
             "day_night_sensitivity_high",
         ],
-        supported_ext_key=str(SupportExt.SupportDayNightSwitch.value),
         option_range=[1, 2, 3],
-        available_fn=lambda d: bool(device_icr_dss_config(d))
+        available_fn=lambda d: (
+            (support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
+            or bool(device_icr_dss_config(d)))
+            and night_vision_mode_value(d) != 5
+        )
         and day_night_mode_value(d) == 0,
         get_current_option=day_night_sensitivity_value,
         set_current_option=lambda ezviz_client,

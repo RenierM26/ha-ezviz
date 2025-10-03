@@ -447,6 +447,9 @@
       },
       "people_detection_mode": {
         "name": "People detection mode"
+      },
+      "intelligent_app_pir_detect": {
+        "name": "PIR detection"
       }
     },
     "siren": {

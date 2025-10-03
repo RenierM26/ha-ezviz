@@ -117,6 +117,10 @@ def sd_card_capacity_gb(camera_data: dict[str, Any]) -> float | None:
 def support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
     """Return supportExt mapping if present."""
     support_ext = camera_data.get("supportExt")
+    if not isinstance(support_ext, dict):
+        device_infos = camera_data.get("deviceInfos")
+        if isinstance(device_infos, dict):
+            support_ext = device_infos.get("supportExt")
     return support_ext if isinstance(support_ext, dict) else {}
 
 
@@ -182,6 +186,18 @@ def optionals_mapping(camera_data: dict[str, Any]) -> dict[str, Any]:
                 optionals = json.loads(optionals)
             except (TypeError, ValueError):
                 optionals = None
+
+    if not isinstance(optionals, dict):
+        status = camera_data.get("STATUS")
+        if isinstance(status, dict):
+            status_optionals = status.get("optionals")
+            if isinstance(status_optionals, str):
+                try:
+                    optionals = json.loads(status_optionals)
+                except (TypeError, ValueError):
+                    optionals = None
+            elif isinstance(status_optionals, dict):
+                optionals = status_optionals
 
     return optionals if isinstance(optionals, dict) else {}
 
@@ -276,16 +292,9 @@ def night_vision_mode_value(camera_data: dict[str, Any]) -> int:
     """Return current night vision mode (0=BW,1=colour,2=smart,5=super)."""
 
     config = night_vision_config(camera_data)
-    mode_raw = config.get("graphicType")
-
-    if isinstance(mode_raw, int):
-        mode = mode_raw
-    else:
-        try:
-            mode = int(mode_raw)
-        except (TypeError, ValueError):
-            mode = 0
-
+    mode = coerce_int(config.get("graphicType"))
+    if mode is None:
+        return 0
     return mode if mode in (0, 1, 2, 5) else 0
 
 
@@ -293,10 +302,8 @@ def night_vision_luminance_value(camera_data: dict[str, Any]) -> int:
     """Return the configured night vision luminance (default 40)."""
 
     config = night_vision_config(camera_data)
-    luminance = config.get("luminance")
-    try:
-        value = int(luminance)
-    except (TypeError, ValueError):
+    value = coerce_int(config.get("luminance"))
+    if value is None:
         value = 40
     return max(0, value)
 
@@ -305,12 +312,8 @@ def night_vision_duration_value(camera_data: dict[str, Any]) -> int:
     """Return the configured smart night vision duration (default 60)."""
 
     config = night_vision_config(camera_data)
-    duration = config.get("duration")
-    try:
-        value = int(duration)
-    except (TypeError, ValueError):
-        value = 60
-    return value
+    value = coerce_int(config.get("duration"))
+    return value if value is not None else 60
 
 
 def night_vision_payload(
@@ -331,11 +334,15 @@ def night_vision_payload(
     )
     config["graphicType"] = resolved_mode
 
-    luminance_value = (
-        int(luminance)
-        if luminance is not None
-        else night_vision_luminance_value(camera_data)
-    )
+    if luminance is None:
+        luminance_value = night_vision_luminance_value(camera_data)
+    else:
+        coerced_luminance = coerce_int(luminance)
+        luminance_value = (
+            coerced_luminance
+            if coerced_luminance is not None
+            else night_vision_luminance_value(camera_data)
+        )
     if resolved_mode == 1:
         config["luminance"] = (
             0 if luminance_value <= 0 else max(20, luminance_value)
@@ -348,11 +355,15 @@ def night_vision_payload(
     else:
         config["luminance"] = max(0, luminance_value)
 
-    duration_value = (
-        int(duration)
-        if duration is not None
-        else night_vision_duration_value(camera_data)
-    )
+    if duration is None:
+        duration_value = night_vision_duration_value(camera_data)
+    else:
+        coerced_duration = coerce_int(duration)
+        duration_value = (
+            coerced_duration
+            if coerced_duration is not None
+            else night_vision_duration_value(camera_data)
+        )
     if resolved_mode == 2:
         config["duration"] = max(15, min(120, duration_value))
     else:
