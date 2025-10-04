@@ -69,9 +69,6 @@ def _is_desc_supported(
         ):
             return False
 
-    if desc.available_fn is not None and not desc.available_fn(camera_data):
-        return False
-
     return True
 
 
@@ -111,9 +108,10 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1", "2", "3", "4"],
         option_range=[0, 1, 2],
         get_current_option=lambda d: getattr(SoundMode, d["alarm_sound_mod"]).value,
-        set_current_option=lambda ezviz_client, serial, value, _camera_data: ezviz_client.alarm_sound(
-            serial, value, 1
-        ),
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        _camera_data: ezviz_client.alarm_sound(serial, value, 1),
     ),
     EzvizSelectEntityDescription(
         key="battery_camera_work_mode",
@@ -282,8 +280,10 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         ],
         option_range=[1, 2, 3],
         available_fn=lambda d: (
-            (support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
-            or bool(device_icr_dss_config(d)))
+            (
+                support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
+                or bool(device_icr_dss_config(d))
+            )
             and night_vision_mode_value(d) != 5
         )
         and day_night_mode_value(d) == 0,
@@ -414,3 +414,11 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         if options != list(self.options):
             self._attr_options = options
         super()._handle_coordinator_update()
+
+    @property
+    def available(self) -> bool:
+        """Return availability based on descriptor hook."""
+
+        if self.entity_description.available_fn is not None:
+            return bool(self.entity_description.available_fn(self.data))
+        return super().available

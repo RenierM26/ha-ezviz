@@ -344,9 +344,7 @@ def night_vision_payload(
             else night_vision_luminance_value(camera_data)
         )
     if resolved_mode == 1:
-        config["luminance"] = (
-            0 if luminance_value <= 0 else max(20, luminance_value)
-        )
+        config["luminance"] = 0 if luminance_value <= 0 else max(20, luminance_value)
     elif resolved_mode == 2:
         config["luminance"] = max(
             20,
@@ -372,7 +370,6 @@ def night_vision_payload(
     return config
 
 
-
 def intelligent_app_value_fn(app_name: str) -> Callable[[dict[str, Any]], bool]:
     """Return a value extractor for an intelligent app."""
 
@@ -389,7 +386,6 @@ def intelligent_app_method(app_name: str) -> Callable[[EzvizClient, str, int], b
         return bool(client.set_intelligent_app_state(serial, app_name, bool(enable)))
 
     return _method
-
 
 
 def iter_intelligent_apps(camera_data: dict[str, Any]) -> Iterator[tuple[str, bool]]:
@@ -458,10 +454,11 @@ def intelligent_app_enabled(camera_data: dict[str, Any], app_name: str) -> bool:
             return enabled
     return False
 
+
 def has_osd_overlay(camera_data: dict[str, Any]) -> bool:
     """Return True when the camera has an active OSD label."""
 
-    osd_entries = camera_data.get("OSD")
+    osd_entries = optionals_mapping(camera_data).get("OSD")
     if isinstance(osd_entries, dict):
         osd_entries = [osd_entries]
     if not isinstance(osd_entries, list):
@@ -474,22 +471,6 @@ def has_osd_overlay(camera_data: dict[str, Any]) -> bool:
         if isinstance(name, str) and name.strip():
             return True
     return False
-
-
-def _resolve_osd_channel(osd_entries: list[Any]) -> int:
-    """Return the channel index to use for OSD operations."""
-
-    if not osd_entries:
-        return 1
-    first = osd_entries[0]
-    if not isinstance(first, dict):
-        return 1
-    channel_val = first.get("channel")
-    if isinstance(channel_val, str) and channel_val.isdigit():
-        return int(channel_val)
-    if isinstance(channel_val, int):
-        return channel_val
-    return 1
 
 
 def _resolve_osd_name(camera_data: dict[str, Any] | None, serial: str) -> str:
@@ -516,39 +497,15 @@ def set_osd_overlay(
     """Enable or disable the camera OSD label using coordinator data when available."""
 
     target_enabled = bool(enable)
-
-    osd_entries: list[Any] = []
-    if isinstance(camera_data, dict):
-        osd = camera_data.get("OSD")
-        if isinstance(osd, dict):
-            osd_entries = [osd]
-        elif isinstance(osd, list):
-            osd_entries = list(osd)
-
-    channel = _resolve_osd_channel(osd_entries)
     text = _resolve_osd_name(camera_data, serial) if target_enabled else ""
 
-    client.set_camera_osd(serial, text, channel=channel)
-
-    if not osd_entries:
-        osd_entries = [{"name": text, "channel": str(channel)}]
-    else:
-        first = osd_entries[0]
-        if isinstance(first, dict):
-            first["name"] = text
-            if "channel" not in first:
-                first["channel"] = str(channel)
-        else:
-            osd_entries[0] = {"name": text, "channel": str(channel)}
-
-    if isinstance(camera_data, dict):
-        camera_data["OSD"] = osd_entries
+    client.set_camera_osd(serial, text)
 
     return True
 
 
 def wrap_switch_method(
-    fn: Callable[[EzvizClient, str, int], Any]
+    fn: Callable[[EzvizClient, str, int], Any],
 ) -> Callable[[EzvizClient, str, int, dict[str, Any] | None], Any]:
     """Adapt a three-argument switch method to accept optional coordinator data."""
 

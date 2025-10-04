@@ -475,6 +475,7 @@ INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
     "app_car_detect": "intelligent_app_car_detect",
     "app_video_change": "intelligent_app_video_change",
     "app_wave_recognize": "intelligent_app_wave_recognize",
+    "app_pir_detect": "intelligent_app_pir_detect",
 }
 
 

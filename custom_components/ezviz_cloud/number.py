@@ -28,7 +28,6 @@ from .utility import (
     night_vision_mode_value,
     night_vision_payload,
     resolve_channel,
-    support_ext_has,
 )
 
 SCAN_INTERVAL = timedelta(seconds=3600)
@@ -40,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizNumberEntityDescription(NumberEntityDescription):
     """Describe an EZVIZ Number entity."""
 
-    supported_ext: str | None
+    supported_ext: str | tuple[str, ...] | None
     supported_ext_value: list[str]
     get_value: Callable[[dict[str, Any]], float | None]
     set_value: Callable[[EzvizClient, str, float, dict[str, Any]], Any]
@@ -244,7 +243,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=None,
+        supported_ext=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
         supported_ext_value=[],
         get_value=_algorithm_value_getter("3", 1),
         set_value=_algorithm_param_setter("3", 1),
@@ -257,7 +256,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=None,
+        supported_ext=str(SupportExt.SupportSmartBodyDetect.value),
         supported_ext_value=[],
         get_value=_algorithm_value_getter("4", 1),
         set_value=_algorithm_param_setter("4", 1),
@@ -270,15 +269,13 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=0,
         native_max_value=100,
         native_step=1,
-        supported_ext=None,
+        supported_ext=(
+            str(SupportExt.SupportNightVisionMode.value),
+            str(SupportExt.SupportSmartNightVision.value),
+        ),
         supported_ext_value=[],
         get_value=lambda data: float(night_vision_luminance_value(data)),
         set_value=_night_vision_luminance_setter(),
-        available_fn=lambda data: (
-            support_ext_has(data, str(SupportExt.SupportNightVisionMode.value))
-            or support_ext_has(data, str(SupportExt.SupportSmartNightVision.value))
-        )
-        and night_vision_mode_value(data) in (1, 2),
     ),
     EzvizNumberEntityDescription(
         key="night_vision_duration",
@@ -287,19 +284,10 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_max_value=120,
         native_step=5,
         native_unit_of_measurement="s",
-        supported_ext=str(
-            SupportExt.SupportIntelligentNightVisionDuration.value
-        ),
+        supported_ext=str(SupportExt.SupportIntelligentNightVisionDuration.value),
         supported_ext_value=[],
         get_value=lambda data: float(night_vision_duration_value(data)),
         set_value=_night_vision_duration_setter(),
-        available_fn=lambda data: (
-            night_vision_mode_value(data) == 2
-            and (
-                support_ext_has(data, str(SupportExt.SupportNightVisionMode.value))
-                or support_ext_has(data, str(SupportExt.SupportSmartNightVision.value))
-            )
-        ),
     ),
 )
 
@@ -307,16 +295,21 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
 def _is_description_supported(
     camera_data: dict[str, Any], description: EzvizNumberEntityDescription
 ) -> bool:
-    if description.available_fn and not description.available_fn(camera_data):
-        return False
     if description.supported_ext is None:
         return True
-    value = _support_ext_value(camera_data, description.supported_ext)
-    if value is None:
-        return False
-    if not description.supported_ext_value:
-        return True
-    return value in description.supported_ext_value
+    keys: tuple[str, ...]
+    if isinstance(description.supported_ext, tuple):
+        keys = description.supported_ext
+    else:
+        keys = (description.supported_ext,)
+
+    for key in keys:
+        value = _support_ext_value(camera_data, key)
+        if value is None:
+            continue
+        if not description.supported_ext_value or value in description.supported_ext_value:
+            return True
+    return False
 
 
 async def async_setup_entry(
@@ -365,6 +358,14 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         if description.translation_placeholders:
             self._attr_translation_placeholders = description.translation_placeholders
         self._cached_value: float | None = description.get_value(self.data)
+
+    @property
+    def available(self) -> bool:
+        """Return availability based on descriptor hook."""
+
+        if self.entity_description.available_fn is not None:
+            return bool(self.entity_description.available_fn(self.data))
+        return super().available
 
     @property
     def native_value(self) -> float | None:
