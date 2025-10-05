@@ -9,6 +9,18 @@ from typing import Any
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import SoundMode, SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
+from pyezvizapi.feature import (
+    day_night_mode_value,
+    day_night_sensitivity_value,
+    device_icr_dss_config,
+    display_mode_value,
+    lens_defog_config,
+    lens_defog_value,
+    night_vision_config,
+    night_vision_mode_value,
+    night_vision_payload,
+    resolve_channel,
+)
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -20,18 +32,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import (
-    day_night_mode_value,
-    day_night_sensitivity_value,
-    device_category,
-    device_icr_dss_config,
-    display_mode_value,
-    night_vision_config,
-    night_vision_mode_value,
-    night_vision_payload,
-    resolve_channel,
-    support_ext_has,
-)
+from .utility import device_category, support_ext_has
 
 PARALLEL_UPDATES = 1
 
@@ -96,6 +97,33 @@ def _night_vision_options(camera_data: dict[str, Any]) -> list[str]:
 
     # Preserve original ordering while removing duplicates
     return list(dict.fromkeys(options))
+
+
+def _has_lens_defog(camera_data: dict[str, Any]) -> bool:
+    """Return True when this camera exposes a usable defog configuration."""
+
+    cfg = lens_defog_config(camera_data)
+    if not isinstance(cfg, dict):
+        return False
+
+    mode = cfg.get("defogMode")
+    return isinstance(mode, str) and bool(mode.strip())
+
+
+def _set_lens_defog_option(
+    client: EzvizClient,
+    serial: str,
+    value: int,
+    camera_data: dict[str, Any],
+) -> None:
+    """Persist lens defog mode via the API client and update cached data."""
+
+    enabled, mode = client.set_lens_defog_mode(serial, value)
+
+    config = lens_defog_config(camera_data)
+    if isinstance(config, dict):
+        config["enabled"] = enabled
+        config["defogMode"] = mode
 
 
 SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
@@ -209,6 +237,21 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         ),
     ),
     EzvizSelectEntityDescription(
+        key="lens_defog",
+        translation_key="lens_defog",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "lens_defog_auto",
+            "lens_defog_on",
+            "lens_defog_off",
+        ],
+        supported_ext_key="688",
+        option_range=[0, 1, 2],
+        get_current_option=lens_defog_value,
+        set_current_option=_set_lens_defog_option,
+        available_fn=_has_lens_defog,
+    ),
+    EzvizSelectEntityDescription(
         key="night_vision_mode",
         translation_key="night_vision_mode",
         entity_category=EntityCategory.CONFIG,
@@ -285,8 +328,7 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
                 or bool(device_icr_dss_config(d))
             )
             and night_vision_mode_value(d) != 5
-        )
-        and day_night_mode_value(d) == 0,
+        ),
         get_current_option=day_night_sensitivity_value,
         set_current_option=lambda ezviz_client,
         serial,
@@ -414,11 +456,3 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         if options != list(self.options):
             self._attr_options = options
         super()._handle_coordinator_update()
-
-    @property
-    def available(self) -> bool:
-        """Return availability based on descriptor hook."""
-
-        if self.entity_description.available_fn is not None:
-            return bool(self.entity_description.available_fn(self.data))
-        return super().available

@@ -9,6 +9,7 @@ from typing import Any
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
+from pyezvizapi.feature import has_osd_overlay
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
@@ -27,11 +28,9 @@ from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
     device_category,
     device_model,
-    has_osd_overlay,
     intelligent_app_method,
     intelligent_app_value_fn,
     iter_intelligent_apps,
-    set_osd_overlay,
     support_ext_has,
     wrap_switch_method,
 )
@@ -177,7 +176,11 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportOsd.value),
         value_fn=has_osd_overlay,
-        method=set_osd_overlay,
+        method=lambda client, serial, enable, camera_data: client.set_camera_osd(
+            serial,
+            enabled=bool(enable),
+            camera_data=camera_data,
+        ),
     ),
     EzvizSwitchEntityDescription(
         key="WDR",

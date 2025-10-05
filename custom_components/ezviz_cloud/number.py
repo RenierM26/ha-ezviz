@@ -11,6 +11,13 @@ from typing import Any
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
+from pyezvizapi.feature import (
+    night_vision_duration_value,
+    night_vision_luminance_value,
+    night_vision_mode_value,
+    night_vision_payload,
+    resolve_channel,
+)
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -22,13 +29,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import (
-    night_vision_duration_value,
-    night_vision_luminance_value,
-    night_vision_mode_value,
-    night_vision_payload,
-    resolve_channel,
-)
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -307,7 +307,10 @@ def _is_description_supported(
         value = _support_ext_value(camera_data, key)
         if value is None:
             continue
-        if not description.supported_ext_value or value in description.supported_ext_value:
+        if (
+            not description.supported_ext_value
+            or value in description.supported_ext_value
+        ):
             return True
     return False
 
