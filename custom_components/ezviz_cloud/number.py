@@ -191,7 +191,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=str(SupportExt.SupportSmartBodyDetect.value),
+        supported_ext=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
         supported_ext_value=[],
         get_value=_algorithm_value_getter("4", 1),
         set_value=_algorithm_param_setter("4", 1),
@@ -296,14 +296,6 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         if description.translation_placeholders:
             self._attr_translation_placeholders = description.translation_placeholders
         self._cached_value: float | None = description.get_value(self.data)
-
-    @property
-    def available(self) -> bool:
-        """Return availability based on descriptor hook."""
-
-        if self.entity_description.available_fn is not None:
-            return bool(self.entity_description.available_fn(self.data))
-        return super().available
 
     @property
     def native_value(self) -> float | None:
