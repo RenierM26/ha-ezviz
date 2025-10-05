@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
-import json
 from typing import Any
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
+from pyezvizapi.feature import has_osd_overlay
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
@@ -25,7 +25,20 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
-from .utility import device_category, device_model, support_ext_has
+from .utility import (
+    device_category,
+    device_model,
+    intelligent_app_method,
+    intelligent_app_value_fn,
+    iter_intelligent_apps,
+    port_security_available_fn,
+    port_security_method,
+    port_security_ports_available_fn,
+    port_security_ports_method,
+    port_security_ports_value_fn,
+    port_security_value_fn,
+    support_ext_has,
+)
 
 PARALLEL_UPDATES = 1
 
@@ -38,6 +51,7 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     method: Callable[[EzvizClient, str, int], Any]
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
+    available_fn: Callable[[dict[str, Any]], bool] | None = None
 
     # NEW (safe no-ops until you populate these in coordinator.data):
     required_device_categories: tuple[str, ...] | None = None
@@ -62,11 +76,15 @@ def _is_desc_supported(
         return False
 
     # 3) Capability gating (SupportExt)
-    if desc.supported_ext_key is None:
-        return True
-    return support_ext_has(
+    if desc.supported_ext_key is not None and not support_ext_has(
         camera_data, desc.supported_ext_key, desc.supported_ext_value
-    )
+    ):
+        return False
+
+    if desc.available_fn is not None:
+        return bool(desc.available_fn(camera_data))
+
+    return True
 
 
 SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
@@ -149,6 +167,41 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         ),
     ),
     EzvizSwitchEntityDescription(
+        key="OSD",
+        translation_key="osd_overlay",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportOsd.value),
+        value_fn=has_osd_overlay,
+        method=lambda client, serial, enable: client.set_camera_osd(
+            serial,
+            enabled=bool(enable),
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="WDR",
+        translation_key="wdr",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportWideDynamicRange.value),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.WIDE_DYNAMIC_RANGE.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.WIDE_DYNAMIC_RANGE.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
+        key="DISTORTION_CORRECTION",
+        translation_key="distortion_correction",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportDistortionCorrection.value),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.DISTORTION_CORRECTION.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.DISTORTION_CORRECTION.value, enable
+        ),
+    ),
+    EzvizSwitchEntityDescription(
         key="ALL_DAY_VIDEO",
         translation_key="all_day_video_recording",
         device_class=SwitchDeviceClass.SWITCH,
@@ -222,10 +275,14 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
     ),
     EzvizSwitchEntityDescription(
         key="WATERMARK",
-        translation_key="watermark",
+        translation_key="logo_watermark",
         device_class=SwitchDeviceClass.SWITCH,
-        value_fn=lambda d: (d.get("switches") or {}).get(702),
-        method=lambda client, serial, enable: client.switch_status(serial, 702, enable),
+        value_fn=lambda d: (d.get("switches") or {}).get(
+            DeviceSwitchType.LOGO_WATERMARK.value
+        ),
+        method=lambda client, serial, enable: client.switch_status(
+            serial, DeviceSwitchType.LOGO_WATERMARK.value, enable
+        ),
     ),
     # ---- New: additional useful app booleans ----
     EzvizSwitchEntityDescription(
@@ -366,6 +423,23 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         value_fn=lambda d: d.get("alarm_notify"),
         method=lambda client, serial, enable: client.set_camera_defence(serial, enable),
     ),
+    EzvizSwitchEntityDescription(
+        key="port_security_client_mode",
+        translation_key="port_security_client_mode",
+        device_class=SwitchDeviceClass.SWITCH,
+        available_fn=port_security_ports_available_fn((80, 443, 8000)),
+        value_fn=port_security_ports_value_fn((80, 443, 8000)),
+        method=port_security_ports_method((80, 443, 8000)),
+    ),
+    EzvizSwitchEntityDescription(
+        key="port_security_50161",
+        translation_key="port_security_50161",
+        device_class=SwitchDeviceClass.SWITCH,
+        # EZVIZ Cloud only accepts port-security writes for the Link service on 50161.
+        available_fn=port_security_available_fn(50161),
+        value_fn=port_security_value_fn(50161),
+        method=port_security_method(50161),
+    ),
 )
 
 
@@ -374,89 +448,8 @@ INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
     "app_car_detect": "intelligent_app_car_detect",
     "app_video_change": "intelligent_app_video_change",
     "app_wave_recognize": "intelligent_app_wave_recognize",
+    "app_pir_detect": "intelligent_app_pir_detect",
 }
-
-
-def _iter_intelligent_apps(camera_data: dict[str, Any]) -> Iterator[tuple[str, bool]]:
-    """Yield tuples of (base_app_name, enabled_flag) for known intelligent apps."""
-
-    intelligent_app: Any = None
-    feature = camera_data.get("FEATURE_INFO")
-    if isinstance(feature, dict):
-        for group in feature.values():
-            if not isinstance(group, dict):
-                continue
-            video_section = group.get("Video")
-            if isinstance(video_section, dict) and "IntelligentAPP" in video_section:
-                intelligent_app = video_section["IntelligentAPP"]
-                break
-            if "IntelligentAPP" in group:
-                intelligent_app = group["IntelligentAPP"]
-                break
-    if intelligent_app is None:
-        return
-
-    if isinstance(intelligent_app, str):
-        try:
-            intelligent_app = json.loads(intelligent_app)
-        except json.JSONDecodeError:
-            intelligent_app = {}
-
-    if not isinstance(intelligent_app, dict):
-        return
-
-    downloaded: Any = intelligent_app.get("DownloadedAPP")
-    if isinstance(downloaded, str):
-        try:
-            downloaded = json.loads(downloaded)
-        except json.JSONDecodeError:
-            downloaded = {}
-
-    if not isinstance(downloaded, dict):
-        return
-
-    apps: Any = downloaded.get("APP", [])
-    if isinstance(apps, str):
-        try:
-            apps = json.loads(apps)
-        except json.JSONDecodeError:
-            apps = []
-
-    if not isinstance(apps, list):
-        return
-
-    for app in apps:
-        if not isinstance(app, dict):
-            continue
-        raw_app_id = app.get("APPID")
-        if not isinstance(raw_app_id, str):
-            continue
-        base = raw_app_id.split("$:$", 1)[0]
-        if base not in INTELLIGENT_APP_TRANSLATIONS:
-            continue
-        enabled = bool(app.get("enabled"))
-        yield base, enabled
-
-
-def _intelligent_app_value_fn(app_name: str) -> Callable[[dict[str, Any]], bool]:
-    """Construct a value extractor for the given intelligent app."""
-
-    def _value_fn(camera_data: dict[str, Any]) -> bool:
-        for name, enabled in _iter_intelligent_apps(camera_data):
-            if name == app_name:
-                return enabled
-        return False
-
-    return _value_fn
-
-
-def _intelligent_app_method(app_name: str) -> Callable[[EzvizClient, str, int], bool]:
-    """Construct a setter for the given intelligent app."""
-
-    def _method(client: EzvizClient, serial: str, enable: int) -> bool:
-        return bool(client.set_intelligent_app_state(serial, app_name, bool(enable)))
-
-    return _method
 
 
 async def async_setup_entry(
@@ -484,14 +477,14 @@ async def async_setup_entry(
     ]
 
     for serial, camera_data in coordinator.data.items():
-        for app_name, _enabled in _iter_intelligent_apps(camera_data):
+        for app_name, _enabled in iter_intelligent_apps(camera_data):
             translation_key = INTELLIGENT_APP_TRANSLATIONS[app_name]
             dynamic_desc = EzvizSwitchEntityDescription(
                 key=f"intelligent_app_{app_name}",
                 translation_key=translation_key,
                 device_class=SwitchDeviceClass.SWITCH,
-                value_fn=_intelligent_app_value_fn(app_name),
-                method=_intelligent_app_method(app_name),
+                value_fn=intelligent_app_value_fn(app_name),
+                method=intelligent_app_method(app_name),
             )
             entities.append(EzvizSwitch(coordinator, serial, dynamic_desc))
 

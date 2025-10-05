@@ -23,18 +23,25 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizBaseEntity
+from .entity import EzvizBaseEntity, EzvizEntity
 
 SCAN_INTERVAL = timedelta(seconds=60)
 PARALLEL_UPDATES = 1
 _LOGGER = logging.getLogger(__name__)
 
 
-TEXT_TYPE = TextEntityDescription(
+ENC_KEY_TEXT = TextEntityDescription(
     key="camera_enc_key",
     translation_key="camera_enc_key",
     mode=TextMode.PASSWORD,
     entity_registry_enabled_default=False,
+    entity_category=EntityCategory.CONFIG,
+)
+
+CAMERA_NAME_TEXT = TextEntityDescription(
+    key="camera_name",
+    translation_key="camera_name",
+    mode=TextMode.TEXT,
     entity_category=EntityCategory.CONFIG,
 )
 
@@ -47,12 +54,16 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    async_add_entities(
-        EzvizText(coordinator, camera, entry) for camera in coordinator.data
-    )
+    entities: list[TextEntity] = []
+
+    for camera in coordinator.data:
+        entities.append(EzvizEncryptionKeyText(coordinator, camera, entry))
+        entities.append(EzvizCameraNameText(coordinator, camera))
+
+    async_add_entities(entities)
 
 
-class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
+class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
     """Representation of a EZVIZ text entity."""
 
     def __init__(
@@ -63,8 +74,8 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, serial)
-        self._attr_unique_id = f"{serial}_{TEXT_TYPE.key}"
-        self.entity_description = TEXT_TYPE
+        self._attr_unique_id = f"{serial}_{ENC_KEY_TEXT.key}"
+        self.entity_description = ENC_KEY_TEXT
         self._attr_native_value = None
         self.current_enc_key_hash: str | None = None
         self.mfa_enabled: bool = True
@@ -108,7 +119,6 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
 
         self._attr_native_value = value
         self.current_enc_key_hash = return_password_hash(self._attr_native_value)
-        self.async_write_ha_state()
         # Store updated key in entry options for reuse by media proxy, etc.
         self._persist_key_to_options(value)
 
@@ -165,6 +175,37 @@ class EzvizText(EzvizBaseEntity, TextEntity, RestoreEntity):
 
             self._attr_native_value = new_encryption_key
             self.current_enc_key_hash = return_password_hash(self._attr_native_value)
-            self.async_write_ha_state()
             # Store fetched key in entry options
             self._persist_key_to_options(new_encryption_key)
+
+
+class EzvizCameraNameText(EzvizEntity, TextEntity):
+    """Text entity allowing renaming of the EZVIZ camera."""
+
+    _attr_mode = TextMode.TEXT
+
+    def __init__(
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize camera name text entity."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_{CAMERA_NAME_TEXT.key}"
+        self.entity_description = CAMERA_NAME_TEXT
+        self._attr_native_value = self._camera_name
+
+    async def async_set_value(self, value: str) -> None:
+        """Rename the camera through the EZVIZ API."""
+
+        try:
+            await self.hass.async_add_executor_job(
+                self.coordinator.ezviz_client.update_device_name,
+                self._serial,
+                value,
+            )
+        except (HTTPError, PyEzvizError) as err:
+            raise HomeAssistantError(f"Cannot rename camera {self.name}") from err
+
+        self._attr_native_value = value
+        self.async_write_ha_state()

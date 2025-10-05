@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
@@ -11,6 +11,16 @@ from typing import Any
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
+from pyezvizapi.feature import (
+    get_algorithm_value,
+    has_algorithm_subtype,
+    night_vision_duration_value,
+    night_vision_luminance_value,
+    night_vision_mode_value,
+    night_vision_payload,
+    resolve_channel,
+    support_ext_value,
+)
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -22,6 +32,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .utility import device_model
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -32,10 +43,10 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizNumberEntityDescription(NumberEntityDescription):
     """Describe an EZVIZ Number entity."""
 
-    supported_ext: str | None
+    supported_ext: str | tuple[str, ...] | None
     supported_ext_value: list[str]
     get_value: Callable[[dict[str, Any]], float | None]
-    set_value: Callable[[EzvizClient, str, float], Any]
+    set_value: Callable[[EzvizClient, str, float, dict[str, Any]], Any]
     translation_placeholders: dict[str, str] | None = None
     available_fn: Callable[[dict[str, Any]], bool] | None = None
 
@@ -45,80 +56,11 @@ DETECTION_SENSITIVITY_VALUES = ["1", "3"]
 DETECTION_TRANSLATION_KEY = "detection_sensibility"
 
 
-def _support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
-    support_ext = camera_data.get("supportExt")
-    return support_ext if isinstance(support_ext, dict) else {}
-
-
-def _device_sub_category(camera_data: dict[str, Any]) -> str | None:
-    sub_category = camera_data.get("device_sub_category")
-    return str(sub_category) if isinstance(sub_category, str) else None
-
-
-def _optionals_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
-    status = camera_data.get("STATUS")
-    if not isinstance(status, dict):
-        return {}
-    optionals = status.get("optionals")
-    return optionals if isinstance(optionals, dict) else {}
-
-
-def _coerce_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return int(value)
-    try:
-        return None if value is None else int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _iter_algorithm_entries(camera_data: dict[str, Any]) -> Iterable[dict[str, Any]]:
-    optionals = _optionals_dict(camera_data)
-    entries = optionals.get("AlgorithmInfo")
-    if not isinstance(entries, list):
-        return
-    for entry in entries:
-        if isinstance(entry, dict):
-            yield entry
-
-
-def _iter_channel_algorithm_entries(
-    camera_data: dict[str, Any], channel: int
-) -> Iterable[dict[str, Any]]:
-    for entry in _iter_algorithm_entries(camera_data):
-        entry_channel = _coerce_int(entry.get("channel")) or 1
-        if entry_channel == channel:
-            yield entry
-
-
-def _get_algorithm_value(
-    camera_data: dict[str, Any], subtype: str, channel: int
-) -> int | None:
-    for entry in _iter_channel_algorithm_entries(camera_data, channel):
-        if entry.get("SubType") != subtype:
-            continue
-        return _coerce_int(entry.get("Value"))
-    return None
-
-
-def _has_algorithm_subtype(
-    camera_data: dict[str, Any], subtype: str, channel: int = 1
-) -> bool:
-    """Return True if AlgorithmInfo contains the given subtype and channel."""
-    return _get_algorithm_value(camera_data, subtype, channel) is not None
-
-
-def _support_ext_value(camera_data: dict[str, Any], ext_key: str) -> str | None:
-    """Fetch a supportExt value as a string (if available)."""
-    value = _support_ext_dict(camera_data).get(ext_key)
-    return str(value) if value is not None else None
-
-
 def _algorithm_value_getter(
     subtype: str, channel: int
 ) -> Callable[[dict[str, Any]], float | None]:
     def _getter(camera_data: dict[str, Any]) -> float | None:
-        value = _get_algorithm_value(camera_data, subtype, channel)
+        value = get_algorithm_value(camera_data, subtype, channel)
         return float(value) if value is not None else None
 
     return _getter
@@ -126,16 +68,76 @@ def _algorithm_value_getter(
 
 def _algorithm_param_setter(
     subtype: str, channel: int
-) -> Callable[[EzvizClient, str, float], Any]:
-    def _setter(client: EzvizClient, serial: str, value: float) -> Any:
+) -> Callable[[EzvizClient, str, float, dict[str, Any]], Any]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        _camera_data: dict[str, Any],
+    ) -> Any:
         return client.set_algorithm_param(serial, subtype, int(value), channel)
 
     return _setter
 
 
-def _detection_setter(type_value: int) -> Callable[[EzvizClient, str, float], Any]:
-    def _setter(client: EzvizClient, serial: str, value: float) -> Any:
+def _detection_setter(
+    type_value: int,
+) -> Callable[[EzvizClient, str, float, dict[str, Any]], Any]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        _camera_data: dict[str, Any],
+    ) -> Any:
         return client.set_detection_sensitivity(serial, 1, type_value, int(value))
+
+    return _setter
+
+
+def _night_vision_luminance_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        payload = night_vision_payload(
+            camera_data,
+            mode=night_vision_mode_value(camera_data),
+            luminance=int(round(value)),
+        )
+        client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "NightVision_Model",
+            payload,
+        )
+
+    return _setter
+
+
+def _night_vision_duration_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        payload = night_vision_payload(
+            camera_data,
+            mode=night_vision_mode_value(camera_data),
+            duration=int(round(value)),
+        )
+        client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "NightVision_Model",
+            payload,
+        )
 
     return _setter
 
@@ -152,9 +154,9 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
         translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: _device_sub_category(data) == "C3A"
-        and _has_algorithm_subtype(data, "0", 1)
-        and _support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "3",
+        available_fn=lambda data: device_model(data) == "C3A"
+        and has_algorithm_subtype(data, "0", 1)
+        and support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "3",
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_0_1",
@@ -163,12 +165,12 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_max_value=6,
         native_step=1,
         supported_ext=DETECTION_SENSITIVITY_EXT,
-        supported_ext_value=DETECTION_SENSITIVITY_VALUES,
+        supported_ext_value=["1"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(0),
         translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: _has_algorithm_subtype(data, "0", 1)
-        and _support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "1",
+        available_fn=lambda data: has_algorithm_subtype(data, "0", 1)
+        and support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "1",
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_3_1",
@@ -176,12 +178,12 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=None,
+        supported_ext=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
         supported_ext_value=[],
         get_value=_algorithm_value_getter("3", 1),
         set_value=_algorithm_param_setter("3", 1),
         translation_placeholders={"subtype": "3"},
-        available_fn=lambda data: _has_algorithm_subtype(data, "3", 1),
+        available_fn=lambda data: has_algorithm_subtype(data, "3", 1),
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_4_1",
@@ -189,12 +191,38 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=None,
+        supported_ext=str(SupportExt.SupportSmartBodyDetect.value),
         supported_ext_value=[],
         get_value=_algorithm_value_getter("4", 1),
         set_value=_algorithm_param_setter("4", 1),
         translation_placeholders={"subtype": "4"},
-        available_fn=lambda data: _has_algorithm_subtype(data, "4", 1),
+        available_fn=lambda data: has_algorithm_subtype(data, "4", 1),
+    ),
+    EzvizNumberEntityDescription(
+        key="night_vision_luminance",
+        translation_key="night_vision_luminance",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        supported_ext=(
+            str(SupportExt.SupportNightVisionMode.value),
+            str(SupportExt.SupportSmartNightVision.value),
+        ),
+        supported_ext_value=[],
+        get_value=lambda data: float(night_vision_luminance_value(data)),
+        set_value=_night_vision_luminance_setter(),
+    ),
+    EzvizNumberEntityDescription(
+        key="night_vision_duration",
+        translation_key="night_vision_duration",
+        native_min_value=15,
+        native_max_value=120,
+        native_step=5,
+        native_unit_of_measurement="s",
+        supported_ext=str(SupportExt.SupportIntelligentNightVisionDuration.value),
+        supported_ext_value=[],
+        get_value=lambda data: float(night_vision_duration_value(data)),
+        set_value=_night_vision_duration_setter(),
     ),
 )
 
@@ -202,16 +230,24 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
 def _is_description_supported(
     camera_data: dict[str, Any], description: EzvizNumberEntityDescription
 ) -> bool:
-    if description.available_fn and not description.available_fn(camera_data):
-        return False
     if description.supported_ext is None:
         return True
-    value = _support_ext_value(camera_data, description.supported_ext)
-    if value is None:
-        return False
-    if not description.supported_ext_value:
-        return True
-    return value in description.supported_ext_value
+    keys: tuple[str, ...]
+    if isinstance(description.supported_ext, tuple):
+        keys = description.supported_ext
+    else:
+        keys = (description.supported_ext,)
+
+    for key in keys:
+        value = support_ext_value(camera_data, key)
+        if value is None:
+            continue
+        if (
+            not description.supported_ext_value
+            or value in description.supported_ext_value
+        ):
+            return True
+    return False
 
 
 async def async_setup_entry(
@@ -262,6 +298,14 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         self._cached_value: float | None = description.get_value(self.data)
 
     @property
+    def available(self) -> bool:
+        """Return availability based on descriptor hook."""
+
+        if self.entity_description.available_fn is not None:
+            return bool(self.entity_description.available_fn(self.data))
+        return super().available
+
+    @property
     def native_value(self) -> float | None:
         """Return the current numeric value from coordinator data."""
         value = self.entity_description.get_value(self.data)
@@ -277,6 +321,7 @@ class EzvizNumber(EzvizEntity, NumberEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
                 value,
+                self.data,
             )
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot set value for {self.entity_id}") from err
