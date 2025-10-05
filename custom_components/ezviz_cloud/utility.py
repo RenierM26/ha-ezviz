@@ -23,7 +23,6 @@ __all__ = [
     "support_ext_has",
     "wifi_signal_value",
     "wifi_ssid_value",
-    "wrap_switch_method",
 ]
 
 
@@ -240,19 +239,3 @@ def intelligent_app_enabled(camera_data: dict[str, Any], app_name: str) -> bool:
             return enabled
     return False
 
-
-def wrap_switch_method(
-    fn: Callable[[EzvizClient, str, int], Any],
-) -> Callable[[EzvizClient, str, int, dict[str, Any] | None], Any]:
-    """Adapt a three-argument switch method to accept optional coordinator data."""
-
-    def _wrapper(
-        client: EzvizClient,
-        serial: str,
-        enable: int,
-        camera_data: dict[str, Any] | None = None,
-    ) -> Any:
-        _ = camera_data
-        return fn(client, serial, enable)
-
-    return _wrapper
