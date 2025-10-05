@@ -70,7 +70,10 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         """Version installed and in use."""
-        return self.data["version"]
+        version = self.data.get("version")
+        if isinstance(version, str):
+            return version
+        return None
 
     @property
     def in_progress(self) -> bool:
@@ -80,22 +83,33 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
     @property
     def latest_version(self) -> str | None:
         """Latest version available for install."""
-        if self.data["upgrade_available"]:
-            return self.data["latest_firmware_info"]["version"]
+        if self.data.get("upgrade_available"):
+            latest_info = self.data.get("latest_firmware_info")
+            if isinstance(latest_info, dict):
+                version = latest_info.get("version")
+                if isinstance(version, str):
+                    return version
 
         return self.installed_version
 
     def release_notes(self) -> str | None:
         """Return full release notes."""
-        if self.data["latest_firmware_info"]:
-            return self.data["latest_firmware_info"].get("desc")
+        latest_info = self.data.get("latest_firmware_info")
+        if isinstance(latest_info, dict):
+            desc = latest_info.get("desc")
+            if isinstance(desc, str):
+                return desc
         return None
 
     @property
     def update_percentage(self) -> int | None:
         """Update installation progress."""
-        if self.data["upgrade_in_progress"]:
-            return self.data["upgrade_percent"]
+        if self.data.get("upgrade_in_progress"):
+            percent = self.data.get("upgrade_percent")
+            if isinstance(percent, int):
+                return percent
+            if isinstance(percent, float):
+                return int(percent)
         return None
 
     async def async_install(

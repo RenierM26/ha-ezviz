@@ -211,6 +211,14 @@
           "day_night_sensitivity_medium": "Medium",
           "day_night_sensitivity_high": "High"
         }
+      },
+      "lens_defog": {
+        "name": "Lens defogging",
+        "state": {
+          "lens_defog_auto": "Auto",
+          "lens_defog_on": "Always on",
+          "lens_defog_off": "Always off"
+        }
       }
     },
     "image": {
@@ -221,6 +229,9 @@
     "text": {
       "camera_enc_key": {
         "name": "Camera encryption key"
+      },
+      "camera_name": {
+        "name": "Camera name"
       }
     },
     "button": {
@@ -432,6 +443,12 @@
       },
       "motion_detection": {
         "name": "Motion detection"
+      },
+      "port_security_client_mode": {
+        "name": "EZVIZ client compatibility mode"
+      },
+      "port_security_50161": {
+        "name": "EZVIZ-Connect"
       },
       "intelligent_app_human_detect": {
         "name": "AI human detection"

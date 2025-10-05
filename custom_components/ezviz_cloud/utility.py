@@ -6,6 +6,17 @@ from collections.abc import Callable, Iterator
 import json
 from typing import TYPE_CHECKING, Any
 
+from pyezvizapi.feature import (
+    get_algorithm_value,
+    has_algorithm_subtype,
+    normalize_port_security,
+    optionals_dict,
+    port_security_config,
+    port_security_has_port,
+    port_security_port_enabled,
+    support_ext_value,
+)
+
 if TYPE_CHECKING:
     from pyezvizapi.client import EzvizClient
 
@@ -13,14 +24,25 @@ __all__ = [
     "coerce_int",
     "device_category",
     "device_model",
+    "get_algorithm_value",
+    "has_algorithm_subtype",
     "intelligent_app_enabled",
     "intelligent_app_method",
     "intelligent_app_value_fn",
     "iter_intelligent_apps",
     "network_type_value",
+    "normalize_port_security",
+    "optionals_dict",
+    "port_security_available_fn",
+    "port_security_method",
+    "port_security_ports_available_fn",
+    "port_security_ports_method",
+    "port_security_ports_value_fn",
+    "port_security_value_fn",
     "sd_card_capacity_gb",
     "support_ext_dict",
     "support_ext_has",
+    "support_ext_value",
     "wifi_signal_value",
     "wifi_ssid_value",
 ]
@@ -155,6 +177,146 @@ def device_model(camera_data: dict[str, Any]) -> str | None:
     return str(sub_category) if isinstance(sub_category, str) and sub_category else None
 
 
+def _maybe_json(value: Any) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return json.loads(stripped)
+        except (TypeError, ValueError):
+            return None
+    return value
+
+
+def _load_port_security_payload(client: EzvizClient, serial: str) -> dict[str, Any]:
+    response = client.get_port_security(serial)
+    value: dict[str, Any] = {}
+    if isinstance(response, dict):
+        value = normalize_port_security(response)
+
+    if not value:
+        camera_state = getattr(client, "_cameras", {}).get(serial)
+        if isinstance(camera_state, dict):
+            value = port_security_config(camera_state)
+
+    if not value:
+        value = {"portSecurityList": []}
+
+    ports = value.get("portSecurityList")
+    if not isinstance(ports, list):
+        ports = []
+    value["portSecurityList"] = ports
+
+    if "enabled" not in value:
+        value["enabled"] = True
+
+    return value
+
+
+def port_security_available_fn(port: int) -> Callable[[dict[str, Any]], bool]:
+    """Return an availability predicate for a single port."""
+
+    def _available(camera_data: dict[str, Any]) -> bool:
+        return bool(port_security_has_port(camera_data, port))
+
+    return _available
+
+
+def port_security_value_fn(port: int) -> Callable[[dict[str, Any]], bool]:
+    """Return a value extractor for a single secure-port flag."""
+
+    def _value(camera_data: dict[str, Any]) -> bool:
+        return bool(port_security_port_enabled(camera_data, port))
+
+    return _value
+
+
+def _set_port_security_port(
+    client: EzvizClient, serial: str, port: int, enable: int
+) -> None:
+    value = _load_port_security_payload(client, serial)
+    ports = value["portSecurityList"]
+
+    for entry in ports:
+        if isinstance(entry, dict) and coerce_int(entry.get("portNo")) == port:
+            entry["enabled"] = bool(enable)
+            break
+    else:
+        ports.append({"portNo": port, "enabled": bool(enable)})
+
+    client.set_port_security(serial, value)
+
+
+def port_security_method(port: int) -> Callable[[EzvizClient, str, int], None]:
+    """Return a setter that toggles a single secure port."""
+
+    def _method(client: EzvizClient, serial: str, enable: int) -> None:
+        _set_port_security_port(client, serial, port, enable)
+
+    return _method
+
+
+def _set_port_security_ports(
+    client: EzvizClient, serial: str, ports: tuple[int, ...], enable: int
+) -> None:
+    value = _load_port_security_payload(client, serial)
+    entries = value["portSecurityList"]
+    port_map: dict[int, dict[str, Any]] = {}
+
+    for entry in entries:
+        if isinstance(entry, dict):
+            port_no = coerce_int(entry.get("portNo"))
+            if port_no is not None:
+                port_map[port_no] = entry
+
+    for port in ports:
+        entry = port_map.get(port)
+        if entry is None:
+            entry = {"portNo": port}
+            entries.append(entry)
+            port_map[port] = entry
+        entry["enabled"] = bool(enable)
+
+    client.set_port_security(serial, value)
+
+
+def port_security_ports_available_fn(
+    ports: tuple[int, ...],
+) -> Callable[[dict[str, Any]], bool]:
+    """Return an availability predicate for any port in the tuple."""
+
+    def _available(camera_data: dict[str, Any]) -> bool:
+        return any(port_security_has_port(camera_data, port) for port in ports)
+
+    return _available
+
+
+def port_security_ports_value_fn(
+    ports: tuple[int, ...],
+) -> Callable[[dict[str, Any]], bool]:
+    """Return a value extractor that checks if any port is enabled."""
+
+    def _value(camera_data: dict[str, Any]) -> bool:
+        present = [port for port in ports if port_security_has_port(camera_data, port)]
+        if not present:
+            return False
+        return any(port_security_port_enabled(camera_data, port) for port in present)
+
+    return _value
+
+
+def port_security_ports_method(
+    ports: tuple[int, ...],
+) -> Callable[[EzvizClient, str, int], None]:
+    """Return a setter that toggles all provided secure ports."""
+
+    def _method(client: EzvizClient, serial: str, enable: int) -> None:
+        _set_port_security_ports(client, serial, ports, enable)
+
+    return _method
+
+
 def intelligent_app_value_fn(app_name: str) -> Callable[[dict[str, Any]], bool]:
     """Return a value extractor for an intelligent app."""
 
@@ -238,4 +400,3 @@ def intelligent_app_enabled(camera_data: dict[str, Any], app_name: str) -> bool:
         if name == app_name:
             return enabled
     return False
-
