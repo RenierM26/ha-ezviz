@@ -274,9 +274,6 @@
       "algorithm_sensitivity": {
         "name": "Detection sensitivity"
       },
-      "algorithm_parameter": {
-        "name": "AI parameter ({subtype})"
-      },
       "algorithm_param_human": {
         "name": "Human detection sensitivity"
       },
