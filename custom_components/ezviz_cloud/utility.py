@@ -2,50 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 import json
 from typing import TYPE_CHECKING, Any
 
 from pyezvizapi.feature import (
-    get_algorithm_value,
-    has_algorithm_subtype,
+    lens_defog_config,
     normalize_port_security,
-    optionals_dict,
     port_security_config,
     port_security_has_port,
     port_security_port_enabled,
-    support_ext_value,
 )
 
 if TYPE_CHECKING:
     from pyezvizapi.client import EzvizClient
-
-__all__ = [
-    "coerce_int",
-    "device_category",
-    "device_model",
-    "get_algorithm_value",
-    "has_algorithm_subtype",
-    "intelligent_app_enabled",
-    "intelligent_app_method",
-    "intelligent_app_value_fn",
-    "iter_intelligent_apps",
-    "network_type_value",
-    "normalize_port_security",
-    "optionals_dict",
-    "port_security_available_fn",
-    "port_security_method",
-    "port_security_ports_available_fn",
-    "port_security_ports_method",
-    "port_security_ports_value_fn",
-    "port_security_value_fn",
-    "sd_card_capacity_gb",
-    "support_ext_dict",
-    "support_ext_has",
-    "support_ext_value",
-    "wifi_signal_value",
-    "wifi_ssid_value",
-]
 
 
 def coerce_int(value: Any) -> int | None:
@@ -165,6 +135,76 @@ def support_ext_has(
     return bool(have & need_tokens)
 
 
+def passes_description_gates(
+    camera_data: dict[str, Any],
+    *,
+    supported_ext_keys: str | Iterable[str] | None = None,
+    supported_ext_values: Iterable[str] | None = None,
+    required_device_categories: tuple[str, ...] | None = None,
+    predicate: Callable[[dict[str, Any]], bool] | None = None,
+) -> bool:
+    """Evaluate common entity gating rules.
+
+    The checks run in a fixed order and each gate is optional:
+    1. supportExt presence/value (if keys provided)
+    2. device_category membership (if categories provided)
+    3. custom predicate (if supplied)
+    """
+
+    # Normalize supportExt keys to a tuple of strings.
+    normalized_keys: tuple[str, ...]
+    if supported_ext_keys is None:
+        normalized_keys = ()
+    elif isinstance(supported_ext_keys, str):
+        normalized_keys = (supported_ext_keys,)
+    else:
+        normalized_keys = tuple(
+            str(key) for key in supported_ext_keys if key is not None and str(key)
+        )
+
+    if normalized_keys:
+        ext = support_ext_dict(camera_data)
+
+        if supported_ext_values is not None:
+            normalized_values = tuple(
+                stripped
+                for stripped in (str(raw).strip() for raw in supported_ext_values)
+                if stripped
+            )
+        else:
+            normalized_values = ()
+
+        matched = False
+        for key in normalized_keys:
+            raw_value = ext.get(key)
+            if raw_value is None:
+                continue
+
+            if normalized_values:
+                raw_str = str(raw_value).strip()
+                if raw_str in normalized_values:
+                    matched = True
+                    break
+            else:
+                matched = True
+                break
+
+        if not matched:
+            return False
+
+    if required_device_categories is not None:
+        category = device_category(camera_data)
+        if category is None:
+            category = camera_data.get("device_category")
+        if category not in required_device_categories:
+            return False
+
+    if predicate is not None and not predicate(camera_data):
+        return False
+
+    return True
+
+
 def device_category(camera_data: dict[str, Any]) -> str | None:
     """Return the device category if present."""
     category = camera_data.get("device_category")
@@ -177,16 +217,31 @@ def device_model(camera_data: dict[str, Any]) -> str | None:
     return str(sub_category) if isinstance(sub_category, str) and sub_category else None
 
 
-def _maybe_json(value: Any) -> Any:
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        try:
-            return json.loads(stripped)
-        except (TypeError, ValueError):
-            return None
-    return value
+def has_lens_defog(camera_data: dict[str, Any]) -> bool:
+    """Return True when this camera exposes a usable lens-defog configuration."""
+
+    config = lens_defog_config(camera_data)
+    if not isinstance(config, dict):
+        return False
+
+    mode = config.get("defogMode")
+    return isinstance(mode, str) and bool(mode.strip())
+
+
+def set_lens_defog_option(
+    client: EzvizClient,
+    serial: str,
+    value: int,
+    camera_data: dict[str, Any],
+) -> None:
+    """Persist lens-defog mode through the API and update cached data."""
+
+    enabled, mode = client.set_lens_defog_mode(serial, value)
+
+    config = lens_defog_config(camera_data)
+    if isinstance(config, dict):
+        config["enabled"] = enabled
+        config["defogMode"] = mode
 
 
 def _load_port_security_payload(client: EzvizClient, serial: str) -> dict[str, Any]:
@@ -399,4 +454,13 @@ def intelligent_app_enabled(camera_data: dict[str, Any], app_name: str) -> bool:
     for name, enabled in iter_intelligent_apps(camera_data) or []:
         if name == app_name:
             return enabled
+    return False
+
+
+def intelligent_app_available(camera_data: dict[str, Any], app_name: str) -> bool:
+    """Return True if the intelligent app is present in the payload."""
+
+    for name, _enabled in iter_intelligent_apps(camera_data) or []:
+        if name == app_name:
+            return True
     return False

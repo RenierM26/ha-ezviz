@@ -23,6 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
 
@@ -42,17 +43,35 @@ class EzvizButtonEntityDescription(ButtonEntityDescription):
     """Describe a EZVIZ Button."""
 
     method: Callable[[EzvizClient, str], Any]
-    supported_ext: str
+    supported_ext_key: str | None = None
+    supported_ext_value: list[str] | None = None
+    required_device_categories: tuple[str, ...] | None = None
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
-BUTTON_ENTITIES = (
+def _is_desc_supported(
+    camera_data: dict[str, Any], desc: EzvizButtonEntityDescription
+) -> bool:
+    """Return True if this button description is supported by the camera."""
+
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=desc.supported_ext_key,
+        supported_ext_values=desc.supported_ext_value,
+        required_device_categories=desc.required_device_categories,
+        predicate=desc.is_supported_fn,
+    )
+
+
+BUTTON_ENTITIES: tuple[EzvizButtonEntityDescription, ...] = (
     EzvizButtonEntityDescription(
         key="ptz_up",
         translation_key="ptz_up",
         method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
             pyezviz_client, "UP", serial
         ),
-        supported_ext=str(SupportExt.SupportPtz.value),
+        supported_ext_key=str(SupportExt.SupportPtz.value),
+        supported_ext_value=["1"],
     ),
     EzvizButtonEntityDescription(
         key="ptz_down",
@@ -60,7 +79,8 @@ BUTTON_ENTITIES = (
         method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
             pyezviz_client, "DOWN", serial
         ),
-        supported_ext=str(SupportExt.SupportPtz.value),
+        supported_ext_key=str(SupportExt.SupportPtz.value),
+        supported_ext_value=["1"],
     ),
     EzvizButtonEntityDescription(
         key="ptz_left",
@@ -68,7 +88,8 @@ BUTTON_ENTITIES = (
         method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
             pyezviz_client, "LEFT", serial
         ),
-        supported_ext=str(SupportExt.SupportPtz.value),
+        supported_ext_key=str(SupportExt.SupportPtz.value),
+        supported_ext_value=["1"],
     ),
     EzvizButtonEntityDescription(
         key="ptz_right",
@@ -76,20 +97,23 @@ BUTTON_ENTITIES = (
         method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
             pyezviz_client, "RIGHT", serial
         ),
-        supported_ext=str(SupportExt.SupportPtz.value),
+        supported_ext_key=str(SupportExt.SupportPtz.value),
+        supported_ext_value=["1"],
     ),
     EzvizButtonEntityDescription(
         key="restart_device",
         device_class=ButtonDeviceClass.RESTART,
         translation_key="reboot_device",
         method=lambda pyezviz_client, serial: pyezviz_client.reboot_camera(serial),
-        supported_ext=str(SupportExt.SupportRebootDevice.value),
+        supported_ext_key=str(SupportExt.SupportRebootDevice.value),
+        supported_ext_value=["1"],
     ),
     EzvizButtonEntityDescription(
         key="flip_image",
         translation_key="flip_image",
         method=lambda pyezviz_client, serial: pyezviz_client.flip_image(serial),
-        supported_ext=str(SupportExt.SupportPtzCenterMirror.value),
+        supported_ext_key=str(SupportExt.SupportPtzCenterMirror.value),
+        supported_ext_value=["1"],
     ),
 )
 
@@ -102,17 +126,11 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    # Add button entities if supportExt value indicates Button capbility.
-    # Could be missing or "0" for unsupported.
-    # If present with value of "1" then add button entity.
-
     async_add_entities(
-        EzvizButtonEntity(coordinator, camera, entity_description)
-        for camera in coordinator.data
-        for capability, value in coordinator.data[camera]["supportExt"].items()
-        for entity_description in BUTTON_ENTITIES
-        if capability == entity_description.supported_ext
-        if value == "1"
+        EzvizButtonEntity(coordinator, serial, description)
+        for serial, camera_data in coordinator.data.items()
+        for description in BUTTON_ENTITIES
+        if _is_desc_supported(camera_data, description)
     )
 
 

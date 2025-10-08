@@ -14,11 +14,9 @@ from pyezvizapi.feature import (
     day_night_sensitivity_value,
     device_icr_dss_config,
     display_mode_value,
-    lens_defog_config,
     lens_defog_value,
     night_vision_config,
     night_vision_mode_value,
-    night_vision_payload,
     resolve_channel,
 )
 
@@ -32,7 +30,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import device_category, support_ext_has
+from .utility import (
+    has_lens_defog,
+    passes_description_gates,
+    set_lens_defog_option,
+    support_ext_has,
+)
 
 PARALLEL_UPDATES = 1
 
@@ -45,7 +48,7 @@ class EzvizSelectEntityDescription(SelectEntityDescription):
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
     required_device_categories: tuple[str, ...] | None = None
-    available_fn: Callable[[dict[str, Any]], bool] | None = None
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
     # Select mapping
     option_range: list[int] | None = None
@@ -60,70 +63,13 @@ def _is_desc_supported(
     desc: EzvizSelectEntityDescription,
 ) -> bool:
     """Return True if this select description is supported by the camera."""
-    if desc.required_device_categories is not None:
-        if device_category(camera_data) not in desc.required_device_categories:
-            return False
-
-    if desc.supported_ext_key is not None:
-        if not support_ext_has(
-            camera_data, desc.supported_ext_key, desc.supported_ext_value
-        ):
-            return False
-
-    return True
-
-
-def _night_vision_options(camera_data: dict[str, Any]) -> list[str]:
-    """Return allowed night vision options for this camera."""
-
-    options = ["night_vision_b_w", "night_vision_colour"]
-
-    supports_smart = support_ext_has(
-        camera_data, str(SupportExt.SupportSmartNightVision.value)
-    ) or support_ext_has(
-        camera_data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=desc.supported_ext_key,
+        supported_ext_values=desc.supported_ext_value,
+        required_device_categories=desc.required_device_categories,
+        predicate=desc.is_supported_fn,
     )
-
-    config = night_vision_config(camera_data)
-    if config.get("graphicType") == 2 or supports_smart:
-        options.append("night_vision_smart")
-
-    # Super night view is offered on select wired models; include when the
-    # device already reports it or exposes the duration flag.
-    if config.get("graphicType") == 5 or support_ext_has(
-        camera_data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
-    ):
-        options.append("night_vision_super")
-
-    # Preserve original ordering while removing duplicates
-    return list(dict.fromkeys(options))
-
-
-def _has_lens_defog(camera_data: dict[str, Any]) -> bool:
-    """Return True when this camera exposes a usable defog configuration."""
-
-    cfg = lens_defog_config(camera_data)
-    if not isinstance(cfg, dict):
-        return False
-
-    mode = cfg.get("defogMode")
-    return isinstance(mode, str) and bool(mode.strip())
-
-
-def _set_lens_defog_option(
-    client: EzvizClient,
-    serial: str,
-    value: int,
-    camera_data: dict[str, Any],
-) -> None:
-    """Persist lens defog mode via the API client and update cached data."""
-
-    enabled, mode = client.set_lens_defog_mode(serial, value)
-
-    config = lens_defog_config(camera_data)
-    if isinstance(config, dict):
-        config["enabled"] = enabled
-        config["defogMode"] = mode
 
 
 SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
@@ -198,7 +144,7 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         serial,
         value,
         _camera_data: ezviz_client.set_detection_mode(serial, value),
-        available_fn=lambda d: str(SupportExt.SupportNewWorkMode.value)
+        is_supported_fn=lambda d: str(SupportExt.SupportNewWorkMode.value)
         not in (d.get("supportExt") or {}),
     ),
     EzvizSelectEntityDescription(
@@ -248,45 +194,93 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_key="688",
         option_range=[0, 1, 2],
         get_current_option=lens_defog_value,
-        set_current_option=_set_lens_defog_option,
-        available_fn=_has_lens_defog,
+        set_current_option=set_lens_defog_option,
+        is_supported_fn=has_lens_defog,
     ),
     EzvizSelectEntityDescription(
-        key="night_vision_mode",
-        translation_key="night_vision_mode",
+        key="night_vision_model",
+        translation_key="night_vision_model",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "night_vision_b_w",
+            "night_vision_colour",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value=["2"],
+        option_range=[0, 1],
+        get_current_option=night_vision_mode_value,
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        is_supported_fn=lambda data: bool(night_vision_config(data)),
+    ),
+    EzvizSelectEntityDescription(
+        key="smart_night_vision_model",
+        translation_key="smart_night_vision_model",
         entity_category=EntityCategory.CONFIG,
         options=[
             "night_vision_b_w",
             "night_vision_colour",
             "night_vision_smart",
-            "night_vision_super",
         ],
-        supported_ext_key=str(SupportExt.SupportNightVisionMode.value),
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value=["1"],
+        option_range=[0, 1, 2],
         get_current_option=night_vision_mode_value,
         set_current_option=lambda ezviz_client,
         serial,
         value,
-        camera_data: ezviz_client.set_dev_config_kv(
-            serial,
-            resolve_channel(camera_data),
-            "NightVision_Model",
-            night_vision_payload(
-                camera_data,
-                mode=int(value),
-            ),
+        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        is_supported_fn=lambda data: (
+            bool(night_vision_config(data))
+            and not support_ext_has(
+                data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
+            )
         ),
-        options_map={
-            "night_vision_b_w": 0,
-            "night_vision_colour": 1,
-            "night_vision_smart": 2,
-            "night_vision_super": 5,
-        },
-        options_fn=_night_vision_options,
-        available_fn=lambda data: (
-            support_ext_has(data, str(SupportExt.SupportNightVisionMode.value))
-            or support_ext_has(data, str(SupportExt.SupportSmartNightVision.value))
-        )
-        and bool(night_vision_config(data)),
+    ),
+    EzvizSelectEntityDescription(
+        key="smart_night_vision_model_battery",
+        translation_key="smart_night_vision_model_battery",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "night_vision_b_w",
+            "night_vision_smart",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value=["7"],
+        option_range=[0, 2],
+        get_current_option=night_vision_mode_value,
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        is_supported_fn=lambda data: bool(night_vision_config(data)),
+    ),
+    EzvizSelectEntityDescription(
+        key="super_night_vision_model",
+        translation_key="super_night_vision_model",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "night_vision_b_w",
+            "night_vision_colour",
+            "night_vision_smart",
+            "super_night_view",
+        ],
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
+        supported_ext_value=["1"],
+        option_range=[0, 1, 2, 5],
+        get_current_option=night_vision_mode_value,
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        is_supported_fn=lambda data: (
+            bool(night_vision_config(data))
+            and support_ext_has(
+                data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
+            )
+        ),
     ),
     EzvizSelectEntityDescription(
         key="day_night_mode",
@@ -294,7 +288,7 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         options=["day_night_auto", "day_night_day", "day_night_night"],
         option_range=[0, 1, 2],
-        available_fn=lambda d: (
+        is_supported_fn=lambda d: (
             support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
             or bool(device_icr_dss_config(d))
         ),
@@ -322,12 +316,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
             "day_night_sensitivity_high",
         ],
         option_range=[1, 2, 3],
-        available_fn=lambda d: (
-            (
-                support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
-                or bool(device_icr_dss_config(d))
-            )
-            and night_vision_mode_value(d) != 5
+        is_supported_fn=lambda d: (
+            support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
+            or bool(device_icr_dss_config(d))
         ),
         get_current_option=day_night_sensitivity_value,
         set_current_option=lambda ezviz_client,

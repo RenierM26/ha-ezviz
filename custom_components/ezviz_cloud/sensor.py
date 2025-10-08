@@ -24,6 +24,7 @@ from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
     network_type_value,
+    passes_description_gates,
     sd_card_capacity_gb,
     wifi_signal_value,
     wifi_ssid_value,
@@ -40,8 +41,7 @@ class EzvizSensorEntityDescription(SensorEntityDescription):
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
     required_device_categories: tuple[str, ...] | None = None
-    # Optional predicate to decide availability based on camera data
-    available_fn: Callable[[dict[str, Any]], bool] | None = None
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 def _is_desc_supported(
@@ -50,31 +50,13 @@ def _is_desc_supported(
 ) -> bool:
     """Return True if this sensor description is supported by the camera."""
 
-    if desc.required_device_categories is not None:
-        device_category = camera_data.get("device_category")
-        if device_category not in desc.required_device_categories:
-            return False
-
-    if desc.supported_ext_key is None:
-        # No explicit supportExt requirement; continue
-        pass
-    else:
-        support_ext = camera_data.get("supportExt") or {}
-        if not isinstance(support_ext, dict):
-            return False
-        current_val = support_ext.get(desc.supported_ext_key)
-        if current_val is None:
-            return False
-        current_val_str = str(current_val).strip()
-        if desc.supported_ext_value and not any(
-            current_val_str == option.strip() for option in desc.supported_ext_value
-        ):
-            return False
-    # If an availability predicate is provided, respect it
-    if desc.available_fn is not None:
-        return bool(desc.available_fn(camera_data))
-
-    return True
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=desc.supported_ext_key,
+        supported_ext_values=desc.supported_ext_value,
+        required_device_categories=desc.required_device_categories,
+        predicate=desc.is_supported_fn,
+    )
 
 
 SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
@@ -83,8 +65,8 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
         value_fn=lambda d: d.get("battery_level"),
-        # Available when battery_level is present in data
-        available_fn=lambda d: d.get("battery_level") is not None,
+        # Supported when battery_level is present in data
+        is_supported_fn=lambda d: d.get("battery_level") is not None,
     ),
     EzvizSensorEntityDescription(
         key="wifi_signal",
@@ -92,21 +74,21 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=PERCENTAGE,
         value_fn=wifi_signal_value,
-        available_fn=lambda d: wifi_signal_value(d) is not None,
+        is_supported_fn=lambda d: wifi_signal_value(d) is not None,
     ),
     EzvizSensorEntityDescription(
         key="wifi_ssid",
         translation_key="wifi_ssid",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=wifi_ssid_value,
-        available_fn=lambda d: wifi_ssid_value(d) is not None,
+        is_supported_fn=lambda d: wifi_ssid_value(d) is not None,
     ),
     EzvizSensorEntityDescription(
         key="network_type",
         translation_key="network_type",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=network_type_value,
-        available_fn=lambda d: network_type_value(d) is not None,
+        is_supported_fn=lambda d: network_type_value(d) is not None,
     ),
     EzvizSensorEntityDescription(
         key="sd_card_capacity",
@@ -115,7 +97,7 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         value_fn=sd_card_capacity_gb,
-        available_fn=lambda d: sd_card_capacity_gb(d) is not None,
+        is_supported_fn=lambda d: sd_card_capacity_gb(d) is not None,
     ),
     # Battery charge state derived from optionals.powerStatus
     EzvizSensorEntityDescription(
