@@ -26,18 +26,16 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
-    device_category,
-    device_model,
+    intelligent_app_available,
     intelligent_app_method,
     intelligent_app_value_fn,
-    iter_intelligent_apps,
+    passes_description_gates,
     port_security_available_fn,
     port_security_method,
     port_security_ports_available_fn,
     port_security_ports_method,
     port_security_ports_value_fn,
     port_security_value_fn,
-    support_ext_has,
 )
 
 PARALLEL_UPDATES = 1
@@ -51,43 +49,45 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     method: Callable[[EzvizClient, str, int], Any]
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
-    available_fn: Callable[[dict[str, Any]], bool] | None = None
-
-    # NEW (safe no-ops until you populate these in coordinator.data):
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
     required_device_categories: tuple[str, ...] | None = None
-    allowed_models: tuple[str, ...] | None = None
-    blocked_models: tuple[str, ...] | None = None
 
 
 def _is_desc_supported(
     camera_data: dict[str, Any], desc: EzvizSwitchEntityDescription
 ) -> bool:
     """Return True if this switch description is supported by the camera."""
-    # 1) Device-category gating (optional)
-    if desc.required_device_categories is not None:
-        if device_category(camera_data) not in desc.required_device_categories:
-            return False
-
-    # 2) Model allow/block (optional)
-    model = device_model(camera_data)
-    if desc.allowed_models is not None and model not in desc.allowed_models:
-        return False
-    if desc.blocked_models is not None and model in desc.blocked_models:
-        return False
-
-    # 3) Capability gating (SupportExt)
-    if desc.supported_ext_key is not None and not support_ext_has(
-        camera_data, desc.supported_ext_key, desc.supported_ext_value
-    ):
-        return False
-
-    if desc.available_fn is not None:
-        return bool(desc.available_fn(camera_data))
-
-    return True
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=desc.supported_ext_key,
+        supported_ext_values=desc.supported_ext_value,
+        required_device_categories=desc.required_device_categories,
+        predicate=desc.is_supported_fn,
+    )
 
 
-SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
+def _has_switch_entry(
+    switch_type: DeviceSwitchType,
+) -> Callable[[dict[str, Any]], bool]:
+    """Return True when the given switch ID exists in camera_data['switches']."""
+
+    def _predicate(camera_data: dict[str, Any]) -> bool:
+        switches = camera_data.get("switches")
+        return isinstance(switches, dict) and switch_type.value in switches
+
+    return _predicate
+
+
+def _has_intelligent_app(app_name: str) -> Callable[[dict[str, Any]], bool]:
+    """Return True when the intelligent app is available for this camera."""
+
+    def _predicate(camera_data: dict[str, Any]) -> bool:
+        return intelligent_app_available(camera_data, app_name)
+
+    return _predicate
+
+
+_STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
     # ---- Numeric "switches" from camera_data["switches"][ID] ----
     EzvizSwitchEntityDescription(
         key="ALARM_TONE",
@@ -100,6 +100,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.ALARM_TONE.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.ALARM_TONE),
     ),
     EzvizSwitchEntityDescription(
         key="LIGHT",
@@ -109,6 +110,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.LIGHT.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.LIGHT),
     ),
     EzvizSwitchEntityDescription(
         key="PRIVACY",
@@ -121,6 +123,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.PRIVACY.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.PRIVACY),
     ),
     EzvizSwitchEntityDescription(
         key="INFRARED_LIGHT",
@@ -133,6 +136,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.INFRARED_LIGHT.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.INFRARED_LIGHT),
     ),
     EzvizSwitchEntityDescription(
         key="SLEEP",
@@ -143,6 +147,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.SLEEP.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.SLEEP),
     ),
     EzvizSwitchEntityDescription(
         key="SOUND",
@@ -153,6 +158,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.SOUND.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.SOUND),
     ),
     EzvizSwitchEntityDescription(
         key="MOBILE_TRACKING",
@@ -165,6 +171,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.MOBILE_TRACKING.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.MOBILE_TRACKING),
     ),
     EzvizSwitchEntityDescription(
         key="OSD",
@@ -188,6 +195,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.WIDE_DYNAMIC_RANGE.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.WIDE_DYNAMIC_RANGE),
     ),
     EzvizSwitchEntityDescription(
         key="DISTORTION_CORRECTION",
@@ -200,6 +208,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.DISTORTION_CORRECTION.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.DISTORTION_CORRECTION),
     ),
     EzvizSwitchEntityDescription(
         key="ALL_DAY_VIDEO",
@@ -212,6 +221,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.ALL_DAY_VIDEO.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.ALL_DAY_VIDEO),
     ),
     EzvizSwitchEntityDescription(
         key="AUTO_SLEEP",
@@ -224,6 +234,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.AUTO_SLEEP.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.AUTO_SLEEP),
     ),
     EzvizSwitchEntityDescription(
         key="LIGHT_FLICKER",
@@ -236,6 +247,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.LIGHT_FLICKER.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.LIGHT_FLICKER),
     ),
     EzvizSwitchEntityDescription(
         key="ALARM_LIGHT_RELEVANCE",
@@ -248,6 +260,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.ALARM_LIGHT_RELEVANCE.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
     ),
     EzvizSwitchEntityDescription(
         key="TAMPER_ALARM",
@@ -260,6 +273,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.TAMPER_ALARM.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.TAMPER_ALARM),
     ),
     EzvizSwitchEntityDescription(
         key="TRACKING",
@@ -272,6 +286,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.TRACKING.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.TRACKING),
     ),
     EzvizSwitchEntityDescription(
         key="WATERMARK",
@@ -283,6 +298,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.LOGO_WATERMARK.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.LOGO_WATERMARK),
     ),
     # ---- New: additional useful app booleans ----
     EzvizSwitchEntityDescription(
@@ -296,6 +312,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.CHANNELOFFLINE.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.CHANNELOFFLINE),
     ),
     EzvizSwitchEntityDescription(
         key="WIFI_LIGHT",
@@ -310,32 +327,33 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.WIFI_LIGHT.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.WIFI_LIGHT),
     ),
     EzvizSwitchEntityDescription(
         key="OUTLET_RECOVER",
         translation_key="outlet_power_recover",
         device_class=SwitchDeviceClass.SWITCH,
-        supported_ext_key=str(SupportExt.SupportPoweroffRecovery.value),  # 189
+        supported_ext_key=str(SupportExt.SupportPoweroffRecovery.value),
         value_fn=lambda d: (d.get("switches") or {}).get(
             DeviceSwitchType.OUTLET_RECOVER.value
         ),
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.OUTLET_RECOVER.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.OUTLET_RECOVER),
     ),
     EzvizSwitchEntityDescription(
         key="OUTDOOR_RINGING_SOUND",
         translation_key="outdoor_ringing_sound",
         device_class=SwitchDeviceClass.SWITCH,
-        # Matches app gating better than 241 (ring selection)
-        supported_ext_key=str(SupportExt.SupportBellSet.value),  # 164
-        # required_device_categories=("BDoorBell",),  # uncomment once categories are present
+        supported_ext_key=str(SupportExt.SupportBellSet.value),
         value_fn=lambda d: (d.get("switches") or {}).get(
             DeviceSwitchType.OUTDOOR_RINGING_SOUND.value
         ),
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.OUTDOOR_RINGING_SOUND.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.OUTDOOR_RINGING_SOUND),
     ),
     EzvizSwitchEntityDescription(
         key="INTELLIGENT_PQ_SWITCH",
@@ -348,6 +366,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.INTELLIGENT_PQ_SWITCH.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
     ),
     EzvizSwitchEntityDescription(
         key="HUMAN_INTELLIGENT_DETECTION",
@@ -360,6 +379,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION),
     ),
     EzvizSwitchEntityDescription(
         key="DEFENCE_PLAN",
@@ -372,18 +392,20 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.DEFENCE_PLAN.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.DEFENCE_PLAN),
     ),
     EzvizSwitchEntityDescription(
         key="PARTIAL_IMAGE_OPTIMIZE",
         translation_key="partial_image_optimize",
         device_class=SwitchDeviceClass.SWITCH,
-        supported_ext_key=str(SupportExt.SupportPartialImageOptimize.value),  # optional
+        supported_ext_key=str(SupportExt.SupportPartialImageOptimize.value),
         value_fn=lambda d: (d.get("switches") or {}).get(
             DeviceSwitchType.PARTIAL_IMAGE_OPTIMIZE.value
         ),
         method=lambda client, serial, enable: client.switch_status(
             serial, DeviceSwitchType.PARTIAL_IMAGE_OPTIMIZE.value, enable
         ),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.PARTIAL_IMAGE_OPTIMIZE),
     ),
     # ---- Top-level flags in camera_data (not under "switches") ----
     EzvizSwitchEntityDescription(
@@ -427,7 +449,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         key="port_security_client_mode",
         translation_key="port_security_client_mode",
         device_class=SwitchDeviceClass.SWITCH,
-        available_fn=port_security_ports_available_fn((80, 443, 8000)),
+        is_supported_fn=port_security_ports_available_fn((80, 443, 8000)),
         value_fn=port_security_ports_value_fn((80, 443, 8000)),
         method=port_security_ports_method((80, 443, 8000)),
     ),
@@ -436,7 +458,7 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="port_security_50161",
         device_class=SwitchDeviceClass.SWITCH,
         # EZVIZ Cloud only accepts port-security writes for the Link service on 50161.
-        available_fn=port_security_available_fn(50161),
+        is_supported_fn=port_security_available_fn(50161),
         value_fn=port_security_value_fn(50161),
         method=port_security_method(50161),
     ),
@@ -452,6 +474,24 @@ INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
 }
 
 
+INTELLIGENT_APP_DESCRIPTIONS: tuple[EzvizSwitchEntityDescription, ...] = tuple(
+    EzvizSwitchEntityDescription(
+        key=f"intelligent_app_{app_name}",
+        translation_key=translation_key,
+        device_class=SwitchDeviceClass.SWITCH,
+        value_fn=intelligent_app_value_fn(app_name),
+        method=intelligent_app_method(app_name),
+        is_supported_fn=_has_intelligent_app(app_name),
+    )
+    for app_name, translation_key in INTELLIGENT_APP_TRANSLATIONS.items()
+)
+
+
+SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
+    _STATIC_SWITCHES + INTELLIGENT_APP_DESCRIPTIONS
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -465,8 +505,7 @@ async def async_setup_entry(
         entry=entry,
         coordinator=coordinator,
         platform_domain="switch",
-        allowed_keys=tuple(desc.key for desc in SWITCHES)
-        + tuple(f"intelligent_app_{name}" for name in INTELLIGENT_APP_TRANSLATIONS),
+        allowed_keys=tuple(desc.key for desc in SWITCHES),
     )
 
     entities: list[SwitchEntity] = [
@@ -475,18 +514,6 @@ async def async_setup_entry(
         for desc in SWITCHES
         if _is_desc_supported(camera_data, desc)
     ]
-
-    for serial, camera_data in coordinator.data.items():
-        for app_name, _enabled in iter_intelligent_apps(camera_data):
-            translation_key = INTELLIGENT_APP_TRANSLATIONS[app_name]
-            dynamic_desc = EzvizSwitchEntityDescription(
-                key=f"intelligent_app_{app_name}",
-                translation_key=translation_key,
-                device_class=SwitchDeviceClass.SWITCH,
-                value_fn=intelligent_app_value_fn(app_name),
-                method=intelligent_app_method(app_name),
-            )
-            entities.append(EzvizSwitch(coordinator, serial, dynamic_desc))
 
     async_add_entities(entities)
 

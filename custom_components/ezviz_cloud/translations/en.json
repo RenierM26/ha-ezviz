@@ -154,8 +154,7 @@
         "state": {
           "night_vision_b_w": "Black and white",
           "night_vision_colour": "Colour",
-          "night_vision_smart": "Smart mode",
-          "super_night_view": "Super night view"
+          "night_vision_smart": "Smart mode"
         }
       },
       "smart_night_vision_model_battery": {
@@ -163,6 +162,15 @@
         "state": {
           "night_vision_b_w": "Black and white",
           "night_vision_smart": "Smart mode"
+        }
+      },
+      "super_night_vision_model": {
+        "name": "Night vision mode",
+        "state": {
+          "night_vision_b_w": "Black and white",
+          "night_vision_colour": "Colour",
+          "night_vision_smart": "Smart mode",
+          "super_night_view": "Super night view"
         }
       },
       "advanced_detect_human_car_pir": {
@@ -273,9 +281,6 @@
       },
       "algorithm_sensitivity": {
         "name": "Detection sensitivity"
-      },
-      "algorithm_parameter": {
-        "name": "AI parameter ({subtype})"
       },
       "algorithm_param_human": {
         "name": "Human detection sensitivity"

@@ -20,6 +20,7 @@ from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
+from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
 
@@ -40,32 +41,13 @@ def _is_desc_supported(
 ) -> bool:
     """Return True if this binary sensor description is supported by the camera."""
 
-    # 1) Device-category gating
-    if desc.required_device_categories is not None:
-        device_category = camera_data.get("device_category")
-        if device_category not in desc.required_device_categories:
-            return False
-
-    # 2) supportExt gating
-    if desc.supported_ext_key is None:
-        return True
-
-    support_ext = camera_data.get("supportExt") or {}
-    if not isinstance(support_ext, dict):
-        return False
-
-    current_val = support_ext.get(desc.supported_ext_key)
-    if current_val is None:
-        return False
-
-    current_val_str = str(current_val).strip()
-
-    # If supported_ext_value is missing/empty, treat as presence-only
-    if not desc.supported_ext_value:
-        return True
-
-    # Exact string match against any provided option
-    return any(current_val_str == option.strip() for option in desc.supported_ext_value)
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=desc.supported_ext_key,
+        supported_ext_values=desc.supported_ext_value,
+        required_device_categories=desc.required_device_categories,
+        predicate=None,
+    )
 
 
 BINARY_SENSORS: tuple[EzvizBinarySensorEntityDescription, ...] = (

@@ -19,7 +19,6 @@ from pyezvizapi.feature import (
     night_vision_mode_value,
     night_vision_payload,
     resolve_channel,
-    support_ext_value,
 )
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
@@ -32,7 +31,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import device_model
+from .utility import device_model, passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -43,17 +42,12 @@ _LOGGER = logging.getLogger(__name__)
 class EzvizNumberEntityDescription(NumberEntityDescription):
     """Describe an EZVIZ Number entity."""
 
-    supported_ext: str | tuple[str, ...] | None
-    supported_ext_value: list[str]
+    supported_ext_key: str | tuple[str, ...] | None = None
+    supported_ext_value: list[str] | None = None
+    required_device_categories: tuple[str, ...] | None = None
     get_value: Callable[[dict[str, Any]], float | None]
     set_value: Callable[[EzvizClient, str, float, dict[str, Any]], Any]
-    translation_placeholders: dict[str, str] | None = None
-    available_fn: Callable[[dict[str, Any]], bool] | None = None
-
-
-DETECTION_SENSITIVITY_EXT = str(SupportExt.SupportSensibilityAdjust.value)
-DETECTION_SENSITIVITY_VALUES = ["1", "3"]
-DETECTION_TRANSLATION_KEY = "detection_sensibility"
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 def _algorithm_value_getter(
@@ -144,110 +138,95 @@ def _night_vision_duration_setter() -> Callable[
 
 STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
     EzvizNumberEntityDescription(
-        key=DETECTION_TRANSLATION_KEY,
-        translation_key=DETECTION_TRANSLATION_KEY,
+        key="detection_sensibility",
+        translation_key="detection_sensibility",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=DETECTION_SENSITIVITY_EXT,
-        supported_ext_value=DETECTION_SENSITIVITY_VALUES,
+        supported_ext_key=str(SupportExt.SupportSensibilityAdjust.value),
+        supported_ext_value=["3"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
-        translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: device_model(data) == "C3A"
-        and has_algorithm_subtype(data, "0", 1)
-        and support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "3",
+        is_supported_fn=lambda data: device_model(data) == "C3A"
+        and has_algorithm_subtype(data, "0", 1),
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_0_1",
         translation_key="algorithm_sensitivity",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=1,
         native_max_value=6,
         native_step=1,
-        supported_ext=DETECTION_SENSITIVITY_EXT,
+        supported_ext_key=str(SupportExt.SupportSensibilityAdjust.value),
         supported_ext_value=["1"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(0),
-        translation_placeholders={"channel_suffix": ""},
-        available_fn=lambda data: has_algorithm_subtype(data, "0", 1)
-        and support_ext_value(data, DETECTION_SENSITIVITY_EXT) == "1",
+        is_supported_fn=lambda data: has_algorithm_subtype(data, "0", 1),
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_3_1",
         translation_key="algorithm_param_pir",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
-        supported_ext_value=[],
+        supported_ext_key=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
         get_value=_algorithm_value_getter("3", 1),
         set_value=_algorithm_param_setter("3", 1),
-        translation_placeholders={"subtype": "3"},
-        available_fn=lambda data: has_algorithm_subtype(data, "3", 1),
+        is_supported_fn=lambda data: has_algorithm_subtype(data, "3", 1),
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_4_1",
         translation_key="algorithm_param_human",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=1,
         native_max_value=100,
         native_step=1,
-        supported_ext=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
-        supported_ext_value=[],
+        supported_ext_key=str(SupportExt.SupportDetectAreaUnderDefencetype.value),
         get_value=_algorithm_value_getter("4", 1),
         set_value=_algorithm_param_setter("4", 1),
-        translation_placeholders={"subtype": "4"},
-        available_fn=lambda data: has_algorithm_subtype(data, "4", 1),
+        is_supported_fn=lambda data: has_algorithm_subtype(data, "4", 1),
     ),
     EzvizNumberEntityDescription(
         key="night_vision_luminance",
         translation_key="night_vision_luminance",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=0,
         native_max_value=100,
         native_step=1,
-        supported_ext=(
+        supported_ext_key=(
             str(SupportExt.SupportNightVisionMode.value),
             str(SupportExt.SupportSmartNightVision.value),
         ),
-        supported_ext_value=[],
         get_value=lambda data: float(night_vision_luminance_value(data)),
         set_value=_night_vision_luminance_setter(),
     ),
     EzvizNumberEntityDescription(
         key="night_vision_duration",
         translation_key="night_vision_duration",
+        entity_category=EntityCategory.CONFIG,
         native_min_value=15,
         native_max_value=120,
         native_step=5,
         native_unit_of_measurement="s",
-        supported_ext=str(SupportExt.SupportIntelligentNightVisionDuration.value),
-        supported_ext_value=[],
+        supported_ext_key=str(SupportExt.SupportIntelligentNightVisionDuration.value),
         get_value=lambda data: float(night_vision_duration_value(data)),
         set_value=_night_vision_duration_setter(),
     ),
 )
 
 
-def _is_description_supported(
+def _is_desc_supported(
     camera_data: dict[str, Any], description: EzvizNumberEntityDescription
 ) -> bool:
-    if description.supported_ext is None:
-        return True
-    keys: tuple[str, ...]
-    if isinstance(description.supported_ext, tuple):
-        keys = description.supported_ext
-    else:
-        keys = (description.supported_ext,)
-
-    for key in keys:
-        value = support_ext_value(camera_data, key)
-        if value is None:
-            continue
-        if (
-            not description.supported_ext_value
-            or value in description.supported_ext_value
-        ):
-            return True
-    return False
+    return passes_description_gates(
+        camera_data,
+        supported_ext_keys=description.supported_ext_key,
+        supported_ext_values=description.supported_ext_value,
+        required_device_categories=description.required_device_categories,
+        predicate=description.is_supported_fn,
+    )
 
 
 async def async_setup_entry(
@@ -258,23 +237,20 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
-    entities: list[NumberEntity] = []
+    entities: list[NumberEntity] = [
+        EzvizNumber(coordinator, serial, desc)
+        for serial, camera_data in coordinator.data.items()
+        for desc in STATIC_NUMBER_DESCRIPTIONS
+        if _is_desc_supported(camera_data, desc)
+    ]
 
-    for serial, camera_data in coordinator.data.items():
-        for description in STATIC_NUMBER_DESCRIPTIONS:
-            if not _is_description_supported(camera_data, description):
-                continue
-            entities.append(EzvizNumber(coordinator, serial, description))
-
-    if entities:
-        async_add_entities(entities)
+    async_add_entities(entities)
 
 
 class EzvizNumber(EzvizEntity, NumberEntity):
     """Generic EZVIZ number entity."""
 
     _attr_has_entity_name = True
-    _attr_entity_category = EntityCategory.CONFIG
     entity_description: EzvizNumberEntityDescription
 
     def __init__(
@@ -287,23 +263,11 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        if description.native_min_value is not None:
-            self._attr_native_min_value = description.native_min_value
-        if description.native_max_value is not None:
-            self._attr_native_max_value = description.native_max_value
-        if description.native_step is not None:
-            self._attr_native_step = description.native_step
-        if description.translation_placeholders:
-            self._attr_translation_placeholders = description.translation_placeholders
-        self._cached_value: float | None = description.get_value(self.data)
 
     @property
     def native_value(self) -> float | None:
         """Return the current numeric value from coordinator data."""
-        value = self.entity_description.get_value(self.data)
-        if value is not None:
-            self._cached_value = value
-        return self._cached_value
+        return self.entity_description.get_value(self.data)
 
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value to the device and refresh coordinator state."""
@@ -318,5 +282,5 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot set value for {self.entity_id}") from err
 
-        self._cached_value = float(value)
+        self._attr_native_value = value
         await self.coordinator.async_request_refresh()
