@@ -232,12 +232,7 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         serial,
         value,
         _camera_data: ezviz_client.set_night_vision_mode(serial, value),
-        is_supported_fn=lambda data: (
-            bool(night_vision_config(data))
-            and not support_ext_has(
-                data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
-            )
-        ),
+        is_supported_fn=lambda data: (not support_ext_has(data, "688")),
     ),
     EzvizSelectEntityDescription(
         key="smart_night_vision_model_battery",
@@ -267,20 +262,15 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
             "night_vision_smart",
             "super_night_view",
         ],
-        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
-        supported_ext_value=["1"],
+        supported_ext_key="688",
+        supported_ext_value=["1,2,4,6"],
         option_range=[0, 1, 2, 5],
         get_current_option=night_vision_mode_value,
         set_current_option=lambda ezviz_client,
         serial,
         value,
         _camera_data: ezviz_client.set_night_vision_mode(serial, value),
-        is_supported_fn=lambda data: (
-            bool(night_vision_config(data))
-            and support_ext_has(
-                data, str(SupportExt.SupportIntelligentNightVisionDuration.value)
-            )
-        ),
+        is_supported_fn=lambda data: bool(night_vision_config(data)),
     ),
     EzvizSelectEntityDescription(
         key="day_night_mode",
@@ -288,10 +278,7 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         options=["day_night_auto", "day_night_day", "day_night_night"],
         option_range=[0, 1, 2],
-        is_supported_fn=lambda d: (
-            support_ext_has(d, str(SupportExt.SupportDayNightSwitch.value))
-            or bool(device_icr_dss_config(d))
-        ),
+        is_supported_fn=lambda d: bool(device_icr_dss_config(d)),
         get_current_option=day_night_mode_value,
         set_current_option=lambda ezviz_client,
         serial,
