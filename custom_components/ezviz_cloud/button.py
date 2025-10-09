@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
@@ -27,15 +27,34 @@ from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
 
+PTZDirection = Literal["UP", "DOWN", "LEFT", "RIGHT"]
+PTZ_DIRECTIONS: tuple[PTZDirection, PTZDirection, PTZDirection, PTZDirection] = (
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+)
+
 
 class EzvizButtonEntityHandler:
     """Class to handle multi actions for button."""
 
     @staticmethod
-    def press_ptz(pyezviz_client: EzvizClient, direction: str, serial: str) -> Any:
+    def press_ptz(
+        pyezviz_client: EzvizClient, direction: PTZDirection, serial: str
+    ) -> None:
         """Execute the button action for PTZ."""
         pyezviz_client.ptz_control(direction, serial, "START")
         pyezviz_client.ptz_control(direction, serial, "STOP")
+
+    @staticmethod
+    def make_ptz_method(direction: PTZDirection) -> Callable[[EzvizClient, str], None]:
+        """Factory that returns a typed callable for a single PTZ direction."""
+
+        def _run(client: EzvizClient, serial: str) -> None:
+            EzvizButtonEntityHandler.press_ptz(client, direction, serial)
+
+        return _run
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -64,41 +83,15 @@ def _is_desc_supported(
 
 
 BUTTON_ENTITIES: tuple[EzvizButtonEntityDescription, ...] = (
-    EzvizButtonEntityDescription(
-        key="ptz_up",
-        translation_key="ptz_up",
-        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
-            pyezviz_client, "UP", serial
-        ),
-        supported_ext_key=str(SupportExt.SupportPtz.value),
-        supported_ext_value=["1"],
-    ),
-    EzvizButtonEntityDescription(
-        key="ptz_down",
-        translation_key="ptz_down",
-        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
-            pyezviz_client, "DOWN", serial
-        ),
-        supported_ext_key=str(SupportExt.SupportPtz.value),
-        supported_ext_value=["1"],
-    ),
-    EzvizButtonEntityDescription(
-        key="ptz_left",
-        translation_key="ptz_left",
-        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
-            pyezviz_client, "LEFT", serial
-        ),
-        supported_ext_key=str(SupportExt.SupportPtz.value),
-        supported_ext_value=["1"],
-    ),
-    EzvizButtonEntityDescription(
-        key="ptz_right",
-        translation_key="ptz_right",
-        method=lambda pyezviz_client, serial: EzvizButtonEntityHandler.press_ptz(
-            pyezviz_client, "RIGHT", serial
-        ),
-        supported_ext_key=str(SupportExt.SupportPtz.value),
-        supported_ext_value=["1"],
+    *(
+        EzvizButtonEntityDescription(
+            key=f"ptz_{direction.lower()}",
+            translation_key=f"ptz_{direction.lower()}",
+            method=EzvizButtonEntityHandler.make_ptz_method(direction),
+            supported_ext_key=str(SupportExt.SupportPtz.value),
+            supported_ext_value=["1"],
+        )
+        for direction in PTZ_DIRECTIONS
     ),
     EzvizButtonEntityDescription(
         key="restart_device",
