@@ -23,7 +23,7 @@ from pyezvizapi.feature import (
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -51,10 +51,9 @@ class EzvizSelectEntityDescription(SelectEntityDescription):
     is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
     # Select mapping
-    option_range: list[int] | None = None
+    option_range: list[int]
     get_current_option: Callable[[dict[str, Any]], int]
     set_current_option: Callable[[EzvizClient, str, int, dict[str, Any]], Any]
-    options_map: dict[str, int] | None = None
     options_fn: Callable[[dict[str, Any]], list[str]] | None = None
 
 
@@ -356,20 +355,12 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_options = self._compute_options()
 
     @property
     def current_option(self) -> str | None:
         """Return the currently selected option."""
         current_value = self.entity_description.get_current_option(self.data)
-        if self.entity_description.options_map:
-            for option in self.options:
-                if self.entity_description.options_map.get(option) == current_value:
-                    return option
-            return None
 
-        if not self.entity_description.option_range:
-            return None
         try:
             idx = self.entity_description.option_range.index(current_value)
         except ValueError:
@@ -385,20 +376,11 @@ class EzvizSelect(EzvizEntity, SelectEntity):
                 f"Invalid option '{option}' for {self.entity_id}"
             ) from err
 
-        if self.entity_description.options_map:
-            if option not in self.entity_description.options_map:
-                raise HomeAssistantError(
-                    f"Invalid option '{option}' for {self.entity_id}"
-                )
-            set_value = self.entity_description.options_map[option]
-        else:
-            if not self.entity_description.option_range or not (
-                0 <= idx < len(self.entity_description.option_range)
-            ):
-                raise HomeAssistantError(
-                    f"Invalid option '{option}' for {self.entity_id}"
-                )
-            set_value = self.entity_description.option_range[idx]
+        if not self.entity_description.option_range or not (
+            0 <= idx < len(self.entity_description.option_range)
+        ):
+            raise HomeAssistantError(f"Invalid option '{option}' for {self.entity_id}")
+        set_value = self.entity_description.option_range[idx]
 
         try:
             # Run potentially blocking client call in executor
@@ -413,24 +395,3 @@ class EzvizSelect(EzvizEntity, SelectEntity):
             raise HomeAssistantError(f"Cannot set option for {self.entity_id}") from err
 
         await self.coordinator.async_request_refresh()
-
-    def _compute_options(self) -> list[str]:
-        """Return the list of options for the entity."""
-
-        desc = self.entity_description
-        if desc.options_map:
-            base_options = list(desc.options_map.keys())
-            if desc.options_fn is not None:
-                filtered = desc.options_fn(self.data)
-                return [opt for opt in base_options if opt in filtered]
-            return base_options
-        return list(desc.options or [])
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle data update from the coordinator."""
-
-        options = self._compute_options()
-        if options != list(self.options):
-            self._attr_options = options
-        super()._handle_coordinator_update()
