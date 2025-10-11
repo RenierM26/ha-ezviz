@@ -439,6 +439,9 @@
       "intelligent_picture_quality": {
         "name": "Intelligent picture quality"
       },
+      "auto_zoom_tracking": {
+        "name": "Auto zoom tracking"
+      },
       "intelligent_fill_light": {
         "name": "Intelligent fill light"
       },

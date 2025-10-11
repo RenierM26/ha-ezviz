@@ -326,6 +326,15 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         is_supported_fn=_has_switch_entry(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
     ),
     EzvizSwitchEntityDescription(
+        key="AUTO_ZOOM_TRACKING",
+        translation_key="auto_zoom_tracking",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportFeatureTrack.value),
+        value_fn=_switch_entry_value_fn(DeviceSwitchType.FEATURE_TRACKING),
+        method=_switch_entry_method(DeviceSwitchType.FEATURE_TRACKING),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.FEATURE_TRACKING),
+    ),
+    EzvizSwitchEntityDescription(
         key="intelligent_fill_light",
         translation_key="intelligent_fill_light",
         device_class=SwitchDeviceClass.SWITCH,
