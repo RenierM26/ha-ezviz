@@ -9,7 +9,11 @@ from typing import Any
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
-from pyezvizapi.feature import has_osd_overlay
+from pyezvizapi.feature import (
+    has_osd_overlay,
+    supplement_light_available,
+    supplement_light_enabled,
+)
 
 from homeassistant.components.switch import (
     SwitchDeviceClass,
@@ -110,6 +114,12 @@ def _switch_entry_method(
         return client.switch_status(serial, switch_type.value, enable)
 
     return _method
+
+
+def _supplement_light_method(client: EzvizClient, serial: str, enable: int) -> Any:
+    """Toggle the intelligent fill light mode."""
+
+    return client.set_intelligent_fill_light(serial, enabled=bool(enable))
 
 
 _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
@@ -314,6 +324,24 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         value_fn=_switch_entry_value_fn(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
         method=_switch_entry_method(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
         is_supported_fn=_has_switch_entry(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
+    ),
+    EzvizSwitchEntityDescription(
+        key="AUTO_ZOOM_TRACKING",
+        translation_key="auto_zoom_tracking",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key=str(SupportExt.SupportFeatureTrack.value),
+        value_fn=_switch_entry_value_fn(DeviceSwitchType.FEATURE_TRACKING),
+        method=_switch_entry_method(DeviceSwitchType.FEATURE_TRACKING),
+        is_supported_fn=_has_switch_entry(DeviceSwitchType.FEATURE_TRACKING),
+    ),
+    EzvizSwitchEntityDescription(
+        key="intelligent_fill_light",
+        translation_key="intelligent_fill_light",
+        device_class=SwitchDeviceClass.SWITCH,
+        supported_ext_key="688",
+        value_fn=supplement_light_enabled,
+        method=_supplement_light_method,
+        is_supported_fn=supplement_light_available,
     ),
     EzvizSwitchEntityDescription(
         key="HUMAN_INTELLIGENT_DETECTION",
