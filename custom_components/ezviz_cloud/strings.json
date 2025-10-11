@@ -195,6 +195,17 @@
           "image_style_vivid": "Vivid"
         }
       },
+      "blc_region": {
+        "name": "Backlight compensation",
+        "state": {
+          "blc_off": "Off",
+          "blc_up": "Up",
+          "blc_down": "Down",
+          "blc_left": "Left",
+          "blc_right": "Right",
+          "blc_center": "Center"
+        }
+      },
       "night_vision_mode": {
         "name": "Night vision mode",
         "state": {
