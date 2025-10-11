@@ -439,6 +439,9 @@
       "intelligent_picture_quality": {
         "name": "Intelligent picture quality"
       },
+      "intelligent_fill_light": {
+        "name": "Intelligent fill light"
+      },
       "people_detection": {
         "name": "People detection"
       },
