@@ -10,6 +10,7 @@ from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import SoundMode, SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 from pyezvizapi.feature import (
+    blc_current_value,
     day_night_mode_value,
     day_night_sensitivity_value,
     device_icr_dss_config,
@@ -179,6 +180,35 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
             serial,
             value=f'{{"mode":{value}}}',
             key="display_mode",
+        ),
+    ),
+    EzvizSelectEntityDescription(
+        key="blc_region",
+        translation_key="blc_region",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "blc_off",
+            "blc_up",
+            "blc_down",
+            "blc_left",
+            "blc_right",
+            "blc_center",
+        ],
+        supported_ext_key=str(SupportExt.SupportBackLight.value),
+        supported_ext_value=["1"],
+        option_range=[0, 1, 2, 3, 4, 5],  # 0=Off; 1..5 map to positions
+        get_current_option=blc_current_value,  # returns one of 0..5
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        camera_data: ezviz_client.set_device_config_by_key(
+            serial,
+            value=(
+                '{"mode":1,"enable":0,"position":0}'
+                if int(value) == 0
+                else f'{{"mode":1,"enable":1,"position":{int(value)}}}'
+            ),
+            key="inverse_mode",
         ),
     ),
     EzvizSelectEntityDescription(
