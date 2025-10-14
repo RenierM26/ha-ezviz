@@ -2,14 +2,65 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+import re
 from typing import Any
 
-from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
+
+_MAC_REGEX = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
+
+
+def _normalize_mac(device: Mapping[str, Any]) -> str | None:
+    """Return a normalized MAC address if the value looks real."""
+
+    mac_address = device.get("mac_address")
+    if not isinstance(mac_address, str):
+        return None
+
+    normalized = format_mac(mac_address)
+
+    if not _MAC_REGEX.fullmatch(normalized):
+        return None
+
+    if normalized in {"00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"}:
+        return None
+
+    return normalized
+
+
+def _build_device_info(device: Mapping[str, Any], serial: str) -> DeviceInfo:
+    """Return the Home Assistant device description for an EZVIZ device."""
+
+    mac_address = _normalize_mac(device)
+    if mac_address:
+        return DeviceInfo(
+            identifiers={(DOMAIN, serial)},
+            connections={(CONNECTION_NETWORK_MAC, mac_address)},
+            manufacturer=MANUFACTURER,
+            model=device["device_sub_category"],
+            name=device["name"],
+            sw_version=device["version"],
+            serial_number=serial,
+        )
+
+    return DeviceInfo(
+        identifiers={(DOMAIN, serial)},
+        manufacturer=MANUFACTURER,
+        model=device["device_sub_category"],
+        name=device["name"],
+        sw_version=device["version"],
+        serial_number=serial,
+    )
 
 
 class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
@@ -25,18 +76,9 @@ class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
         """Initialize the entity."""
         super().__init__(coordinator)
         self._serial = serial
-        self._camera_name = self.data["name"]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, serial)},
-            connections={
-                (CONNECTION_NETWORK_MAC, self.data["mac_address"]),
-            },
-            manufacturer=MANUFACTURER,
-            model=self.data["device_sub_category"],
-            name=self.data["name"],
-            sw_version=self.data["version"],
-            serial_number=self._serial,
-        )
+        device: Mapping[str, Any] = self.data
+        self._camera_name = device["name"]
+        self._attr_device_info = _build_device_info(device, serial)
 
     @property
     def data(self) -> Any:
@@ -62,18 +104,9 @@ class EzvizBaseEntity(Entity):
         """Initialize the entity."""
         self._serial = serial
         self.coordinator = coordinator
-        self._camera_name = self.data["name"]
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, serial)},
-            connections={
-                (CONNECTION_NETWORK_MAC, self.data["mac_address"]),
-            },
-            manufacturer=MANUFACTURER,
-            model=self.data["device_sub_category"],
-            name=self.data["name"],
-            sw_version=self.data["version"],
-            serial_number=self._serial,
-        )
+        device: Mapping[str, Any] = self.data
+        self._camera_name = device["name"]
+        self._attr_device_info = _build_device_info(device, serial)
 
     @property
     def data(self) -> Any:
