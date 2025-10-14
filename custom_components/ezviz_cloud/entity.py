@@ -27,7 +27,10 @@ def _normalize_mac(device: Mapping[str, Any]) -> str | None:
     if not isinstance(mac_address, str):
         return None
 
-    normalized = format_mac(mac_address)
+    try:
+        normalized = format_mac(mac_address)
+    except ValueError:
+        return None
 
     if not _MAC_REGEX.fullmatch(normalized):
         return None
