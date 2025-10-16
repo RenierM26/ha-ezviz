@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "HA: create venv",
+      "type": "shell",
+      "command": "python -m venv .venv && . .venv/bin/activate && pip install -U pip wheel && pip install homeassistant ruff mypy pytest",
+      "problemMatcher": []
+    },
+    {
+      "label": "HA: run dev instance",
+      "type": "shell",
+      "command": ". .venv/bin/activate && hass -c ./_devconfig --debug",
+      "options": {
+        "env": { "PYTHONPATH": "${workspaceFolder}" }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Lint: ruff",
+      "type": "shell",
+      "command": ". .venv/bin/activate && ruff check custom_components tests",
+      "problemMatcher": []
+    },
+    {
+      "label": "Typecheck: mypy",
+      "type": "shell",
+      "command": ". .venv/bin/activate && mypy",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test: pytest",
+      "type": "shell",
+      "command": ". .venv/bin/activate && pytest",
+      "problemMatcher": []
+    }
+  ]
+}

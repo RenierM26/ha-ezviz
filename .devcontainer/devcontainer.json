@@ -1,0 +1,13 @@
+{
+  "name": "HA Integration Dev",
+  "build": { "dockerfile": "Dockerfile" },
+  "features": { "ghcr.io/devcontainers/features/python:1": { "version": "3.12" } },
+  "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && pip install -U pip wheel && pip install homeassistant ruff mypy pytest debugpy",
+  "customizations": {
+    "vscode": {
+      "settings": { "python.defaultInterpreterPath": ".venv/bin/python" },
+      "extensions": ["ms-python.python", "charliermarsh.ruff", "ms-python.vscode-pylance"]
+    }
+  },
+  "remoteEnv": { "PYTHONPATH": "/workspaces/${localWorkspaceFolderBasename}" }
+}
