@@ -23,6 +23,9 @@ _MAC_REGEX = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 def _normalize_mac(device: Mapping[str, Any]) -> str | None:
     """Return a normalized MAC address if the value looks real."""
 
+    if device.get("device_category") == "IGateWay":
+        return None
+
     mac_address = device.get("mac_address")
     if not isinstance(mac_address, str):
         return None
