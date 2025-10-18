@@ -26,26 +26,53 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching EZVIZ data."""
 
     def __init__(
-        self, hass: HomeAssistant, *, api: EzvizClient, api_timeout: int
+        self, hass: HomeAssistant, *, api: EzvizClient, api_timeout: int,
+        # MAC address management
+        use_ezvizapi_mac: bool
     ) -> None:
         """Initialize global EZVIZ data updater."""
         self.ezviz_client = api
         self._api_timeout = api_timeout
+        # MAC address management
+        self.use_ezvizapi_mac = use_ezvizapi_mac
         update_interval = timedelta(seconds=30)
 
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval)
 
+    # async def _async_update_data(self) -> dict:
+    #     """Fetch data from EZVIZ."""
+    #     try:
+    #         async with asyncio.timeout(self._api_timeout):
+    #             return await self.hass.async_add_executor_job(
+    #                 self.ezviz_client.load_cameras
+    #             )
+
+    #     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
+    #         raise ConfigEntryAuthFailed from error
+
+    #     except (InvalidURL, HTTPError, PyEzvizError) as error:
+    #         raise UpdateFailed(f"Invalid response from API: {error}") from error
+
     async def _async_update_data(self) -> dict:
-        """Fetch data from EZVIZ."""
+        """Fetch data from EZVIZ and ensure MAC addresses did not come from pyezvizapi."""
         try:
             async with asyncio.timeout(self._api_timeout):
-                return await self.hass.async_add_executor_job(
+                raw_data = await self.hass.async_add_executor_job(
                     self.ezviz_client.load_cameras
                 )
-
+            # --- MAC address overloading EMERIC ---
+            _LOGGER.warning("self.use_ezvizapi_mac: %s", self.use_ezvizapi_mac)
+            for serial, device_data in raw_data.items():
+                if self.use_ezvizapi_mac:
+                    _LOGGER.warning("serial: %s   using MAC address provided by ezviz API: %s",serial,device_data.get("mac_address"))
+                else:
+                    # Generates a fake MAC address based on serial number when MAC address is not defined out of pyezvizapi
+                    mac = f"65:63:3A:{serial[-2:]}:{serial[-4:-2]}:{serial[-6:-4]}"
+                    _LOGGER.warning("serial: %s   creating a fake MAC address: %s",serial,mac)
+                    device_data["mac_address"] = mac
+            return raw_data
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error
-
         except (InvalidURL, HTTPError, PyEzvizError) as error:
             raise UpdateFailed(f"Invalid response from API: {error}") from error
 

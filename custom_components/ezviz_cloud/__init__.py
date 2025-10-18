@@ -44,6 +44,9 @@ from .const import (
     DOMAIN,
     MQTT_HANDLER,
     OPTIONS_KEY_CAMERAS,
+    # MAC address management constants
+    CONF_USE_EZVIZ_API_MAC,
+    DEFAULT_USE_EZVIZ_API_MAC,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
@@ -119,12 +122,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if updates:
         hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
 
+    use_ezvizapi_mac = entry.data.get(CONF_USE_EZVIZ_API_MAC, DEFAULT_USE_EZVIZ_API_MAC)
+    _LOGGER.warning("init use_ezvizapi_mac = %s",use_ezvizapi_mac)
     # Coordinator
     coordinator = EzvizDataUpdateCoordinator(
         hass,
         api=client,
         api_timeout=timeout,
+        use_ezvizapi_mac=use_ezvizapi_mac,
     )
+    #coordinator.use_ezvizapi_mac = use_ezvizapi_mac
     await coordinator.async_config_entry_first_refresh()
 
     # MQTT handler

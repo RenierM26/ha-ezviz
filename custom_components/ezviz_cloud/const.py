@@ -72,3 +72,9 @@ SERVICE_WAKE_DEVICE: Final = "wake_device"
 DATA_COORDINATOR: Final = "coordinator"
 MQTT_HANDLER: Final = "mqtt_handler"
 OPTIONS_KEY_CAMERAS: Final = "cameras"
+
+# ---------------------------
+# Manage options to overload mac address when EZVIZ api returns null or duplicated MAC values
+# ---------------------------
+CONF_USE_EZVIZ_API_MAC = "use_ezvizapi_mac"
+DEFAULT_USE_EZVIZ_API_MAC = True

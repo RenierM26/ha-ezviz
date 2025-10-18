@@ -62,6 +62,9 @@ from .const import (
     REGION_EU,
     REGION_RU,
     REGION_URLS,
+    # Add mac address retrieval options
+    CONF_USE_EZVIZ_API_MAC,
+    DEFAULT_USE_EZVIZ_API_MAC,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 
@@ -152,8 +155,6 @@ def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
 # -----------------------------------------------------------------------------
 # Config Flow (cloud account)
 # -----------------------------------------------------------------------------
-
-
 class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the cloud account config flow for EZVIZ."""
 
@@ -185,6 +186,11 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Create a single cloud account entry."""
         errors: dict[str, str] = {}
+
+        USE_EZVIZ_API_MAC_LABEL = (
+            "Use MAC address returned by official Ezviz cloud "
+            "(uncheck if your device is not detected correctly)"
+        )
 
         if user_input is not None:
             await self.async_set_unique_id(user_input[CONF_USERNAME])
@@ -241,6 +247,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USER_ID: token[
                                 "username"
                             ],  # ezviz internal user id (MQTT)
+                            # MAC address management
+                            CONF_USE_EZVIZ_API_MAC: user_input.get(USE_EZVIZ_API_MAC_LABEL, DEFAULT_USE_EZVIZ_API_MAC)
                         },
                         options={
                             CONF_TIMEOUT: timeout,
@@ -258,6 +266,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_URL): str,  # required only when region == custom
                 vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): int,
+                # MAC address management
+                vol.Required(USE_EZVIZ_API_MAC_LABEL, default=DEFAULT_USE_EZVIZ_API_MAC): bool,
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
