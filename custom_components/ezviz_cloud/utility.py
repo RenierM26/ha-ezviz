@@ -135,6 +135,32 @@ def support_ext_has(
     return bool(have & need_tokens)
 
 
+def _support_ext_values_match(
+    raw_value: Any, expected_values: tuple[str, ...]
+) -> bool:
+    """Return True if the raw supportExt value satisfies one of the candidates."""
+    if not expected_values:
+        return True
+
+    raw_str = str(raw_value).strip()
+    if not raw_str:
+        return False
+
+    raw_tokens = _support_ext_tokens(raw_value)
+    if not raw_tokens:
+        raw_tokens = {raw_str}
+
+    for candidate in expected_values:
+        if raw_str == candidate:
+            return True
+
+        candidate_tokens = _support_ext_tokens(candidate)
+        if candidate_tokens and candidate_tokens <= raw_tokens:
+            return True
+
+    return False
+
+
 def passes_description_gates(
     camera_data: dict[str, Any],
     *,
@@ -181,8 +207,7 @@ def passes_description_gates(
                 continue
 
             if normalized_values:
-                raw_str = str(raw_value).strip()
-                if raw_str in normalized_values:
+                if _support_ext_values_match(raw_value, normalized_values):
                     matched = True
                     break
             else:
