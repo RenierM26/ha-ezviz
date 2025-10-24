@@ -455,7 +455,7 @@ INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
 INTELLIGENT_APP_SUPPORT_EXT: dict[str, tuple[str | None, list[str] | None]] = {
     "app_human_detect": ("508", ["2"]),
     "app_car_detect": ("508", ["2"]),
-    "app_video_change": ("508", ["2"]),
+    "app_video_change": ("338", ["1"]),
     "app_wave_recognize": ("511", ["1"]),
 }
 
