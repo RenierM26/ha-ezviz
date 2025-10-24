@@ -91,6 +91,21 @@ def _has_intelligent_app(app_name: str) -> Callable[[dict[str, Any]], bool]:
     return _predicate
 
 
+def _combine_predicates(
+    base: Callable[[dict[str, Any]], bool],
+    extra: Callable[[dict[str, Any]], bool] | None,
+) -> Callable[[dict[str, Any]], bool]:
+    """Return a predicate that requires both base and optional extra conditions."""
+
+    if extra is None:
+        return base
+
+    def _predicate(camera_data: dict[str, Any]) -> bool:
+        return base(camera_data) and extra(camera_data)
+
+    return _predicate
+
+
 def _switch_entry_value_fn(
     switch_type: DeviceSwitchType,
 ) -> Callable[[dict[str, Any]], Any]:
@@ -339,6 +354,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="intelligent_fill_light",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key="688",
+        supported_ext_value=["1,2,4,6"],
         value_fn=supplement_light_enabled,
         method=_supplement_light_method,
         is_supported_fn=supplement_light_available,
@@ -436,6 +452,16 @@ INTELLIGENT_APP_TRANSLATIONS: dict[str, str] = {
     "app_pir_detect": "intelligent_app_pir_detect",
 }
 
+INTELLIGENT_APP_SUPPORT_EXT: dict[str, tuple[str | None, list[str] | None]] = {
+    "app_human_detect": ("508", ["2"]),
+    "app_car_detect": ("508", ["2"]),
+    "app_video_change": ("508", ["2"]),
+    "app_wave_recognize": ("511", ["1"]),
+}
+
+
+INTELLIGENT_APP_EXTRA_PREDICATES: dict[str, Callable[[dict[str, Any]], bool]] = {}
+
 
 INTELLIGENT_APP_DESCRIPTIONS: tuple[EzvizSwitchEntityDescription, ...] = tuple(
     EzvizSwitchEntityDescription(
@@ -444,7 +470,14 @@ INTELLIGENT_APP_DESCRIPTIONS: tuple[EzvizSwitchEntityDescription, ...] = tuple(
         device_class=SwitchDeviceClass.SWITCH,
         value_fn=intelligent_app_value_fn(app_name),
         method=intelligent_app_method(app_name),
-        is_supported_fn=_has_intelligent_app(app_name),
+        supported_ext_key=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[0],
+        supported_ext_value=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[
+            1
+        ],
+        is_supported_fn=_combine_predicates(
+            _has_intelligent_app(app_name),
+            INTELLIGENT_APP_EXTRA_PREDICATES.get(app_name),
+        ),
     )
     for app_name, translation_key in INTELLIGENT_APP_TRANSLATIONS.items()
 )
