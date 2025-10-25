@@ -238,6 +238,13 @@
           "lens_defog_on": "Always on",
           "lens_defog_off": "Always off"
         }
+      },
+      "ptz_linked_tracking_range": {
+        "name": "PTZ linked tracking range",
+        "state": {
+          "ptz_tracking_range_wide": "Wide-angle picture tracking",
+          "ptz_tracking_range_full_priority": "Full picture tracking (wide-angle priority)"
+        }
       }
     },
     "image": {

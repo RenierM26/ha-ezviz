@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
-import json
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
 
 from pyezvizapi.feature import (
     lens_defog_config,
@@ -16,6 +16,9 @@ from pyezvizapi.feature import (
 
 if TYPE_CHECKING:
     from pyezvizapi.client import EzvizClient
+
+
+from pyezvizapi.utils import WILDCARD_STEP, decode_json, first_nested, iter_nested
 
 
 def coerce_int(value: Any) -> int | None:
@@ -30,7 +33,26 @@ def coerce_int(value: Any) -> int | None:
         return None
 
 
+def coerce_bool(value: Any) -> bool | None:
+    """Best-effort coercion to bool for common EZVIZ payload styles."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if value == 0:
+            return False
+        if value == 1:
+            return True
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return None
+
+
 def _wifi_section(camera_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the WIFI sub-mapping when present."""
     wifi_data = camera_data.get("WIFI")
     if isinstance(wifi_data, dict):
         return wifi_data
@@ -92,73 +114,116 @@ def sd_card_capacity_gb(camera_data: dict[str, Any]) -> float | None:
     return round(gb_value, 2)
 
 
+class SupportExtView:
+    """Lightweight helper for inspecting supportExt capabilities."""
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: Mapping[str, Any] | None = None) -> None:
+        """Store a normalized copy of the provided supportExt mapping."""
+        self._data: dict[str, Any] = dict(data) if isinstance(data, Mapping) else {}
+
+    @classmethod
+    def from_camera_data(cls, camera_data: Mapping[str, Any]) -> SupportExtView:
+        """Build a view from raw camera payload."""
+
+        support_ext = camera_data.get("supportExt")
+        if not isinstance(support_ext, Mapping):
+            device_infos = camera_data.get("deviceInfos")
+            if isinstance(device_infos, Mapping):
+                support_ext = device_infos.get("supportExt")
+        return cls(support_ext if isinstance(support_ext, Mapping) else None)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the underlying mapping."""
+
+        return self._data
+
+    def get(self, key: str, default: Any | None = None) -> Any | None:
+        """Fetch a raw supportExt value."""
+
+        return self._data.get(key, default)
+
+    @staticmethod
+    def _tokens(value: Any) -> set[str]:
+        """Return comma-delimited tokens from a raw supportExt value."""
+        if value is None:
+            return set()
+        return {token.strip() for token in str(value).split(",") if token.strip()}
+
+    @staticmethod
+    def normalize_values(values: Iterable[str] | None) -> tuple[str, ...]:
+        """Normalize candidate values to a tuple of stripped strings."""
+        if values is None:
+            return ()
+        return tuple(
+            stripped for stripped in (str(raw).strip() for raw in values) if stripped
+        )
+
+    @classmethod
+    def _values_match(cls, raw_value: Any, expected_values: tuple[str, ...]) -> bool:
+        """Return True if ``raw_value`` satisfies normalized candidates."""
+
+        if not expected_values:
+            return True
+
+        raw_str = str(raw_value).strip()
+        if not raw_str:
+            return False
+
+        if raw_str in expected_values:
+            return True
+
+        raw_tokens = cls._tokens(raw_value)
+        if not raw_tokens:
+            raw_tokens = {raw_str}
+
+        for candidate in expected_values:
+            candidate_tokens = cls._tokens(candidate)
+            if candidate_tokens and candidate_tokens <= raw_tokens:
+                return True
+
+        return False
+
+    def match_any(
+        self, keys: Iterable[str], normalized_values: tuple[str, ...]
+    ) -> bool:
+        """Return True if any key exists (and matches optional values)."""
+
+        for key in keys:
+            raw_value = self._data.get(key)
+            if raw_value is None:
+                continue
+            if not normalized_values:
+                return True
+            if self._values_match(raw_value, normalized_values):
+                return True
+        return False
+
+    def has(self, key: str, expected_values: Iterable[str] | None = None) -> bool:
+        """Check if the given key (and optional values) exist."""
+
+        if not expected_values:
+            normalized: tuple[str, ...] = ()
+        else:
+            normalized = self.normalize_values(expected_values)
+            if not normalized:
+                return False
+        return self.match_any((key,), normalized)
+
+
 def support_ext_dict(camera_data: dict[str, Any]) -> dict[str, Any]:
     """Return supportExt mapping if present."""
-    support_ext = camera_data.get("supportExt")
-    if not isinstance(support_ext, dict):
-        device_infos = camera_data.get("deviceInfos")
-        if isinstance(device_infos, dict):
-            support_ext = device_infos.get("supportExt")
-    return support_ext if isinstance(support_ext, dict) else {}
 
-
-def _support_ext_tokens(value: Any) -> set[str]:
-    if value is None:
-        return set()
-    return {token.strip() for token in str(value).split(",") if token.strip()}
+    return SupportExtView.from_camera_data(camera_data).as_dict()
 
 
 def support_ext_has(
     camera_data: dict[str, Any], key: str, expected_values: list[str] | None = None
 ) -> bool:
     """Check if supportExt contains the key (and optional values)."""
-    ext = support_ext_dict(camera_data)
-    raw = ext.get(key)
-    if raw is None:
-        return False
-    if not expected_values:
-        return True
-
-    raw_str = str(raw).strip()
-    normalized_expected = [value.strip() for value in expected_values if value.strip()]
-    if raw_str in normalized_expected:
-        return True
-
-    have = _support_ext_tokens(raw)
-    need_tokens: set[str] = set()
-    for value in normalized_expected:
-        need_tokens.update(_support_ext_tokens(value))
-
-    if not need_tokens:
-        return False
-
-    return bool(have & need_tokens)
-
-
-def _support_ext_values_match(
-    raw_value: Any, expected_values: tuple[str, ...]
-) -> bool:
-    """Return True if the raw supportExt value satisfies one of the candidates."""
-    if not expected_values:
-        return True
-
-    raw_str = str(raw_value).strip()
-    if not raw_str:
-        return False
-
-    raw_tokens = _support_ext_tokens(raw_value)
-    if not raw_tokens:
-        raw_tokens = {raw_str}
-
-    for candidate in expected_values:
-        if raw_str == candidate:
-            return True
-
-        candidate_tokens = _support_ext_tokens(candidate)
-        if candidate_tokens and candidate_tokens <= raw_tokens:
-            return True
-
-    return False
+    view = SupportExtView.from_camera_data(camera_data)
+    return view.has(key, expected_values)
 
 
 def passes_description_gates(
@@ -189,38 +254,14 @@ def passes_description_gates(
         )
 
     if normalized_keys:
-        ext = support_ext_dict(camera_data)
+        view = SupportExtView.from_camera_data(camera_data)
+        normalized_values = SupportExtView.normalize_values(supported_ext_values)
 
-        if supported_ext_values is not None:
-            normalized_values = tuple(
-                stripped
-                for stripped in (str(raw).strip() for raw in supported_ext_values)
-                if stripped
-            )
-        else:
-            normalized_values = ()
-
-        matched = False
-        for key in normalized_keys:
-            raw_value = ext.get(key)
-            if raw_value is None:
-                continue
-
-            if normalized_values:
-                if _support_ext_values_match(raw_value, normalized_values):
-                    matched = True
-                    break
-            else:
-                matched = True
-                break
-
-        if not matched:
+        if not view.match_any(normalized_keys, normalized_values):
             return False
 
     if required_device_categories is not None:
-        category = device_category(camera_data)
-        if category is None:
-            category = camera_data.get("device_category")
+        category = camera_data.get("device_category")
         if category not in required_device_categories:
             return False
 
@@ -230,16 +271,60 @@ def passes_description_gates(
     return True
 
 
-def device_category(camera_data: dict[str, Any]) -> str | None:
-    """Return the device category if present."""
-    category = camera_data.get("device_category")
-    return str(category) if isinstance(category, str) else None
+def ptz_master_slave_trace(camera_data: dict[str, Any]) -> dict[str, Any]:
+    """Return the PTZ master/slave trace section if present."""
+
+    for trace in iter_nested(
+        camera_data,
+        ("FEATURE_INFO", WILDCARD_STEP, "Video", "PTZMasterSlaveTrace"),
+    ):
+        if isinstance(trace, dict):
+            return trace
+    return {}
 
 
-def device_model(camera_data: dict[str, Any]) -> str | None:
-    """Return the device sub-category reported by the camera."""
-    sub_category = camera_data.get("device_sub_category")
-    return str(sub_category) if isinstance(sub_category, str) and sub_category else None
+def ensure_ptz_master_slave_trace(camera_data: dict[str, Any]) -> dict[str, Any]:
+    """Ensure PTZ master/slave trace section exists and return it."""
+
+    feature_info = camera_data.setdefault("FEATURE_INFO", {})
+    video_section = next(
+        (
+            video
+            for video in iter_nested(
+                camera_data, ("FEATURE_INFO", WILDCARD_STEP, "Video")
+            )
+            if isinstance(video, dict)
+        ),
+        None,
+    )
+
+    if video_section is None:
+        group = feature_info.setdefault("1", {})
+        if not isinstance(group, dict):
+            feature_info["1"] = {}
+            group = feature_info["1"]
+        video_section = group.setdefault("Video", {})
+        if not isinstance(video_section, dict):
+            group["Video"] = {}
+            video_section = group["Video"]
+
+    trace = video_section.setdefault("PTZMasterSlaveTrace", {})
+    if not isinstance(trace, dict):
+        video_section["PTZMasterSlaveTrace"] = {}
+        trace = video_section["PTZMasterSlaveTrace"]
+
+    return cast(dict[str, Any], trace)
+
+
+def linked_tracking_takeover_enabled(camera_data: dict[str, Any]) -> bool:
+    """Return True if linked tracking takeover is enabled."""
+
+    trace = ptz_master_slave_trace(camera_data)
+    cfg = trace.get("LinkedTrackingAdvancedCfg")
+    if not isinstance(cfg, dict):
+        return False
+    value = coerce_bool(cfg.get("trackingTakeoverEnabled"))
+    return bool(value) if value is not None else False
 
 
 def has_lens_defog(camera_data: dict[str, Any]) -> bool:
@@ -269,7 +354,27 @@ def set_lens_defog_option(
         config["defogMode"] = mode
 
 
+def set_linked_tracking_takeover(
+    client: EzvizClient,
+    serial: str,
+    enabled: bool,
+    camera_data: dict[str, Any],
+) -> None:
+    """Persist linked-tracking takeover preference."""
+
+    payload = {"value": {"trackingTakeoverEnabled": bool(enabled)}}
+    client.set_iot_feature(
+        serial,
+        "Video",
+        "1",
+        "PTZMasterSlaveTrace",
+        "LinkedTrackingAdvancedCfg",
+        payload,
+    )
+
+
 def _load_port_security_payload(client: EzvizClient, serial: str) -> dict[str, Any]:
+    """Fetch or synthesize a normalized port-security payload."""
     response = client.get_port_security(serial)
     value: dict[str, Any] = {}
     if isinstance(response, dict):
@@ -294,27 +399,10 @@ def _load_port_security_payload(client: EzvizClient, serial: str) -> dict[str, A
     return value
 
 
-def port_security_available_fn(port: int) -> Callable[[dict[str, Any]], bool]:
-    """Return an availability predicate for a single port."""
-
-    def _available(camera_data: dict[str, Any]) -> bool:
-        return bool(port_security_has_port(camera_data, port))
-
-    return _available
-
-
-def port_security_value_fn(port: int) -> Callable[[dict[str, Any]], bool]:
-    """Return a value extractor for a single secure-port flag."""
-
-    def _value(camera_data: dict[str, Any]) -> bool:
-        return bool(port_security_port_enabled(camera_data, port))
-
-    return _value
-
-
 def _set_port_security_port(
     client: EzvizClient, serial: str, port: int, enable: int
 ) -> None:
+    """Toggle a single secure port in the cached payload and persist it."""
     value = _load_port_security_payload(client, serial)
     ports = value["portSecurityList"]
 
@@ -328,18 +416,10 @@ def _set_port_security_port(
     client.set_port_security(serial, value)
 
 
-def port_security_method(port: int) -> Callable[[EzvizClient, str, int], None]:
-    """Return a setter that toggles a single secure port."""
-
-    def _method(client: EzvizClient, serial: str, enable: int) -> None:
-        _set_port_security_port(client, serial, port, enable)
-
-    return _method
-
-
 def _set_port_security_ports(
     client: EzvizClient, serial: str, ports: tuple[int, ...], enable: int
 ) -> None:
+    """Toggle multiple secure ports in the cached payload and persist it."""
     value = _load_port_security_payload(client, serial)
     entries = value["portSecurityList"]
     port_map: dict[int, dict[str, Any]] = {}
@@ -361,40 +441,48 @@ def _set_port_security_ports(
     client.set_port_security(serial, value)
 
 
-def port_security_ports_available_fn(
-    ports: tuple[int, ...],
-) -> Callable[[dict[str, Any]], bool]:
-    """Return an availability predicate for any port in the tuple."""
+@dataclass(frozen=True)
+class PortSecurityToggle:
+    """Bundle availability/value/set operations for secure ports."""
 
-    def _available(camera_data: dict[str, Any]) -> bool:
-        return any(port_security_has_port(camera_data, port) for port in ports)
+    ports: tuple[int, ...]
 
-    return _available
+    @classmethod
+    def single(cls, port: int) -> PortSecurityToggle:
+        """Create a toggle for a single port."""
 
+        return cls((port,))
 
-def port_security_ports_value_fn(
-    ports: tuple[int, ...],
-) -> Callable[[dict[str, Any]], bool]:
-    """Return a value extractor that checks if any port is enabled."""
+    def _present_ports(self, camera_data: dict[str, Any]) -> list[int]:
+        return [
+            port for port in self.ports if port_security_has_port(camera_data, port)
+        ]
 
-    def _value(camera_data: dict[str, Any]) -> bool:
-        present = [port for port in ports if port_security_has_port(camera_data, port)]
+    def is_supported(self, camera_data: dict[str, Any]) -> bool:
+        """Return True if any of the toggle's ports exist on the device."""
+
+        return bool(self._present_ports(camera_data))
+
+    def current_value(self, camera_data: dict[str, Any]) -> bool:
+        """Return True if the toggle should be considered enabled."""
+
+        present = self._present_ports(camera_data)
         if not present:
             return False
+
+        if len(self.ports) == 1:
+            return bool(port_security_port_enabled(camera_data, self.ports[0]))
+
         return any(port_security_port_enabled(camera_data, port) for port in present)
 
-    return _value
+    def apply(self, client: EzvizClient, serial: str, enable: int) -> None:
+        """Persist the toggle state through the API."""
 
+        if len(self.ports) == 1:
+            _set_port_security_port(client, serial, self.ports[0], enable)
+            return
 
-def port_security_ports_method(
-    ports: tuple[int, ...],
-) -> Callable[[EzvizClient, str, int], None]:
-    """Return a setter that toggles all provided secure ports."""
-
-    def _method(client: EzvizClient, serial: str, enable: int) -> None:
-        _set_port_security_ports(client, serial, ports, enable)
-
-    return _method
+        _set_port_security_ports(client, serial, self.ports, enable)
 
 
 def intelligent_app_value_fn(app_name: str) -> Callable[[dict[str, Any]], bool]:
@@ -415,52 +503,42 @@ def intelligent_app_method(app_name: str) -> Callable[[EzvizClient, str, int], b
     return _method
 
 
+def _decode_mapping(value: Any) -> dict[str, Any] | None:
+    """Return a dict after best-effort JSON decoding."""
+
+    decoded = decode_json(value)
+    candidate = decoded if decoded is not None else value
+    return candidate if isinstance(candidate, dict) else None
+
+
+def _decode_list(value: Any) -> list[Any] | None:
+    """Return a list after best-effort JSON decoding."""
+
+    decoded = decode_json(value)
+    candidate = decoded if decoded is not None else value
+    return candidate if isinstance(candidate, list) else None
+
+
 def iter_intelligent_apps(camera_data: dict[str, Any]) -> Iterator[tuple[str, bool]]:
     """Yield (app_name, enabled) pairs for intelligent apps."""
 
-    intelligent_app = None
-    feature = camera_data.get("FEATURE_INFO")
-    if isinstance(feature, dict):
-        for group in feature.values():
-            if not isinstance(group, dict):
-                continue
-            video_section = group.get("Video")
-            if isinstance(video_section, dict) and "IntelligentAPP" in video_section:
-                intelligent_app = video_section["IntelligentAPP"]
-                break
-            if "IntelligentAPP" in group:
-                intelligent_app = group["IntelligentAPP"]
-                break
+    intelligent_app = first_nested(
+        camera_data, ("FEATURE_INFO", WILDCARD_STEP, "Video", "IntelligentAPP")
+    )
+    if intelligent_app is None:
+        intelligent_app = first_nested(
+            camera_data, ("FEATURE_INFO", WILDCARD_STEP, "IntelligentAPP")
+        )
+    intelligent_app = _decode_mapping(intelligent_app)
     if intelligent_app is None:
         return
 
-    if isinstance(intelligent_app, str):
-        try:
-            intelligent_app = json.loads(intelligent_app)
-        except (TypeError, ValueError):
-            intelligent_app = {}
-
-    if not isinstance(intelligent_app, dict):
+    downloaded = _decode_mapping(intelligent_app.get("DownloadedAPP"))
+    if downloaded is None:
         return
 
-    downloaded = intelligent_app.get("DownloadedAPP")
-    if isinstance(downloaded, str):
-        try:
-            downloaded = json.loads(downloaded)
-        except (TypeError, ValueError):
-            downloaded = {}
-
-    if not isinstance(downloaded, dict):
-        return
-
-    apps = downloaded.get("APP", [])
-    if isinstance(apps, str):
-        try:
-            apps = json.loads(apps)
-        except (TypeError, ValueError):
-            apps = []
-
-    if not isinstance(apps, list):
+    apps = _decode_list(downloaded.get("APP", []))
+    if apps is None:
         return
 
     for app in apps:

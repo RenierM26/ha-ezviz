@@ -31,7 +31,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import device_model, passes_description_gates
+from .utility import passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -148,7 +148,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["3"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
-        is_supported_fn=lambda data: device_model(data) == "C3A"
+        is_supported_fn=lambda data: data.get("device_sub_category") == "C3A"
         and has_algorithm_subtype(data, "0", 1),
     ),
     EzvizNumberEntityDescription(
@@ -195,7 +195,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=20,
         native_max_value=100,
         native_step=1,
-        supported_ext_key=str(SupportExt.SupportNightVisionMode.value),
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
         get_value=lambda data: float(night_vision_luminance_value(data)),
         set_value=_night_vision_luminance_setter(),
     ),

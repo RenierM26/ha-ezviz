@@ -33,8 +33,10 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .utility import (
     has_lens_defog,
+    linked_tracking_takeover_enabled,
     passes_description_gates,
     set_lens_defog_option,
+    set_linked_tracking_takeover,
     support_ext_has,
 )
 
@@ -301,6 +303,30 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         value,
         _camera_data: ezviz_client.set_night_vision_mode(serial, value),
         is_supported_fn=lambda data: bool(night_vision_config(data)),
+    ),
+    EzvizSelectEntityDescription(
+        key="ptz_linked_tracking_range",
+        translation_key="ptz_linked_tracking_range",
+        entity_category=EntityCategory.CONFIG,
+        options=[
+            "ptz_tracking_range_wide",
+            "ptz_tracking_range_full_priority",
+        ],
+        supported_ext_key="715",
+        supported_ext_value=["1"],
+        option_range=[0, 1],
+        get_current_option=lambda data: 1
+        if linked_tracking_takeover_enabled(data)
+        else 0,
+        set_current_option=lambda ezviz_client,
+        serial,
+        value,
+        camera_data: set_linked_tracking_takeover(
+            ezviz_client,
+            serial,
+            bool(value),
+            camera_data,
+        ),
     ),
     EzvizSelectEntityDescription(
         key="day_night_mode",

@@ -8,6 +8,7 @@ from http import HTTPStatus
 import logging
 
 from aiohttp import ClientError, ClientTimeout, web
+from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
@@ -115,7 +116,7 @@ class ImageProxyView(HomeAssistantView):
                 _LOGGER.debug("Decrypt failed: %s", err)
                 return web.Response(text=str(err), status=HTTPStatus.BAD_REQUEST)
         # If no key is set and the payload looks encrypted, warn once per request
-        elif body[:16] == b"hikencodepicture":
+        elif body[: len(HIK_ENCRYPTION_HEADER)] == HIK_ENCRYPTION_HEADER:
             _LOGGER.warning(
                 "Image appears encrypted but no encryption key is set for camera %s",
                 serial,
