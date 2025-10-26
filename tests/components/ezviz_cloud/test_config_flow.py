@@ -34,6 +34,7 @@ from config.custom_components.ezviz_cloud.const import (
 )
 from pyezvizapi.exceptions import EzvizAuthVerificationCode
 import pytest
+from tests.common import MockConfigEntry
 
 from homeassistant import loader
 from homeassistant.config_entries import SOURCE_USER
@@ -47,15 +48,13 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from tests.common import MockConfigEntry
-
 pytestmark = pytest.mark.parametrize(
     "ignore_translations_for_mock_domains", ["ezviz_cloud"]
 )
 
 
 @pytest.fixture(autouse=True)
-def mock_setup_entry() -> Generator[AsyncMock, None, None]:
+def mock_setup_entry() -> Generator[AsyncMock]:
     """Stop Home Assistant from setting up the integration during the flow."""
     with patch(
         "config.custom_components.ezviz_cloud.async_setup_entry",
@@ -83,7 +82,7 @@ def register_ezviz_cloud_integration(hass: HomeAssistant) -> None:
 
 
 @pytest.fixture(autouse=True)
-def mock_config_entries_setup(hass: HomeAssistant) -> Generator[AsyncMock, None, None]:
+def mock_config_entries_setup(hass: HomeAssistant) -> Generator[AsyncMock]:
     """Prevent ConfigEntries from trying to load the real integration."""
     with patch.object(
         hass.config_entries,
@@ -94,7 +93,7 @@ def mock_config_entries_setup(hass: HomeAssistant) -> Generator[AsyncMock, None,
 
 
 @pytest.fixture
-def mock_ezviz_client() -> Generator[MagicMock, None, None]:
+def mock_ezviz_client() -> Generator[MagicMock]:
     """Patch the EzvizClient used by the config flow."""
     with patch(
         "config.custom_components.ezviz_cloud.config_flow.EzvizClient",
