@@ -1,14 +1,35 @@
 name: Validate with hassfest
 
 on:
-  push:
   pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "custom_components/**"
+      - "hacs.json"
+      - "manifest.json"
+      - ".github/workflows/hassfest.yaml"
+      - "!**/*.md"
+      - "!docs/**"
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
-    runs-on: "ubuntu-latest"
+  hassfest:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
     steps:
-      - uses: "actions/checkout@v5"
-      - uses: home-assistant/actions/hassfest@master
+      - uses: actions/checkout@v5
+      - name: Run hassfest
+        uses: home-assistant/actions/hassfest@master
