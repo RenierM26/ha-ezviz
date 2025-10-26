@@ -30,19 +30,17 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
+    PortSecurityToggle,
     intelligent_app_available,
     intelligent_app_method,
     intelligent_app_value_fn,
     passes_description_gates,
-    port_security_available_fn,
-    port_security_method,
-    port_security_ports_available_fn,
-    port_security_ports_method,
-    port_security_ports_value_fn,
-    port_security_value_fn,
 )
 
 PARALLEL_UPDATES = 1
+
+PORT_SECURITY_CLIENT_MODE = PortSecurityToggle((80, 443, 8000))
+PORT_SECURITY_LINK = PortSecurityToggle.single(50161)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -428,18 +426,18 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         key="port_security_client_mode",
         translation_key="port_security_client_mode",
         device_class=SwitchDeviceClass.SWITCH,
-        is_supported_fn=port_security_ports_available_fn((80, 443, 8000)),
-        value_fn=port_security_ports_value_fn((80, 443, 8000)),
-        method=port_security_ports_method((80, 443, 8000)),
+        is_supported_fn=PORT_SECURITY_CLIENT_MODE.is_supported,
+        value_fn=PORT_SECURITY_CLIENT_MODE.current_value,
+        method=PORT_SECURITY_CLIENT_MODE.apply,
     ),
     EzvizSwitchEntityDescription(
         key="port_security_50161",
         translation_key="port_security_50161",
         device_class=SwitchDeviceClass.SWITCH,
         # EZVIZ Cloud only accepts port-security writes for the Link service on 50161.
-        is_supported_fn=port_security_available_fn(50161),
-        value_fn=port_security_value_fn(50161),
-        method=port_security_method(50161),
+        is_supported_fn=PORT_SECURITY_LINK.is_supported,
+        value_fn=PORT_SECURITY_LINK.current_value,
+        method=PORT_SECURITY_LINK.apply,
     ),
 )
 

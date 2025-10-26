@@ -12,6 +12,7 @@ from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 from pyezvizapi.feature import (
+    custom_voice_volume_config,
     get_algorithm_value,
     has_algorithm_subtype,
     night_vision_duration_value,
@@ -31,7 +32,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import device_model, passes_description_gates
+from .utility import passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -100,7 +101,7 @@ def _night_vision_luminance_setter() -> Callable[
         payload = night_vision_payload(
             camera_data,
             mode=night_vision_mode_value(camera_data),
-            luminance=int(round(value)),
+            luminance=round(value),
         )
         client.set_dev_config_kv(
             serial,
@@ -124,12 +125,50 @@ def _night_vision_duration_setter() -> Callable[
         payload = night_vision_payload(
             camera_data,
             mode=night_vision_mode_value(camera_data),
-            duration=int(round(value)),
+            duration=round(value),
         )
         client.set_dev_config_kv(
             serial,
             resolve_channel(camera_data),
             "NightVision_Model",
+            payload,
+        )
+
+    return _setter
+
+
+def _microphone_volume_getter(camera_data: dict[str, Any]) -> float | None:
+    config = custom_voice_volume_config(camera_data)
+    if not config:
+        return None
+    value = config.get("microphone_volume")
+    return float(value) if isinstance(value, int) else None
+
+
+def _microphone_volume_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        config = custom_voice_volume_config(camera_data) or {}
+        speaker_volume = config.get("volume", 100)
+
+        def _clamp(val: int) -> int:
+            return max(0, min(100, val))
+
+        payload = {
+            "volume": _clamp(int(speaker_volume)),
+            "microphone_volume": _clamp(round(value)),
+        }
+
+        return client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "CustomVoice_Volume",
             payload,
         )
 
@@ -148,7 +187,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["3"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
-        is_supported_fn=lambda data: device_model(data) == "C3A"
+        is_supported_fn=lambda data: data.get("device_sub_category") == "C3A"
         and has_algorithm_subtype(data, "0", 1),
     ),
     EzvizNumberEntityDescription(
@@ -195,7 +234,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_min_value=20,
         native_max_value=100,
         native_step=1,
-        supported_ext_key=str(SupportExt.SupportNightVisionMode.value),
+        supported_ext_key=str(SupportExt.SupportSmartNightVision.value),
         get_value=lambda data: float(night_vision_luminance_value(data)),
         set_value=_night_vision_luminance_setter(),
     ),
@@ -211,6 +250,17 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["1"],
         get_value=lambda data: float(night_vision_duration_value(data)),
         set_value=_night_vision_duration_setter(),
+    ),
+    EzvizNumberEntityDescription(
+        key="microphone_volume",
+        translation_key="microphone_volume",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        supported_ext_key=str(SupportExt.SupportAudioOnoff.value),
+        get_value=_microphone_volume_getter,
+        set_value=_microphone_volume_setter(),
     ),
 )
 

@@ -142,7 +142,7 @@ class EzvizMediaSource(MediaSource):
                 identifier=f"CAM|{entry_id}|{serial}|{limit}",
                 media_class=MediaClass.DIRECTORY,
                 media_content_type=MediaType.PLAYLIST,
-                title=f"{serial} – recent alarms (unavailable)",
+                title=f"{serial} - recent alarms (unavailable)",
                 can_play=False,
                 can_expand=False,
                 children=[],
@@ -164,7 +164,7 @@ class EzvizMediaSource(MediaSource):
             identifier=f"CAM|{entry_id}|{serial}|{limit}",
             media_class=MediaClass.DIRECTORY,
             media_content_type=MediaType.PLAYLIST,
-            title=f"{cam_name} – last {limit} alarms",
+            title=f"{cam_name} - last {limit} alarms",
             can_play=False,
             can_expand=True,
             children=children,
@@ -189,7 +189,7 @@ class EzvizMediaSource(MediaSource):
         self, entry_id: str, alarm: dict, serial_to_name: dict[str, str] | None = None
     ) -> BrowseMediaSource | None:
         """Convert an alarm dictionary to an image-only BrowseMediaSource item."""
-        # Build a friendly title: <time> – <camera> – <event>
+        # Build a friendly title: <time> - <camera> - <event>
         cam_serial = alarm.get("deviceSerial")
         cam_name = None
         if serial_to_name and cam_serial in serial_to_name:
@@ -198,9 +198,9 @@ class EzvizMediaSource(MediaSource):
 
         event = alarm.get("sampleName") or alarm.get("alarmTypeName") or "Alarm"
         tstamp = alarm.get("alarmStartTimeStr") or alarm.get("alarmTimeStr")
-        title = f"{cam_name} – {event}"
+        title = f"{cam_name} - {event}"
         if tstamp:
-            title = f"{tstamp} – {title}"
+            title = f"{tstamp} - {title}"
 
         # Only use the primary picture url so users see images first
         pic = alarm.get("picUrl")

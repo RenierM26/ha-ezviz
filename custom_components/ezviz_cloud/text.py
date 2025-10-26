@@ -76,7 +76,7 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_{ENC_KEY_TEXT.key}"
         self.entity_description = ENC_KEY_TEXT
-        self._attr_native_value = None
+        self._attr_native_value: str | None = None
         self.current_enc_key_hash: str | None = None
         self.mfa_enabled: bool = True
         self._entry = entry

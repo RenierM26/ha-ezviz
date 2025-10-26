@@ -1,17 +1,39 @@
 name: HACS Action
 
 on:
-  push:
   pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "custom_components/**"
+      - "hacs.json"
+      - "manifest.json"
+      - ".github/workflows/hacs.yaml"
+      - "!**/*.md"
+      - "!docs/**"
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   hacs:
-    name: HACS Action
-    runs-on: "ubuntu-latest"
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
     steps:
-      - name: HACS Action
-        uses: "hacs/action@main"
+      - uses: actions/checkout@v5
+      - name: HACS validation
+        uses: hacs/action@main
         with:
-          category: "integration"
+          category: integration
+          # Optional: restrict to your integration path (faster)
+          ignore: brands

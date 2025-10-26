@@ -21,6 +21,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.config_entries import (
+    HANDLERS,
     ConfigEntry,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -144,9 +145,7 @@ def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
 def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
     """Heuristic: most battery categories lack RTSP; some do support it though."""
     cat = cam_info["device_category"]
-    if DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value in cat:
-        return False
-    return True
+    return DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value not in cat
 
 
 # -----------------------------------------------------------------------------
@@ -154,7 +153,7 @@ def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
 # -----------------------------------------------------------------------------
 
 
-class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class EzvizConfigFlow(config_entries.ConfigFlow):
     """Handle the cloud account config flow for EZVIZ."""
 
     VERSION = VERSION
@@ -807,3 +806,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         data.pop("cloud_account_username")
 
         return data
+
+
+# Register flow handler for this custom domain (avoids mypy complaints about __init_subclass__)
+HANDLERS.register(DOMAIN)(EzvizConfigFlow)

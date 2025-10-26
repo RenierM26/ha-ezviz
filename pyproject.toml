@@ -1,23 +1,42 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-select = ["E","F","I","UP","B","SIM","PL","RUF"]
-ignore = ["E501"]                 # HA allows long lines for URLs, etc.
-src = ["custom_components", "tests"]
+src = ["custom_components"]
 
+[tool.ruff.lint]
+select = ["E","F","I","UP","B","SIM","PL","RUF"]
+ignore = ["E501"]  # HA allows long URLs etc.
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests", "config"]
+known-third-party = ["aiohttp", "pytest", "voluptuous", "yarl", "pyezvizapi"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+# Optionally relax PLR2004 for strings/ints in integrations:
+[tool.ruff.lint.pylint]
+allow-magic-value-types = ["int", "str", "bytes"]
+max-args = 8        # instead of 5
+max-returns = 10    # instead of 6
+
+# mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]
 python_version = "3.12"
+files = ["custom_components"]
 ignore_missing_imports = true
 strict_optional = true
 warn_unused_ignores = true
-files = ["custom_components"]
+warn_redundant_casts = true
+warn_no_return = true
+no_implicit_optional = true
+check_untyped_defs = true
 
+# Put pytest settings here so it won’t try to collect inside custom_components
 [tool.pytest.ini_options]
+minversion = "7.0"
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 addopts = "-q"
-
-[tool.coverage.run]
-source = ["custom_components/ezviz_cloud"]
