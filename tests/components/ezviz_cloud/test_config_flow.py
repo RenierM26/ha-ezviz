@@ -10,6 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from pyezvizapi.exceptions import EzvizAuthVerificationCode
+import pytest
+
 from config.custom_components.ezviz_cloud import config_flow
 from config.custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
@@ -32,9 +35,6 @@ from config.custom_components.ezviz_cloud.const import (
     REGION_EU,
     REGION_URLS,
 )
-from pyezvizapi.exceptions import EzvizAuthVerificationCode
-import pytest
-
 from homeassistant import loader
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import (
@@ -46,7 +46,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-
 from tests.common import MockConfigEntry
 
 pytestmark = pytest.mark.parametrize(
