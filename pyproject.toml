@@ -8,7 +8,7 @@ select = ["E","F","I","UP","B","SIM","PL","RUF"]
 ignore = ["E501"]  # HA allows long URLs etc.
 
 [tool.ruff.lint.isort]
-known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests"]
+known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests", "config"]
 known-third-party = ["aiohttp", "pytest", "voluptuous", "yarl", "pyezvizapi"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 combine-as-imports = true
