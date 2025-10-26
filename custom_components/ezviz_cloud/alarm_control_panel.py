@@ -56,8 +56,9 @@ async def async_setup_entry(
         DATA_COORDINATOR
     ]
 
+    identifier = entry.unique_id or entry.entry_id
     device_info = DeviceInfo(
-        identifiers={(DOMAIN, entry.unique_id)},  # type: ignore[arg-type]
+        identifiers={(DOMAIN, identifier)},
         name="EZVIZ Alarm",
         model="EZVIZ Alarm",
         manufacturer=MANUFACTURER,

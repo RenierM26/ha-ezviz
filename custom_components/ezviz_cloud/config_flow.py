@@ -21,6 +21,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.config_entries import (
+    HANDLERS,
     ConfigEntry,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -152,7 +153,7 @@ def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
 # -----------------------------------------------------------------------------
 
 
-class EzvizConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class EzvizConfigFlow(config_entries.ConfigFlow):
     """Handle the cloud account config flow for EZVIZ."""
 
     VERSION = VERSION
@@ -805,3 +806,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         data.pop("cloud_account_username")
 
         return data
+
+
+# Register flow handler for this custom domain (avoids mypy complaints about __init_subclass__)
+HANDLERS.register(DOMAIN)(EzvizConfigFlow)
