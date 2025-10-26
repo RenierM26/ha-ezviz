@@ -17,6 +17,8 @@ force-sort-within-sections = true
 # Optionally relax PLR2004 for strings/ints in integrations:
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["int", "str", "bytes"]
+max-args = 8        # instead of 5
+max-returns = 10    # instead of 6
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -39,7 +39,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
 
     # Getters from coordinator data:
     # - is_on_value: return a truthy/falsey value indicating on/off (or None if unknown)
-    # - brightness_value: return an int percent (0–100) or None if not available
+    # - brightness_value: return an int percent (0-100) or None if not available
     is_on_value: Callable[[dict[str, Any]], Any]
     brightness_value: Callable[[dict[str, Any]], int | None]
 
@@ -49,7 +49,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     # Actions (plug different APIs here per light type)
     power_on: Callable[[EzvizClient, str], Any]
     power_off: Callable[[EzvizClient, str], Any]
-    # set_brightness expects percent (0–100). If None, entity won’t attempt to set brightness.
+    # set_brightness expects percent (0-100). If None, entity won't attempt to set brightness.
     set_brightness: Callable[[EzvizClient, str, int], Any] | None = None
 
     # Capability gating via camera_data["supportExt"]
@@ -125,7 +125,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+    _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
 
     def __init__(
@@ -138,6 +138,7 @@ class EzvizLight(EzvizEntity, LightEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
+        self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
         self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
         percent = self.entity_description.brightness_value(self.data)
         self._attr_brightness = (
@@ -153,7 +154,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on light (optionally set brightness first)."""
         try:
-            # If brightness provided, set luminance first (1–255 -> 0–100 %)
+            # If brightness provided, set luminance first (1-255 -> 0-100 %)
             if (
                 ATTR_BRIGHTNESS in kwargs
                 and self.entity_description.set_brightness is not None

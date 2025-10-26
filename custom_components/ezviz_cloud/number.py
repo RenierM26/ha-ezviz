@@ -101,7 +101,7 @@ def _night_vision_luminance_setter() -> Callable[
         payload = night_vision_payload(
             camera_data,
             mode=night_vision_mode_value(camera_data),
-            luminance=int(round(value)),
+            luminance=round(value),
         )
         client.set_dev_config_kv(
             serial,
@@ -125,7 +125,7 @@ def _night_vision_duration_setter() -> Callable[
         payload = night_vision_payload(
             camera_data,
             mode=night_vision_mode_value(camera_data),
-            duration=int(round(value)),
+            duration=round(value),
         )
         client.set_dev_config_kv(
             serial,
@@ -162,7 +162,7 @@ def _microphone_volume_setter() -> Callable[
 
         payload = {
             "volume": _clamp(int(speaker_volume)),
-            "microphone_volume": _clamp(int(round(value))),
+            "microphone_volume": _clamp(round(value)),
         }
 
         return client.set_dev_config_kv(

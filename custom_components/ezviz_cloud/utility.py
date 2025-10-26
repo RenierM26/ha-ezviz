@@ -265,8 +265,8 @@ def passes_description_gates(
         if category not in required_device_categories:
             return False
 
-    if predicate is not None and not predicate(camera_data):
-        return False
+    if predicate is not None:
+        return bool(predicate(camera_data))
 
     return True
 
@@ -563,7 +563,6 @@ def intelligent_app_enabled(camera_data: dict[str, Any], app_name: str) -> bool:
 def intelligent_app_available(camera_data: dict[str, Any], app_name: str) -> bool:
     """Return True if the intelligent app is present in the payload."""
 
-    for name, _enabled in iter_intelligent_apps(camera_data) or []:
-        if name == app_name:
-            return True
-    return False
+    return any(
+        name == app_name for name, _enabled in iter_intelligent_apps(camera_data) or []
+    )

@@ -144,9 +144,7 @@ def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
 def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
     """Heuristic: most battery categories lack RTSP; some do support it though."""
     cat = cam_info["device_category"]
-    if DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value in cat:
-        return False
-    return True
+    return DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value not in cat
 
 
 # -----------------------------------------------------------------------------
