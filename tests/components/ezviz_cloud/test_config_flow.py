@@ -34,7 +34,6 @@ from config.custom_components.ezviz_cloud.const import (
 )
 from pyezvizapi.exceptions import EzvizAuthVerificationCode
 import pytest
-from tests.common import MockConfigEntry
 
 from homeassistant import loader
 from homeassistant.config_entries import SOURCE_USER
@@ -47,6 +46,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+
+from tests.common import MockConfigEntry
 
 pytestmark = pytest.mark.parametrize(
     "ignore_translations_for_mock_domains", ["ezviz_cloud"]
