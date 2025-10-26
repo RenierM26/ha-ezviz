@@ -12,6 +12,7 @@ from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 from pyezvizapi.feature import (
+    custom_voice_volume_config,
     get_algorithm_value,
     has_algorithm_subtype,
     night_vision_duration_value,
@@ -136,6 +137,44 @@ def _night_vision_duration_setter() -> Callable[
     return _setter
 
 
+def _microphone_volume_getter(camera_data: dict[str, Any]) -> float | None:
+    config = custom_voice_volume_config(camera_data)
+    if not config:
+        return None
+    value = config.get("microphone_volume")
+    return float(value) if isinstance(value, int) else None
+
+
+def _microphone_volume_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        config = custom_voice_volume_config(camera_data) or {}
+        speaker_volume = config.get("volume", 100)
+
+        def _clamp(val: int) -> int:
+            return max(0, min(100, val))
+
+        payload = {
+            "volume": _clamp(int(speaker_volume)),
+            "microphone_volume": _clamp(int(round(value))),
+        }
+
+        return client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "CustomVoice_Volume",
+            payload,
+        )
+
+    return _setter
+
+
 STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
     EzvizNumberEntityDescription(
         key="detection_sensibility",
@@ -211,6 +250,17 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["1"],
         get_value=lambda data: float(night_vision_duration_value(data)),
         set_value=_night_vision_duration_setter(),
+    ),
+    EzvizNumberEntityDescription(
+        key="microphone_volume",
+        translation_key="microphone_volume",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        supported_ext_key=str(SupportExt.SupportAudioOnoff.value),
+        get_value=_microphone_volume_getter,
+        set_value=_microphone_volume_setter(),
     ),
 )
 

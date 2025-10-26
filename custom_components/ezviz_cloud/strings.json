@@ -317,6 +317,9 @@
       },
       "night_vision_duration": {
         "name": "Night vision duration"
+      },
+      "microphone_volume": {
+        "name": "Microphone volume"
       }
     },
     "sensor": {

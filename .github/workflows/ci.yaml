@@ -1,16 +1,68 @@
+# .github/workflows/ci.yaml
 name: CI
+
 on:
-  push:
   pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, ready_for_review ]
+    paths:
+      - "custom_components/**"
+      - "pyproject.toml"
+      - ".ruff.toml"
+      - ".github/workflows/**"
+      - "!**/*.md"
+      - "!docs/**"
+  push:
+    branches: [ main ]         # run after merge
+    tags: [ "v*" ]             # run on releases
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+# Kill older runs for the same ref (stops “double running” on rapid pushes)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-python@v6
-        with: { python-version: "3.12" }
-      - run: python -m pip install -U pip wheel
-      - run: pip install homeassistant ruff mypy pytest
-      - run: ruff check .
-      - run: mypy
-      - run: pytest
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Upgrade pip
+        run: python -m pip install -U pip wheel
+
+      - name: Install tooling + deps
+        run: |
+          pip install ruff mypy pytest types-requests
+          pip install pyezvizapi  # your runtime dep
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: mypy
+        run: mypy --install-types --non-interactive .
+
+      - name: pytest (only if tests exist)
+        shell: bash
+        run: |
+          if compgen -G "tests/test_*.py" > /dev/null; then
+            pytest -q
+          else
+            echo "No tests found under tests/, skipping pytest."
+          fi
