@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from pyezvizapi.constants import DeviceCatagories
 from pyezvizapi.feature import (
     lens_defog_config,
     normalize_port_security,
@@ -19,6 +20,16 @@ if TYPE_CHECKING:
 
 
 from pyezvizapi.utils import WILDCARD_STEP, decode_json, first_nested, iter_nested
+
+CAMERA_DEVICE_CATEGORIES: tuple[str, ...] = (
+    DeviceCatagories.COMMON_DEVICE_CATEGORY.value,
+    DeviceCatagories.CAMERA_DEVICE_CATEGORY.value,
+    DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value,
+    DeviceCatagories.DOORBELL_DEVICE_CATEGORY.value,
+    DeviceCatagories.BASE_STATION_DEVICE_CATEGORY.value,
+    DeviceCatagories.CAT_EYE_CATEGORY.value,
+    DeviceCatagories.W2H_BASE_STATION_DEVICE_CATEGORY.value,
+)
 
 
 def coerce_int(value: Any) -> int | None:
@@ -49,6 +60,15 @@ def coerce_bool(value: Any) -> bool | None:
         if lowered in {"0", "false", "no", "off"}:
             return False
     return None
+
+
+def is_camera_device(camera_data: Mapping[str, Any]) -> bool:
+    """Return True if the payload represents a camera-like device."""
+
+    category = camera_data.get("device_category")
+    if not isinstance(category, str):
+        return False
+    return category in CAMERA_DEVICE_CATEGORIES
 
 
 def _wifi_section(camera_data: dict[str, Any]) -> dict[str, Any] | None:

@@ -291,6 +291,9 @@
     "light": {
       "light": {
         "name": "[%key:component::light::title%]"
+      },
+      "light_bulb": {
+        "name": "Light bulb"
       }
     },
     "number": {
