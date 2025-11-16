@@ -16,6 +16,7 @@ from homeassistant.components.media_source import (
 from homeassistant.core import HomeAssistant
 
 from .const import DATA_COORDINATOR, DOMAIN
+from .utility import is_camera_device
 from .views import async_generate_image_proxy_url
 
 ALL_CAMERAS_ID = "ALL"
@@ -94,6 +95,8 @@ class EzvizMediaSource(MediaSource):
             # Per-camera entries from coordinator data
             coordinator = data[DATA_COORDINATOR]
             for serial, cam in (coordinator.data or {}).items():
+                if not is_camera_device(cam):
+                    continue
                 title = cam.get("name") or serial
                 # Use proxied thumbnail to support decryption like camera views
                 last_pic = cam.get("last_alarm_pic")
