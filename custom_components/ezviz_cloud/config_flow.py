@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import DeviceCatagories
@@ -779,13 +779,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             )
             # Attach whatever data we have so far for prefill
             device_error = DeviceException(f"EZVIZ Device error: {err}")
-            setattr(device_error, "data", data)
+            cast(Any, device_error).data = data
             raise device_error from err
 
         except AuthTestResultFailed as err:
             _LOGGER.warning("RTSP auth failed for camera %s", data.get(ATTR_SERIAL))
             auth_error = AuthTestResultFailed("RTSP DESCRIBE auth test failed")
-            setattr(auth_error, "data", data)
+            cast(Any, auth_error).data = data
             raise auth_error from err
 
         except PyEzvizError as err:
@@ -795,7 +795,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             api_error = PyEzvizError(
                 f"EZVIZ API error, could be account permission for retrieving key: {err}"
             )
-            setattr(api_error, "data", data)
+            cast(Any, api_error).data = data
             raise api_error from err
 
         # Remove ephemeral values before returning
