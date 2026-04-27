@@ -13,7 +13,7 @@ from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.components.text import DOMAIN as TEXT_PLATFORM
+from homeassistant.components.text import DOMAIN as TEXT_DOMAIN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -68,7 +68,7 @@ class ImageProxyView(HomeAssistantView):
         enc_key: str | None = None
         entity_reg = er.async_get(self.hass)
         text_entity_id = entity_reg.async_get_entity_id(
-            TEXT_PLATFORM, DOMAIN, f"{serial}_camera_enc_key"
+            TEXT_DOMAIN, DOMAIN, f"{serial}_camera_enc_key"
         )
         if text_entity_id:
             state = self.hass.states.get(text_entity_id)
