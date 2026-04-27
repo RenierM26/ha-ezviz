@@ -44,6 +44,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .utility import is_camera_device
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +62,9 @@ async def async_setup_entry(
     cams_opts: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 
     entities: list[EzvizCamera] = []
-    for serial in coordinator.data:
+    for serial, camera_data in coordinator.data.items():
+        if not is_camera_device(camera_data):
+            continue
         per_cam: dict[str, Any] = cams_opts.get(serial, {})
 
         username: str = per_cam.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME)

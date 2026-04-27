@@ -65,6 +65,7 @@ from .const import (
     REGION_URLS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
+from .utility import is_camera_device
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def _resolve_api_host(region: str, custom_url: str | None) -> str:
 
 
 def _get_cam_verification_code(
-    data: dict, ezviz_client: EzvizClient, verification_code: str | None = None
+    data: dict, ezviz_client: EzvizClient, verification_code: int | None = None
 ) -> Any:
     """Fetch camera verification/sticker code. May require one-time 2FA."""
     try:
@@ -115,7 +116,7 @@ def _get_cam_verification_code(
 
 
 def _get_cam_enc_key(
-    data: dict, ezviz_client: EzvizClient, enc_2fa_code: str | None = None
+    data: dict, ezviz_client: EzvizClient, enc_2fa_code: int | None = None
 ) -> Any:
     """Fetch camera encryption key. May require one-time 2FA."""
     return ezviz_client.get_cam_key(
@@ -470,7 +471,11 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         coordinator.data is a mapping: serial -> { name, ip, device_category, ... }
         """
-        cameras = self.coordinator.data
+        cameras = {
+            serial: info
+            for serial, info in (self.coordinator.data or {}).items()
+            if is_camera_device(info)
+        }
         if not cameras:
             return self.async_abort(reason="no_cameras")
 

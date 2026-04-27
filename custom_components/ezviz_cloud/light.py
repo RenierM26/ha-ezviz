@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from pyezvizapi import EzvizClient
-from pyezvizapi.constants import DeviceSwitchType, SupportExt
+from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.light import (
@@ -28,7 +28,7 @@ from homeassistant.util.percentage import (
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
-from .utility import passes_description_gates
+from .utility import CAMERA_DEVICE_CATEGORIES, coerce_int, passes_description_gates
 
 PARALLEL_UPDATES = 1
 
@@ -86,13 +86,25 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
         brightness_range=(1, 255),
         supported_ext_key=str(SupportExt.SupportAlarmLight.value),
         supported_ext_value=["1"],
-        power_on=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 1
+        required_device_categories=CAMERA_DEVICE_CATEGORIES,
+        power_on=lambda client, serial: client.switch_light_status(serial, 1),
+        power_off=lambda client, serial: client.switch_light_status(serial, 0),
+        set_brightness=lambda client, serial, percent: client.set_brightness(
+            serial, percent
         ),
-        power_off=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 0
-        ),
-        set_brightness=lambda client, serial, percent: client.set_floodlight_brightness(
+    ),
+    EzvizLightEntityDescription(
+        key="light_bulb",
+        translation_key="light_bulb",
+        is_on_value=lambda d: d.get("is_on")
+        if d.get("device_category") == DeviceCatagories.LIGHTING.value
+        else (d.get("switches") or {}).get(DeviceSwitchType.ALARM_LIGHT.value),
+        brightness_value=lambda d: d.get("alarm_light_luminance"),
+        supported_ext_key=None,
+        required_device_categories=(DeviceCatagories.LIGHTING.value,),
+        power_on=lambda client, serial: client.switch_light_status(serial, 1),
+        power_off=lambda client, serial: client.switch_light_status(serial, 0),
+        set_brightness=lambda client, serial, percent: client.set_brightness(
             serial, percent
         ),
     ),
@@ -140,14 +152,14 @@ class EzvizLight(EzvizEntity, LightEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
         self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
-        percent = self.entity_description.brightness_value(self.data)
+        percent = coerce_int(self.entity_description.brightness_value(self.data))
         self._attr_brightness = (
             round(
                 percentage_to_ranged_value(
                     self.entity_description.brightness_range, percent
                 )
             )
-            if isinstance(percent, int)
+            if percent is not None
             else None
         )
 
@@ -207,14 +219,14 @@ class EzvizLight(EzvizEntity, LightEntity):
         """Handle updated data from the coordinator."""
         self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
 
-        percent = self.entity_description.brightness_value(self.data)
+        percent = coerce_int(self.entity_description.brightness_value(self.data))
         self._attr_brightness = (
             round(
                 percentage_to_ranged_value(
                     self.entity_description.brightness_range, percent
                 )
             )
-            if isinstance(percent, int)
+            if percent is not None
             else None
         )
 

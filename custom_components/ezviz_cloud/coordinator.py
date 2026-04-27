@@ -40,7 +40,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             async with asyncio.timeout(self._api_timeout):
                 return await self.hass.async_add_executor_job(
-                    self.ezviz_client.load_cameras
+                    self.ezviz_client.load_devices
                 )
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
