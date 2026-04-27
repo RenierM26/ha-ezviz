@@ -331,9 +331,6 @@ def has_lens_defog(camera_data: dict[str, Any]) -> bool:
     """Return True when this camera exposes a usable lens-defog configuration."""
 
     config = lens_defog_config(camera_data)
-    if not isinstance(config, dict):
-        return False
-
     mode = config.get("defogMode")
     return isinstance(mode, str) and bool(mode.strip())
 

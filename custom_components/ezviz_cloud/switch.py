@@ -305,7 +305,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="wifi_status_light",
         device_class=SwitchDeviceClass.SWITCH,
         required_device_categories=(
-            DeviceCatagories.W2H_BASE_STATION_DEVICE_CATEGORY.value
+            DeviceCatagories.W2H_BASE_STATION_DEVICE_CATEGORY.value,
         ),
         value_fn=_switch_entry_value_fn(DeviceSwitchType.WIFI_LIGHT),
         method=_switch_entry_method(DeviceSwitchType.WIFI_LIGHT),

@@ -13,7 +13,7 @@ from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
-from homeassistant.components.text import DOMAIN as TEXT_PLATFORM
+from homeassistant.components.text import DOMAIN as TEXT_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
@@ -113,7 +113,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
 
         entity_registry = er.async_get(self.hass)
         self.cam_key_entity_id = entity_registry.async_get_entity_id(
-            TEXT_PLATFORM, DOMAIN, f"{self._serial}_camera_enc_key"
+            TEXT_DOMAIN, DOMAIN, f"{self._serial}_camera_enc_key"
         )
 
     @cached_property
