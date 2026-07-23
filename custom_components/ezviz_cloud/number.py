@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+import json
 import logging
 from typing import Any
 
@@ -22,7 +23,6 @@ from pyezvizapi.feature import (
     optionals_mapping,
     resolve_channel,
 )
-from pyezvizapi.models import EzvizChimeMusic
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -147,15 +147,22 @@ def _microphone_volume_getter(camera_data: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, int) else None
 
 
-def _alarm_volume_config(camera_data: dict[str, Any]) -> EzvizChimeMusic | None:
+def _alarm_volume_config(camera_data: dict[str, Any]) -> dict[str, Any] | None:
     """Return the alarm chime configuration when the device reports it."""
-    return EzvizChimeMusic.from_api(optionals_mapping(camera_data).get("ChimeMusic"))
+    config = optionals_mapping(camera_data).get("ChimeMusic")
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            return None
+    return dict(config) if isinstance(config, Mapping) else None
 
 
 def _alarm_volume_getter(camera_data: dict[str, Any]) -> float | None:
     """Return the configured alarm chime volume."""
     config = _alarm_volume_config(camera_data)
-    return float(config.volume) if config and isinstance(config.volume, int) else None
+    value = config.get("volume") if config else None
+    return float(value) if isinstance(value, int) else None
 
 
 def _alarm_volume_setter() -> Callable[
@@ -171,7 +178,7 @@ def _alarm_volume_setter() -> Callable[
         if config is None:
             raise PyEzvizError("Camera does not report an alarm chime configuration")
 
-        payload = dict(config.raw)
+        payload = dict(config)
         payload["volume"] = max(0, min(100, round(value)))
         return client.set_dev_config_kv(
             serial,
