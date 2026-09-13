@@ -307,17 +307,23 @@ def test_failed_cleanup_retains_client_and_prevents_replacement(integration):
 
 
 @pytest.mark.parametrize("storage_failure", [False, True])
-def test_fatal_worker_errors_stop_without_retry_or_blocking_polling(integration, monkeypatch, storage_failure):
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+def test_fatal_worker_errors_stop_without_retry_or_blocking_polling(
+    integration, monkeypatch, storage_failure, cleanup_failure
+):
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
         error = EzvizTokenPersistenceError() if storage_failure else EzvizPushFatalError()
         mqtt.raise_if_failed.side_effect = error
+        if cleanup_failure:
+            mqtt.stop.side_effect = [TimeoutError(), None]
+        monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
         issue = MagicMock()
         monkeypatch.setattr(integration.mqtt.ir, "async_create_issue", issue)
         handler.async_start()
         await asyncio.wait_for(handler._task, 1)
         mqtt.connect.assert_called_once()
-        mqtt.stop.assert_called_once()
+        assert mqtt.stop.call_count == (2 if cleanup_failure else 1)
         if storage_failure:
             issue.assert_called_once()
             handler._config_entry.async_start_reauth.assert_not_called()

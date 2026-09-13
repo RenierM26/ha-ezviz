@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 PUSH_RETRY_SECONDS = 300
 PUSH_STOP_TIMEOUT_SECONDS = 5
 PUSH_HEALTH_SECONDS = 5
+PUSH_CLEANUP_RETRY_SECONDS = 1
 
 
 class EzvizMqttHandler:
@@ -69,12 +70,12 @@ class EzvizMqttHandler:
                     translation_key="push_storage",
                 )
                 _LOGGER.error("EZVIZ push stopped because credential storage failed")
-                await self._hass.async_add_executor_job(self.stop)
+                await self._async_cleanup()
                 return
             except (EzvizAuthTokenExpired, EzvizPushFatalError):
                 _LOGGER.warning("EZVIZ push requires reauthentication; polling continues")
                 self._config_entry.async_start_reauth(self._hass)
-                await self._hass.async_add_executor_job(self.stop)
+                await self._async_cleanup()
                 return
             except Exception as err:  # Push is optional, including SDK failures.
                 if not failed:
@@ -119,8 +120,12 @@ class EzvizMqttHandler:
         if self._task is not None:
             # A timeout must not cancel the executor operation or race its cleanup.
             await asyncio.shield(self._task)
+        await self._async_cleanup()
+
+    async def _async_cleanup(self) -> None:
+        """Keep ownership and retry cleanup after fatal errors or unload."""
         while not await self._hass.async_add_executor_job(self.stop):
-            await asyncio.sleep(1)
+            await asyncio.sleep(PUSH_CLEANUP_RETRY_SECONDS)
 
     def start(self) -> None:
         """Start MQTT listener (executor only)."""
