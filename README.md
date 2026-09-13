@@ -30,6 +30,15 @@ This integration logs into **EZVIZ Cloud**, subscribes to **MQTT** events, and l
 
 ---
 
+## Push service outages
+
+MQTT push starts in the background after entities load. If push registration or
+connection fails (for example, EZVIZ returns HTTP 503), the integration continues
+its normal 30-second cloud polling and retries push startup every five minutes.
+Real-time `ezviz_push_event` events are unavailable until push recovers; polling
+does not replace every push-only event. Cloud login and the initial camera fetch
+must still succeed. Push shutdown errors do not prevent unloading the integration.
+
 ## Configure per-camera options
 
 Open **Settings → Devices & Services → Ezviz(Beta) → Configure**, then select a camera to **Edit**.

@@ -1,5 +1,7 @@
 """EZVIZ MQTT Handler."""
 
+import asyncio
+import contextlib
 import logging
 
 from pyezvizapi.client import EzvizClient
@@ -13,6 +15,8 @@ from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+PUSH_RETRY_SECONDS = 300
+
 
 class EzvizMqttHandler:
     """Wrapper for MQTT client to forward Ezviz push events into HA."""
@@ -23,21 +27,70 @@ class EzvizMqttHandler:
         """Initialize EZVIZ MQTT handler."""
         self._entry = entry_id
         self._hass = hass
-        self._mqtt: MQTTClient = client.get_mqtt_client(
-            on_message_callback=self._on_message
+        self._client = client
+        self._mqtt: MQTTClient | None = None
+        self._task: asyncio.Task | None = None
+        self._stopping = asyncio.Event()
+
+    def async_start(self) -> None:
+        """Start optional push in the background without delaying entity setup."""
+        if self._task is not None or self._stopping.is_set():
+            return
+        self._coordinator = self._hass.data[DOMAIN][self._entry][DATA_COORDINATOR]
+        self._task = self._hass.async_create_background_task(
+            self._async_connect(), "EZVIZ push startup"
         )
 
+    async def _async_connect(self) -> None:
+        """Retry push startup independently of the polling coordinator."""
+        failed = False
+        while not self._stopping.is_set():
+            try:
+                await self._hass.async_add_executor_job(self.start)
+            except Exception as err:  # Push is optional, including SDK failures.
+                if not failed:
+                    _LOGGER.warning(
+                        "EZVIZ push unavailable (%s); continuing with polling. "
+                        "Retrying in %s seconds",
+                        type(err).__name__,
+                        PUSH_RETRY_SECONDS,
+                    )
+                else:
+                    _LOGGER.debug("EZVIZ push retry failed (%s)", type(err).__name__)
+                failed = True
+                # Also release any partially connected Paho client before retrying.
+                await self._hass.async_add_executor_job(self.stop)
+            else:
+                if failed and not self._stopping.is_set():
+                    _LOGGER.info("EZVIZ push connection restored")
+                return
+
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), PUSH_RETRY_SECONDS)
+
+    async def async_stop(self) -> None:
+        """Stop retries, wait for any in-flight connect, then disconnect."""
+        self._stopping.set()
+        if self._task is not None:
+            # Cancelling the task cannot cancel a requests/Paho executor job.
+            # Wait for it instead, so it cannot connect after we disconnect.
+            await asyncio.shield(self._task)
+        await self._hass.async_add_executor_job(self.stop)
+
     def start(self) -> None:
-        """Start MQTT listener."""
+        """Start MQTT listener (executor only)."""
+        self._mqtt = self._client.get_mqtt_client(on_message_callback=self._on_message)
         self._mqtt.connect()
-        self._coordinator: EzvizDataUpdateCoordinator = self._hass.data[DOMAIN][
-            self._entry
-        ][DATA_COORDINATOR]
         _LOGGER.debug("EZVIZ MQTT started")
 
     def stop(self) -> None:
-        """Stop MQTT listener."""
-        self._mqtt.stop()
+        """Best-effort cleanup; a push outage must not prevent entry unload."""
+        if self._mqtt is None:
+            return
+        try:
+            self._mqtt.stop()
+        except Exception as err:
+            _LOGGER.debug("EZVIZ push cleanup failed (%s)", type(err).__name__)
         _LOGGER.debug("EZVIZ MQTT stopped")
 
     def _on_message(self, event: dict) -> None:
@@ -45,6 +98,8 @@ class EzvizMqttHandler:
 
         def _handle() -> None:
             """Handle incoming MQTT push message."""
+            if self._stopping.is_set():
+                return
             serial = event["ext"]["device_serial"]
             ha_device_id = None
 
