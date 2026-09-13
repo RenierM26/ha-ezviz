@@ -7,6 +7,7 @@ on:
     types: [ opened, synchronize, reopened, ready_for_review ]
     paths:
       - "custom_components/**"
+      - "tests/**"
       - "pyproject.toml"
       - ".ruff.toml"
       - ".github/workflows/**"
@@ -62,7 +63,9 @@ jobs:
         shell: bash
         run: |
           if compgen -G "tests/test_*.py" > /dev/null; then
-            pytest -q
+            # Nested tests/components requires a Home Assistant core checkout.
+            # This standalone job installs only the SDK and test tooling.
+            pytest -q tests/test_*.py
           else
             echo "No tests found under tests/, skipping pytest."
           fi
