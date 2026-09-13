@@ -89,11 +89,14 @@ class EzvizMqttHandler:
         if self._task is not None:
             # A timeout must not cancel the executor operation or race its cleanup.
             await asyncio.shield(self._task)
-        await self._hass.async_add_executor_job(self.stop)
+        while not await self._hass.async_add_executor_job(self.stop):
+            await asyncio.sleep(PUSH_RETRY_SECONDS)
 
     def start(self) -> None:
         """Start MQTT listener (executor only)."""
         try:
+            if self._mqtt is not None and not self.stop():
+                raise RuntimeError("Previous EZVIZ push client cleanup is still pending")
             self._mqtt = self._client.get_mqtt_client(on_message_callback=self._on_message)
             self._mqtt.connect()
             _LOGGER.debug("EZVIZ MQTT started")
@@ -103,16 +106,19 @@ class EzvizMqttHandler:
             if self._stopping.is_set():
                 self.stop()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         """Best-effort cleanup; a push outage must not prevent entry unload."""
-        mqtt, self._mqtt = self._mqtt, None
+        mqtt = self._mqtt
         if mqtt is None:
-            return
+            return True
         try:
             mqtt.stop()
         except Exception as err:
             _LOGGER.debug("EZVIZ push cleanup failed (%s)", type(err).__name__)
+            return False
+        self._mqtt = None
         _LOGGER.debug("EZVIZ MQTT stopped")
+        return True
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""

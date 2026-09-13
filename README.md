@@ -40,6 +40,8 @@ does not replace every push-only event. Cloud login and the initial camera fetch
 must still succeed. Push shutdown errors do not prevent unloading the integration.
 Unloading waits at most five seconds for push cleanup; if an SDK call is still
 pending, cleanup continues in the background when that call returns.
+Failed cleanup retains the client and retries every five minutes; a replacement
+push client is not created until the previous client has stopped successfully.
 
 ## Configure per-camera options
 

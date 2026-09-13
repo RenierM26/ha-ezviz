@@ -68,12 +68,12 @@ def test_failure_and_cleanup_error_do_not_escape_and_retry_recovers(integration,
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
         mqtt.connect.side_effect = [error, None]
-        mqtt.stop.side_effect = HTTPError()
+        mqtt.stop.side_effect = [HTTPError(), None, None]
         monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.001)
         handler.async_start()
         await asyncio.wait_for(handler._task, 1)
         assert mqtt.connect.call_count == 2
-        assert mqtt.stop.call_count == 1
+        assert mqtt.stop.call_count == 2
         await handler.async_stop()
 
     asyncio.run(scenario())
@@ -188,9 +188,11 @@ def test_client_creation_failure_is_optional(integration):
     asyncio.run(scenario())
 
 
-def test_unload_platforms_even_when_push_stop_fails(integration):
+def test_unload_platforms_even_when_push_stop_fails(integration, monkeypatch):
     async def scenario():
         handler, mqtt, hass = make_handler(integration)
+        monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
+        monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.02)
         hass.data["domain"]["entry"]["mqtt_handler"] = handler
         hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
         entry = SimpleNamespace(entry_id="entry")
@@ -200,6 +202,10 @@ def test_unload_platforms_even_when_push_stop_fails(integration):
         assert await integration.setup.async_unload_entry(hass, entry)
         hass.config_entries.async_unload_platforms.assert_awaited_once()
         assert "entry" not in hass.data["domain"]
+        assert handler._mqtt is mqtt
+        mqtt.stop.side_effect = None
+        await asyncio.wait_for(handler._stop_task, 1)
+        assert handler._mqtt is None
 
     asyncio.run(scenario())
 
@@ -265,3 +271,29 @@ def test_shutdown_is_bounded_and_worker_eventually_cleans_up(
         mqtt.connect.assert_called_once()
 
     asyncio.run(scenario())
+
+
+def test_failed_cleanup_retains_client_and_prevents_replacement(integration):
+    """Repeated failed cleanup must not accumulate untracked Paho clients."""
+    handler, mqtt, _ = make_handler(integration)
+    mqtt.connect.side_effect = HTTPError()
+    mqtt.stop.side_effect = HTTPError()
+    with pytest.raises(HTTPError):
+        handler.start()
+    for _ in range(3):
+        assert not handler.stop()
+        assert handler._mqtt is mqtt
+        with pytest.raises(RuntimeError, match="cleanup is still pending"):
+            handler.start()
+    handler._client.get_mqtt_client.assert_called_once()
+    mqtt.connect.assert_called_once()
+
+    replacement = MagicMock()
+    handler._client.get_mqtt_client.return_value = replacement
+    mqtt.stop.side_effect = None
+    handler.start()
+    assert handler._mqtt is replacement
+    replacement.connect.assert_called_once()
+    assert handler.stop()
+    assert handler._mqtt is None
+    replacement.stop.assert_called_once()
