@@ -158,3 +158,17 @@ async def test_malformed_saved_token_cannot_fall_back_to_new_registration(tmp_pa
     await persistence.store.async_save({"unexpected": "data"})
     with pytest.raises(OSError, match="malformed"):
         await persistence.async_load()
+
+
+@pytest.mark.asyncio
+async def test_corrupt_json_stays_fail_closed_across_repeated_setup(tmp_path):
+    hass = HomeAssistant(str(tmp_path))
+    entry: Any = SimpleNamespace(entry_id="entry", data={CONF_TOKEN: credentials()})
+    persistence = EzvizTokenStore(hass, entry)
+    await persistence.async_save(credentials())
+    path = tmp_path / ".storage/ezviz_cloud.entry.token"
+    path.write_text("invalid json")
+    for _ in range(2):
+        with pytest.raises(OSError, match="decoded"):
+            await EzvizTokenStore(hass, entry).async_load()
+        assert path.exists()

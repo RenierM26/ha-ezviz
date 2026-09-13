@@ -7,7 +7,9 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
+from homeassistant.util.json import load_json
 
 from .const import CONF_TOKEN, DOMAIN
 
@@ -50,6 +52,14 @@ class EzvizTokenStore:
         """Prefer rotating state only if it belongs to the current login."""
         async with self.lock:
             existed = await self.hass.async_add_executor_job(os.path.exists, self.store.path)
+            # HA Store normally renames corrupt JSON and returns an empty state.
+            # Preflight this owned token file so corruption stays fail-closed on
+            # subsequent setup retries too, rather than creating another device.
+            if existed:
+                try:
+                    await self.hass.async_add_executor_job(load_json, self.store.path)
+                except HomeAssistantError as error:
+                    raise OSError("EZVIZ token storage could not be decoded") from error
             saved = await self.store.async_load()
             if saved is None:
                 if existed:
