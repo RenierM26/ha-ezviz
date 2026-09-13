@@ -84,7 +84,9 @@ class EzvizTokenStore:
                 raise OSError("EZVIZ token storage is malformed")
             if saved["seed"] == self.seed:
                 return deepcopy(_validate_token(saved["token"]))
-            return deepcopy(self.entry.data[CONF_TOKEN])
+            replacement = deepcopy(self.entry.data[CONF_TOKEN])
+            await self.store.async_save({"seed": self.seed, "token": replacement})
+            return replacement
 
     async def async_save(self, snapshot: dict[str, Any]) -> None:
         """Serialize saves across reloads, rejecting superseded login state."""

@@ -68,6 +68,10 @@ async def test_reauth_rejects_old_saves_and_ignores_old_login_cache(tmp_path):
     with pytest.raises(RuntimeError, match="login changed"):
         await old.async_save(credentials())
     assert (await new.async_load())["session_id"] == "reauthenticated"
+    path = tmp_path / ".storage/ezviz_cloud.entry.token"
+    stored = json.loads(path.read_text())["data"]
+    assert stored["seed"] == "reauthenticated"
+    assert stored["token"] == entry.data[CONF_TOKEN]
 
 
 @pytest.mark.asyncio
