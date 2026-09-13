@@ -12,10 +12,12 @@ pytest.importorskip("homeassistant")
 
 from pyezvizapi.exceptions import EzvizAuthVerificationCode
 
+import custom_components.ezviz_cloud as integration
 from custom_components.ezviz_cloud import config_flow
 from custom_components.ezviz_cloud.const import CONF_TOKEN
 from custom_components.ezviz_cloud.token_store import EzvizTokenStore
 from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util.file import WriteError
 
 
@@ -202,3 +204,17 @@ async def test_removal_waits_for_write_and_late_callback_cannot_recreate_file(tm
         await asyncio.to_thread(persistence.save, credentials())
     assert not path.exists()
     await EzvizTokenStore.async_remove(hass, entry.entry_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["session_id", "rf_session_id", "api_url", "username", "user_id", "feature_code", "push_profile"])
+async def test_incomplete_initial_token_requests_reauth_before_sdk_construction(tmp_path, monkeypatch, field):
+    hass = HomeAssistant(str(tmp_path))
+    token = credentials()
+    token.pop(field)
+    entry: Any = SimpleNamespace(entry_id="entry", data={"type": "EZVIZ_CLOUD_ACCOUNT", CONF_TOKEN: token}, options={})
+    client = Mock()
+    monkeypatch.setattr(integration, "EzvizClient", client)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await integration.async_setup_entry(hass, entry)
+    client.assert_not_called()

@@ -82,9 +82,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryAuthFailed("Sign in again to migrate EZVIZ push credentials")
 
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
-    token_store = EzvizTokenStore(hass, entry)
     client = None
     try:
+        token_store = EzvizTokenStore(hass, entry)
         token = await token_store.async_load()
         client = EzvizClient(
             token=token, timeout=timeout, on_token_updated=token_store.save

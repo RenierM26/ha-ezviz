@@ -5,6 +5,8 @@ from copy import deepcopy
 import os
 from typing import Any
 
+from pyezvizapi.exceptions import EzvizAuthTokenExpired
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -12,6 +14,16 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util.json import load_json
 
 from .const import CONF_TOKEN, DOMAIN
+
+
+def _validate_token(token: Any) -> dict[str, Any]:
+    """Reject incomplete credential snapshots before storage or network access."""
+    required = ("session_id", "rf_session_id", "api_url", "username", "user_id", "feature_code")
+    if (not isinstance(token, dict)
+            or any(not isinstance(token.get(key), str) or not token[key] for key in required)
+            or token.get("push_profile") != "android-channel99"):
+        raise EzvizAuthTokenExpired("EZVIZ credentials are incomplete; sign in again")
+    return token
 
 
 class DurableTokenStore(Store[dict[str, Any]]):
@@ -41,7 +53,7 @@ class EzvizTokenStore:
         """Bind persistence to one credential login, not an obsolete reauth worker."""
         self.hass = hass
         self.entry = entry
-        self.seed = entry.data[CONF_TOKEN]["session_id"]
+        self.seed = _validate_token(entry.data.get(CONF_TOKEN))["session_id"]
         self.store = DurableTokenStore(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.token", private=True, atomic_writes=True
         )
@@ -71,7 +83,7 @@ class EzvizTokenStore:
                     or not isinstance(saved.get("token"), dict)):
                 raise OSError("EZVIZ token storage is malformed")
             if saved["seed"] == self.seed:
-                return deepcopy(saved["token"])
+                return deepcopy(_validate_token(saved["token"]))
             return deepcopy(self.entry.data[CONF_TOKEN])
 
     async def async_save(self, snapshot: dict[str, Any]) -> None:
