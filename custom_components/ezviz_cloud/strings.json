@@ -318,6 +318,9 @@
       "night_vision_duration": {
         "name": "Night vision duration"
       },
+      "alarm_volume": {
+        "name": "Alarm volume"
+      },
       "microphone_volume": {
         "name": "Microphone volume"
       }

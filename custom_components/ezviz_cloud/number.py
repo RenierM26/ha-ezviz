@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+import json
 import logging
 from typing import Any
 
@@ -19,6 +20,7 @@ from pyezvizapi.feature import (
     night_vision_luminance_value,
     night_vision_mode_value,
     night_vision_payload,
+    optionals_mapping,
     resolve_channel,
 )
 
@@ -145,6 +147,49 @@ def _microphone_volume_getter(camera_data: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, int) else None
 
 
+def _alarm_volume_config(camera_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the alarm chime configuration when the device reports it."""
+    config = optionals_mapping(camera_data).get("ChimeMusic")
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            return None
+    return dict(config) if isinstance(config, Mapping) else None
+
+
+def _alarm_volume_getter(camera_data: dict[str, Any]) -> float | None:
+    """Return the configured alarm chime volume."""
+    config = _alarm_volume_config(camera_data)
+    value = config.get("volume") if config else None
+    return float(value) if isinstance(value, int) else None
+
+
+def _alarm_volume_setter() -> Callable[
+    [EzvizClient, str, float, dict[str, Any]], Any
+]:
+    def _setter(
+        client: EzvizClient,
+        serial: str,
+        value: float,
+        camera_data: dict[str, Any],
+    ) -> Any:
+        config = _alarm_volume_config(camera_data)
+        if config is None:
+            raise PyEzvizError("Camera does not report an alarm chime configuration")
+
+        payload = dict(config)
+        payload["volume"] = max(0, min(100, round(value)))
+        return client.set_dev_config_kv(
+            serial,
+            resolve_channel(camera_data),
+            "ChimeMusic",
+            payload,
+        )
+
+    return _setter
+
+
 def _microphone_volume_setter() -> Callable[
     [EzvizClient, str, float, dict[str, Any]], Any
 ]:
@@ -250,6 +295,17 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["1"],
         get_value=lambda data: float(night_vision_duration_value(data)),
         set_value=_night_vision_duration_setter(),
+    ),
+    EzvizNumberEntityDescription(
+        key="alarm_volume",
+        translation_key="alarm_volume",
+        entity_category=EntityCategory.CONFIG,
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
+        get_value=_alarm_volume_getter,
+        set_value=_alarm_volume_setter(),
+        is_supported_fn=lambda data: _alarm_volume_getter(data) is not None,
     ),
     EzvizNumberEntityDescription(
         key="microphone_volume",
