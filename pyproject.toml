@@ -22,7 +22,8 @@ max-returns = 10    # instead of 6
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
+explicit_package_bases = true
 files = ["custom_components"]
 ignore_missing_imports = true
 strict_optional = true

@@ -17,6 +17,8 @@ ATTR_SERIAL: Final = "serial"
 # Config flow / data keys
 # ---------------------------
 
+CONF_TOKEN: Final = "token"
+
 CONF_SESSION_ID: Final = "session_id"
 CONF_RF_SESSION_ID: Final = "rf_session_id"
 CONF_USER_ID: Final = "user_id"

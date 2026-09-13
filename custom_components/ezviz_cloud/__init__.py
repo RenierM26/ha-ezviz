@@ -19,23 +19,21 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
-    CONF_URL,
     CONF_USERNAME,
     EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
-    CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
-    CONF_SESSION_ID,
-    CONF_USER_ID,
+    CONF_TOKEN,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
@@ -47,6 +45,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
+from .token_store import EzvizTokenStore
 from .views import ImageProxyView
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,46 +77,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
         return True
 
-    # Require all token fields
-    required = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
-    if not all(k in entry.data for k in required):
-        raise ConfigEntryAuthFailed(
-            "Missing EZVIZ token fields; reauthenticate required"
-        )
+    # Web-profile tokens cannot be reused for the Android push profile.
+    if not isinstance(entry.data.get(CONF_TOKEN), dict):
+        raise ConfigEntryAuthFailed("Sign in again to migrate EZVIZ push credentials")
 
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
-
-    client = EzvizClient(
-        token={
-            CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
-            CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-            "api_url": entry.data[CONF_URL],
-            "username": entry.data[CONF_USER_ID],
-        },
-        timeout=timeout,
-    )
-
-    # Refresh/login to validate tokens (and maybe rotate)
+    token_store = EzvizTokenStore(hass, entry)
+    client = None
     try:
-        token = await hass.async_add_executor_job(client.login)
+        token = await token_store.async_load()
+        client = EzvizClient(
+            token=token, timeout=timeout, on_token_updated=token_store.save
+        )
+        await hass.async_add_executor_job(client.login)
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
+        if client is not None:
+            await hass.async_add_executor_job(client.close_session)
         raise ConfigEntryAuthFailed from err
-    except (InvalidURL, HTTPError, PyEzvizError) as err:
-        raise ConfigEntryNotReady(f"Unable to connect to Ezviz service: {err}") from err
-    except Exception as err:
+    except (InvalidURL, HTTPError, PyEzvizError, OSError) as err:
+        if client is not None:
+            await hass.async_add_executor_job(client.close_session)
         raise ConfigEntryNotReady(
-            f"Unexpected error logging in to Ezviz: {err}"
+            f"Unable to initialize EZVIZ ({type(err).__name__})"
         ) from err
 
-    # Persist rotated tokens if they changed
-    # EZVIZ seems to ignore rotation but this is future-proofing
-    updates: dict = {}
-    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
-        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
-    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
-        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
-    if updates:
-        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
+    ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
 
     # Coordinator
     coordinator = EzvizDataUpdateCoordinator(
@@ -128,7 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     # MQTT handler
-    mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
+    mqtt_handler = EzvizMqttHandler(hass, client, entry)
 
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_COORDINATOR: coordinator,
@@ -159,12 +143,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the EZVIZ cloud entry (stop MQTT first, then platforms)."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
-    if data and (mqtt := data.get(MQTT_HANDLER)):
-        await mqtt.async_stop()
+    if data and (mqtt := data.get(MQTT_HANDLER)) and not await mqtt.async_stop():
+        return False
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    if unload_ok:
+    if unload_ok and data:
+        await hass.async_add_executor_job(data[DATA_COORDINATOR].ezviz_client.close_session)
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     return unload_ok

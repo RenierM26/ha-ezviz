@@ -24,6 +24,7 @@ from config.custom_components.ezviz_cloud.const import (
     CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
+    CONF_TOKEN,
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_FETCH_MY_KEY,
@@ -100,10 +101,11 @@ def mock_ezviz_client() -> Generator[MagicMock]:
         autospec=True,
     ) as mock_client:
         instance = mock_client.return_value
-        instance.login.return_value = {
+        instance.enable_channel99.return_value = {
             CONF_SESSION_ID: "sess-token",
             CONF_RF_SESSION_ID: "rf-token",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         }
         yield mock_client
 
@@ -153,6 +155,7 @@ async def test_user_flow_success(hass: HomeAssistant, mock_ezviz_client: MagicMo
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "user@example.com"
     assert result["data"] == {
+        CONF_TOKEN: mock_ezviz_client.return_value.enable_channel99.return_value,
         CONF_TYPE: ATTR_TYPE_CLOUD,
         CONF_SESSION_ID: "sess-token",
         CONF_RF_SESSION_ID: "rf-token",
@@ -199,12 +202,13 @@ async def test_user_flow_with_mfa(
     hass: HomeAssistant, mock_ezviz_client: MagicMock
 ) -> None:
     """Verify we request SMS when Ezviz requires MFA."""
-    mock_ezviz_client.return_value.login.side_effect = [
+    mock_ezviz_client.return_value.enable_channel99.side_effect = [
         EzvizAuthVerificationCode(),
         {
             CONF_SESSION_ID: "sess-token",
             CONF_RF_SESSION_ID: "rf-token",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         },
     ]
 
@@ -240,10 +244,11 @@ async def test_reauth_flow_updates_tokens(
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
 
-    mock_ezviz_client.return_value.login.return_value = {
+    mock_ezviz_client.return_value.enable_channel99.return_value = {
         CONF_SESSION_ID: "new-session",
         CONF_RF_SESSION_ID: "new-rf-session",
         "username": "cloud-user-id",
+        "api_url": REGION_URLS[REGION_EU],
     }
 
     result = await entry.start_reauth_flow(hass)
@@ -275,12 +280,13 @@ async def test_reauth_flow_with_mfa(
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
 
-    mock_ezviz_client.return_value.login.side_effect = [
+    mock_ezviz_client.return_value.enable_channel99.side_effect = [
         EzvizAuthVerificationCode(),
         {
             CONF_SESSION_ID: "reauth-session",
             CONF_RF_SESSION_ID: "reauth-rf",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         },
     ]
 

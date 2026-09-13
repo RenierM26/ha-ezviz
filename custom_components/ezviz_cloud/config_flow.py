@@ -51,6 +51,7 @@ from .const import (
     CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
+    CONF_TOKEN,
     CONF_USER_ID,
     DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
@@ -74,6 +75,14 @@ VERSION = 4  # keep in sync with __init__.py TARGET_VERSION
 # -----------------------------------------------------------------------------
 # Low-level helpers (run in executor)
 # -----------------------------------------------------------------------------
+
+
+def _login_channel99(client: EzvizClient, sms_code: str | None = None) -> dict:
+    """Perform profile migration in an executor and release the HTTP connection."""
+    try:
+        return client.enable_channel99(int(sms_code) if sms_code is not None else None)
+    finally:
+        client.close_session()
 
 
 def _normalize_api_host(value: str) -> str:
@@ -210,7 +219,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                         timeout=timeout,
                     )
                     # First attempt without SMS -> returns a token dict on success
-                    token = await self.hass.async_add_executor_job(client.login)
+                    token = await self.hass.async_add_executor_job(_login_channel99, client)
 
                 except EzvizAuthVerificationCode:
                     # Stash pending values; request SMS code
@@ -229,14 +238,15 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 
                 else:
                     # Persist token fields, not the raw password.
-                    # Store the chosen API HOST (normalized), not whatever the token echoes.
+                    # Retain the server-selected API host and full Android-profile token.
                     return self.async_create_entry(
                         title=username,
                         data={
+                            CONF_TOKEN: token,
                             CONF_TYPE: ATTR_TYPE_CLOUD,
                             CONF_SESSION_ID: token[CONF_SESSION_ID],
                             CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                            CONF_URL: api_url,  # host only, normalized
+                            CONF_URL: token["api_url"],
                             CONF_USER_ID: token[
                                 "username"
                             ],  # ezviz internal user id (MQTT)
@@ -277,7 +287,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._pending_user_url,
                     timeout=self._pending_user_timeout,
                 )
-                token = await self.hass.async_add_executor_job(client.login, sms_code)
+                token = await self.hass.async_add_executor_job(_login_channel99, client, sms_code)
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"
@@ -290,10 +300,11 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 return self.async_create_entry(
                     title=self._pending_user_username,
                     data={
+                        CONF_TOKEN: token,
                         CONF_TYPE: ATTR_TYPE_CLOUD,
                         CONF_SESSION_ID: token[CONF_SESSION_ID],
                         CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                        CONF_URL: self._pending_user_url,  # keep the chosen/normalized host
+                        CONF_URL: token["api_url"],
                         CONF_USER_ID: token["username"],
                     },
                     options={
@@ -315,15 +326,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
         """Start reauthentication for the EZVIZ account."""
-        entry: ConfigEntry | None = None
-
-        for item in self._async_current_entries():
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                entry = await self.async_set_unique_id(item.unique_id)
-
-        if entry is None:
-            return self.async_abort(reason="unknown")
-
+        entry = self._get_reauth_entry()
+        await self.async_set_unique_id(entry.unique_id)
         self._reauth_entry = entry
         return await self.async_step_reauth_confirm()
 
@@ -337,7 +341,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             self._reauth_username = user_input[CONF_USERNAME]
             self._reauth_password = user_input[CONF_PASSWORD]
             self._reauth_url = self._reauth_entry.data[CONF_URL]
-            self._reauth_timeout = self._reauth_entry.options[CONF_TIMEOUT]
+            self._reauth_timeout = self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
             try:
                 client = EzvizClient(
@@ -346,7 +350,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
                 )
-                token = await self.hass.async_add_executor_job(client.login)
+                token = await self.hass.async_add_executor_job(_login_channel99, client)
 
             except EzvizAuthVerificationCode:
                 return await self.async_step_reauth_mfa()
@@ -357,9 +361,12 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 _LOGGER.exception("Unexpected error during reauth")
                 errors["base"] = "unknown"
             else:
-                # Update only the rotating token fields; URL & user id are stable.
+                # Replace the complete credential identity after explicit reauthentication.
                 new_data = {
                     **self._reauth_entry.data,
+                    CONF_TOKEN: token,
+                    CONF_URL: token["api_url"],
+                    CONF_USER_ID: token["username"],
                     CONF_SESSION_ID: token[CONF_SESSION_ID],
                     CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
                 }
@@ -394,7 +401,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     timeout=self._reauth_timeout,
                 )
                 token = await self.hass.async_add_executor_job(
-                    client.login, user_input["sms_code"]
+                    _login_channel99, client, user_input["sms_code"]
                 )
 
             except EzvizAuthVerificationCode:
@@ -407,6 +414,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             else:
                 new_data = {
                     **self._reauth_entry.data,
+                    CONF_TOKEN: token,
+                    CONF_URL: token["api_url"],
+                    CONF_USER_ID: token["username"],
                     CONF_SESSION_ID: token[CONF_SESSION_ID],
                     CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
                 }
