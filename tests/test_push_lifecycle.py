@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 from pathlib import Path
 import sys
+from threading import Event
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -199,5 +200,68 @@ def test_unload_platforms_even_when_push_stop_fails(integration):
         assert await integration.setup.async_unload_entry(hass, entry)
         hass.config_entries.async_unload_platforms.assert_awaited_once()
         assert "entry" not in hass.data["domain"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("stage", ["get_client", "connect", "stop"])
+@pytest.mark.parametrize("cancel_background", [False, True])
+def test_shutdown_is_bounded_and_worker_eventually_cleans_up(
+    integration, monkeypatch, stage, cancel_background
+):
+    """A real blocked executor must not hold unload or lose late cleanup."""
+    async def scenario():
+        handler, mqtt, hass = make_handler(integration)
+        entered, release, cleaned = Event(), Event(), Event()
+        hass.async_add_executor_job = asyncio.to_thread
+        monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
+
+        def stall():
+            entered.set()
+            assert release.wait(5), "test did not release SDK worker"
+
+        def get_client(**kwargs):
+            if stage == "get_client":
+                stall()
+            return mqtt
+
+        def connect():
+            if stage == "connect":
+                stall()
+
+        def stop():
+            if stage == "stop":
+                stall()
+            cleaned.set()
+
+        handler._client.get_mqtt_client.side_effect = get_client
+        mqtt.connect.side_effect = connect
+        mqtt.stop.side_effect = stop
+        hass.data["domain"]["entry"]["mqtt_handler"] = handler
+        hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
+        entry = SimpleNamespace(entry_id="entry")
+        handler.async_start()
+        try:
+            if stage == "stop":
+                await handler._task
+            else:
+                assert await asyncio.to_thread(entered.wait, 1)
+            assert await asyncio.wait_for(integration.setup.async_unload_entry(hass, entry), 1)
+            assert entered.is_set()
+            assert not cleaned.is_set()
+            assert not handler._stop_task.done()
+            hass.config_entries.async_unload_platforms.assert_awaited_once()
+            assert "entry" not in hass.data["domain"]
+            if cancel_background:
+                handler._stop_task.cancel()
+                handler._task.cancel()
+                await asyncio.gather(handler._stop_task, handler._task, return_exceptions=True)
+        finally:
+            release.set()
+        assert await asyncio.to_thread(cleaned.wait, 1)
+        if not cancel_background:
+            await asyncio.wait_for(handler._stop_task, 1)
+        mqtt.stop.assert_called_once()
+        mqtt.connect.assert_called_once()
 
     asyncio.run(scenario())

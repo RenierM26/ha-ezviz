@@ -38,6 +38,8 @@ its normal 30-second cloud polling and retries push startup every five minutes.
 Real-time `ezviz_push_event` events are unavailable until push recovers; polling
 does not replace every push-only event. Cloud login and the initial camera fetch
 must still succeed. Push shutdown errors do not prevent unloading the integration.
+Unloading waits at most five seconds for push cleanup; if an SDK call is still
+pending, cleanup continues in the background when that call returns.
 
 ## Configure per-camera options
 
@@ -149,4 +151,3 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 - Entity identifiers are preserved.
 
 ---
-

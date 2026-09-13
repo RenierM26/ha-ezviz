@@ -16,6 +16,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 PUSH_RETRY_SECONDS = 300
+PUSH_STOP_TIMEOUT_SECONDS = 5
 
 
 class EzvizMqttHandler:
@@ -30,6 +31,7 @@ class EzvizMqttHandler:
         self._client = client
         self._mqtt: MQTTClient | None = None
         self._task: asyncio.Task | None = None
+        self._stop_task: asyncio.Task | None = None
         self._stopping = asyncio.Event()
 
     def async_start(self) -> None:
@@ -69,26 +71,45 @@ class EzvizMqttHandler:
                 await asyncio.wait_for(self._stopping.wait(), PUSH_RETRY_SECONDS)
 
     async def async_stop(self) -> None:
-        """Stop retries, wait for any in-flight connect, then disconnect."""
+        """Stop retries and bound the caller's wait for SDK cleanup."""
         self._stopping.set()
+        if self._stop_task is None:
+            self._stop_task = self._hass.async_create_background_task(
+                self._async_finish_stop(), "EZVIZ push cleanup"
+            )
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            _LOGGER.debug("EZVIZ push cleanup still pending; continuing shutdown")
+
+    async def _async_finish_stop(self) -> None:
+        """Serialize cleanup after startup without blocking the unload caller."""
         if self._task is not None:
-            # Cancelling the task cannot cancel a requests/Paho executor job.
-            # Wait for it instead, so it cannot connect after we disconnect.
+            # A timeout must not cancel the executor operation or race its cleanup.
             await asyncio.shield(self._task)
         await self._hass.async_add_executor_job(self.stop)
 
     def start(self) -> None:
         """Start MQTT listener (executor only)."""
-        self._mqtt = self._client.get_mqtt_client(on_message_callback=self._on_message)
-        self._mqtt.connect()
-        _LOGGER.debug("EZVIZ MQTT started")
+        try:
+            self._mqtt = self._client.get_mqtt_client(on_message_callback=self._on_message)
+            self._mqtt.connect()
+            _LOGGER.debug("EZVIZ MQTT started")
+        finally:
+            # HA may cancel background tasks during shutdown, but cannot cancel
+            # this worker. Clean up here too when a stalled SDK call returns.
+            if self._stopping.is_set():
+                self.stop()
 
     def stop(self) -> None:
         """Best-effort cleanup; a push outage must not prevent entry unload."""
-        if self._mqtt is None:
+        mqtt, self._mqtt = self._mqtt, None
+        if mqtt is None:
             return
         try:
-            self._mqtt.stop()
+            mqtt.stop()
         except Exception as err:
             _LOGGER.debug("EZVIZ push cleanup failed (%s)", type(err).__name__)
         _LOGGER.debug("EZVIZ MQTT stopped")
