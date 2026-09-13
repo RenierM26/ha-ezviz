@@ -135,11 +135,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         MQTT_HANDLER: mqtt_handler,
     }
 
-    await hass.async_add_executor_job(mqtt_handler.start)
-
     # Clean shutdown on HA stop (stop MQTT first)
     async def _shutdown(_event: Any) -> None:
-        await hass.async_add_executor_job(mqtt_handler.stop)
+        await mqtt_handler.async_stop()
 
     remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
     entry.async_on_unload(remove_shutdown)
@@ -152,6 +150,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    mqtt_handler.async_start()
+
     return True
 
 
@@ -160,7 +160,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
     if data and (mqtt := data.get(MQTT_HANDLER)):
-        await hass.async_add_executor_job(mqtt.stop)
+        await mqtt.async_stop()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
