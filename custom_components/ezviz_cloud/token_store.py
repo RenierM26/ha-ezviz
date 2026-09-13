@@ -45,7 +45,9 @@ class EzvizTokenStore:
         self.store = DurableTokenStore(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.token", private=True, atomic_writes=True
         )
-        locks = hass.data.setdefault(DOMAIN, {}).setdefault("token_store_locks", {})
+        data = hass.data.setdefault(DOMAIN, {})
+        self.removed: set[str] = data.setdefault("removed_token_stores", set())
+        locks = data.setdefault("token_store_locks", {})
         self.lock: asyncio.Lock = locks.setdefault(entry.entry_id, asyncio.Lock())
 
     async def async_load(self) -> dict[str, Any]:
@@ -75,11 +77,24 @@ class EzvizTokenStore:
     async def async_save(self, snapshot: dict[str, Any]) -> None:
         """Serialize saves across reloads, rejecting superseded login state."""
         async with self.lock:
+            if self.entry.entry_id in self.removed:
+                raise RuntimeError("EZVIZ entry was removed; refusing credential save")
             if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
                 raise RuntimeError("EZVIZ login changed during token persistence")
             await self.store.async_save({"seed": self.seed, "token": snapshot})
             if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
                 raise RuntimeError("EZVIZ login changed during token persistence")
+
+    @staticmethod
+    async def async_remove(hass: HomeAssistant, entry_id: str) -> None:
+        """Delete credentials after in-flight saves, blocking late recreation."""
+        data = hass.data.setdefault(DOMAIN, {})
+        lock = data.setdefault("token_store_locks", {}).setdefault(entry_id, asyncio.Lock())
+        async with lock:
+            data.setdefault("removed_token_stores", set()).add(entry_id)
+            await DurableTokenStore(
+                hass, 1, f"{DOMAIN}.{entry_id}.token", private=True, atomic_writes=True
+            ).async_remove()
 
     def save(self, snapshot: dict[str, Any]) -> None:
         """SDK worker callback; never call from the Home Assistant event loop."""

@@ -155,6 +155,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove this account's durable credentials and repair issue."""
+    await EzvizTokenStore.async_remove(hass, entry.entry_id)
+    ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate old config entry to the current version."""
     if entry.version >= TARGET_VERSION:

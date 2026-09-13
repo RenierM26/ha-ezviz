@@ -172,3 +172,33 @@ async def test_corrupt_json_stays_fail_closed_across_repeated_setup(tmp_path):
         with pytest.raises(OSError, match="decoded"):
             await EzvizTokenStore(hass, entry).async_load()
         assert path.exists()
+
+
+@pytest.mark.asyncio
+async def test_removal_waits_for_write_and_late_callback_cannot_recreate_file(tmp_path, monkeypatch):
+    hass = HomeAssistant(str(tmp_path))
+    entry: Any = SimpleNamespace(entry_id="entry", data={CONF_TOKEN: credentials()})
+    persistence = EzvizTokenStore(hass, entry)
+    entered, release = asyncio.Event(), asyncio.Event()
+    write = persistence.store._async_write_data
+
+    async def blocked_write(data):
+        entered.set()
+        await release.wait()
+        await write(data)
+
+    monkeypatch.setattr(persistence.store, "_async_write_data", blocked_write)
+    saving = asyncio.create_task(persistence.async_save(credentials()))
+    await entered.wait()
+    removing = asyncio.create_task(EzvizTokenStore.async_remove(hass, entry.entry_id))
+    await asyncio.sleep(0)
+    assert not removing.done()
+    release.set()
+    await saving
+    await removing
+    path = tmp_path / ".storage/ezviz_cloud.entry.token"
+    assert not path.exists()
+    with pytest.raises(RuntimeError, match="removed"):
+        await asyncio.to_thread(persistence.save, credentials())
+    assert not path.exists()
+    await EzvizTokenStore.async_remove(hass, entry.entry_id)
