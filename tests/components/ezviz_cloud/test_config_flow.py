@@ -24,8 +24,8 @@ from config.custom_components.ezviz_cloud.const import (
     CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
+    CONF_TOKEN,
     CONF_USER_ID,
-    DATA_COORDINATOR,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
@@ -35,6 +35,7 @@ from config.custom_components.ezviz_cloud.const import (
     REGION_EU,
     REGION_URLS,
 )
+from config.custom_components.ezviz_cloud.runtime import EzvizRuntimeData
 from homeassistant import loader
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import (
@@ -100,10 +101,11 @@ def mock_ezviz_client() -> Generator[MagicMock]:
         autospec=True,
     ) as mock_client:
         instance = mock_client.return_value
-        instance.login.return_value = {
+        instance.enable_channel99.return_value = {
             CONF_SESSION_ID: "sess-token",
             CONF_RF_SESSION_ID: "rf-token",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         }
         yield mock_client
 
@@ -125,10 +127,13 @@ def _mock_cloud_entry() -> MockConfigEntry:
     )
 
 
-def _attach_coordinator(hass: HomeAssistant, entry: MockConfigEntry, cameras: dict) -> SimpleNamespace:
+def _attach_coordinator(entry: MockConfigEntry, cameras: dict) -> SimpleNamespace:
     """Attach a fake coordinator for the options flow."""
     coordinator = SimpleNamespace(data=cameras, ezviz_client=MagicMock())
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {DATA_COORDINATOR: coordinator}
+    entry.runtime_data = EzvizRuntimeData(
+        client=coordinator.ezviz_client, coordinator=coordinator,
+        push=MagicMock(), token_store=MagicMock(),
+    )
     return coordinator
 
 
@@ -153,6 +158,7 @@ async def test_user_flow_success(hass: HomeAssistant, mock_ezviz_client: MagicMo
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "user@example.com"
     assert result["data"] == {
+        CONF_TOKEN: mock_ezviz_client.return_value.enable_channel99.return_value,
         CONF_TYPE: ATTR_TYPE_CLOUD,
         CONF_SESSION_ID: "sess-token",
         CONF_RF_SESSION_ID: "rf-token",
@@ -199,12 +205,13 @@ async def test_user_flow_with_mfa(
     hass: HomeAssistant, mock_ezviz_client: MagicMock
 ) -> None:
     """Verify we request SMS when Ezviz requires MFA."""
-    mock_ezviz_client.return_value.login.side_effect = [
+    mock_ezviz_client.return_value.enable_channel99.side_effect = [
         EzvizAuthVerificationCode(),
         {
             CONF_SESSION_ID: "sess-token",
             CONF_RF_SESSION_ID: "rf-token",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         },
     ]
 
@@ -240,10 +247,11 @@ async def test_reauth_flow_updates_tokens(
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
 
-    mock_ezviz_client.return_value.login.return_value = {
+    mock_ezviz_client.return_value.enable_channel99.return_value = {
         CONF_SESSION_ID: "new-session",
         CONF_RF_SESSION_ID: "new-rf-session",
         "username": "cloud-user-id",
+        "api_url": REGION_URLS[REGION_EU],
     }
 
     result = await entry.start_reauth_flow(hass)
@@ -275,12 +283,13 @@ async def test_reauth_flow_with_mfa(
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
 
-    mock_ezviz_client.return_value.login.side_effect = [
+    mock_ezviz_client.return_value.enable_channel99.side_effect = [
         EzvizAuthVerificationCode(),
         {
             CONF_SESSION_ID: "reauth-session",
             CONF_RF_SESSION_ID: "reauth-rf",
             "username": "cloud-user-id",
+            "api_url": REGION_URLS[REGION_EU],
         },
     ]
 
@@ -311,7 +320,7 @@ async def test_options_flow_cloud_updates_timeout(hass: HomeAssistant) -> None:
     """Options flow should allow tweaking the global timeout."""
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
-    _attach_coordinator(hass, entry, cameras={})
+    _attach_coordinator(entry, cameras={})
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU
@@ -335,7 +344,7 @@ async def test_options_flow_camera_select_no_devices(hass: HomeAssistant) -> Non
     """Abort camera selection when no coordinator data is available."""
     entry = _mock_cloud_entry()
     entry.add_to_hass(hass)
-    _attach_coordinator(hass, entry, cameras={})
+    _attach_coordinator(entry, cameras={})
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
@@ -357,7 +366,7 @@ async def test_options_flow_camera_edit_writes_credentials(hass: HomeAssistant) 
             "device_category": "IPC",
         }
     }
-    _attach_coordinator(hass, entry, cameras=cameras)
+    _attach_coordinator(entry, cameras=cameras)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
@@ -418,7 +427,7 @@ async def test_options_flow_camera_edit_requires_2fa(hass: HomeAssistant) -> Non
             "device_category": "IPC",
         }
     }
-    _attach_coordinator(hass, entry, cameras=cameras)
+    _attach_coordinator(entry, cameras=cameras)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(

@@ -8,7 +8,7 @@ from threading import Event
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from pyezvizapi.exceptions import HTTPError
+from pyezvizapi.exceptions import EzvizPushFatalError, EzvizTokenPersistenceError, HTTPError
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "ezviz_cloud"
@@ -23,13 +23,13 @@ def integration(monkeypatch):
     for name in (
         "homeassistant", "homeassistant.config_entries", "homeassistant.const",
         "homeassistant.core", "homeassistant.exceptions", "homeassistant.helpers",
-        "push_test.const", "push_test.coordinator", "push_test.views",
+        "push_test.const", "push_test.coordinator", "push_test.views", "push_test.token_store",
     ):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     constants = sys.modules["push_test.const"]
     for name in (
         "DOMAIN", "DATA_COORDINATOR", "MQTT_HANDLER", "ATTR_TYPE_CLOUD",
-        "CONF_SESSION_ID", "CONF_RF_SESSION_ID", "CONF_USER_ID",
+        "CONF_SESSION_ID", "CONF_RF_SESSION_ID", "CONF_USER_ID", "CONF_TOKEN",
     ):
         setattr(constants, name, name.lower())
     for name in ("CONF_TYPE", "CONF_URL", "CONF_TIMEOUT"):
@@ -59,27 +59,33 @@ def make_handler(integration):
         data={"domain": {"entry": {"data_coordinator": MagicMock()}}},
         async_add_executor_job=executor,
         async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name: asyncio.create_task(coro),
     )
-    return integration.mqtt.EzvizMqttHandler(hass, client, "entry"), mqtt, hass
+    entry = SimpleNamespace(entry_id="entry", async_start_reauth=MagicMock(),
+        async_create_background_task=lambda _hass, coro, _name: asyncio.create_task(coro))
+    coordinator = hass.data["domain"]["entry"]["data_coordinator"]
+    handler = integration.mqtt.EzvizMqttHandler(hass, client, entry, coordinator)
+    entry.runtime_data = SimpleNamespace(push=handler, client=client, coordinator=coordinator)
+    return handler, mqtt, hass
 
 
 @pytest.mark.parametrize("error", [HTTPError(), OSError(), TimeoutError(), ValueError()])
-def test_failure_and_cleanup_error_do_not_escape_and_retry_recovers(integration, monkeypatch, error):
+def test_start_failure_is_optional_and_does_not_retry(integration, monkeypatch, error):
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
-        mqtt.connect.side_effect = [error, None]
-        mqtt.stop.side_effect = [HTTPError(), None, None]
-        monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.001)
+        mqtt.connect.side_effect = error
+        mqtt.stop.side_effect = [HTTPError(), None]
+        monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
         handler.async_start()
         await asyncio.wait_for(handler._task, 1)
-        assert mqtt.connect.call_count == 2
+        mqtt.connect.assert_called_once()
         assert mqtt.stop.call_count == 2
-        await handler.async_stop()
+        assert await handler.async_stop()
 
     asyncio.run(scenario())
 
 
-def test_unload_interrupts_retry_delay(integration):
+def test_stop_during_start_failure_leaves_no_worker(integration):
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
         mqtt.connect.side_effect = HTTPError()
@@ -87,6 +93,7 @@ def test_unload_interrupts_retry_delay(integration):
         await asyncio.sleep(0)
         await asyncio.wait_for(handler.async_stop(), 1)
         assert mqtt.connect.call_count == 1
+        await asyncio.wait_for(handler._task, 1)
         assert handler._task.done()
         handler.async_start()
         assert mqtt.connect.call_count == 1
@@ -96,16 +103,15 @@ def test_unload_interrupts_retry_delay(integration):
 
 def test_stop_waits_for_inflight_start_then_disconnects(integration):
     async def scenario():
-        handler, mqtt, hass = make_handler(integration)
+        handler, mqtt, _ = make_handler(integration)
         entered, release = asyncio.Event(), asyncio.Event()
 
-        async def executor(func, *args):
-            if func == handler.start:
-                entered.set()
-                await release.wait()
-            return func(*args)
+        async def startup():
+            entered.set()
+            await release.wait()
+            await asyncio.to_thread(handler.start)
 
-        hass.async_add_executor_job = executor
+        handler._async_start = startup
         handler.async_start()
         await entered.wait()
         stop_task = asyncio.create_task(handler.async_stop())
@@ -130,7 +136,9 @@ def test_coordinator_ready_before_connect_and_duplicate_start_ignored(integratio
         mqtt.connect.side_effect = connect
         handler.async_start()
         handler.async_start()
-        await handler._task
+        async with asyncio.timeout(1):
+            while not mqtt.connect.called:
+                await asyncio.sleep(0)
         mqtt.connect.assert_called_once()
         await handler.async_stop()
 
@@ -144,30 +152,38 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         client = MagicMock()
         client.login.return_value = token
         monkeypatch.setattr(setup, "EzvizClient", MagicMock(return_value=client))
-        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock())
+        monkeypatch.setattr(setup, "EzvizTokenStore", MagicMock(return_value=SimpleNamespace(
+            async_load=AsyncMock(return_value=token), save=MagicMock()
+        )))
+        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))
         entered, release = asyncio.Event(), asyncio.Event()
 
+        async def startup(handler):
+            entered.set()
+            await release.wait()
+            await asyncio.to_thread(handler.start)
+
+        monkeypatch.setattr(integration.mqtt.EzvizMqttHandler, "_async_start", startup)
         async def executor(func, *args):
-            if getattr(func, "__name__", None) == "start":
-                entered.set()
-                await release.wait()
             return func(*args)
 
         hass = SimpleNamespace(
             data={}, async_add_executor_job=executor,
             async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name: asyncio.create_task(coro),
             config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()),
-            bus=MagicMock(), http=MagicMock(),
+            bus=MagicMock(), http=MagicMock(), async_add_shutdown_job=MagicMock(),
         )
         entry = MagicMock()
         entry.entry_id = "entry"
-        entry.data = {**token, "conf_type": "attr_type_cloud", "conf_url": "api.test", "conf_user_id": "user"}
+        entry.async_create_background_task.side_effect = lambda _hass, coro, _name: asyncio.create_task(coro)
+        entry.data = {"conf_token": token, **token, "conf_type": "attr_type_cloud", "conf_url": "api.test", "conf_user_id": "user"}
         entry.options = {}
         assert await setup.async_setup_entry(hass, entry)
         hass.config_entries.async_forward_entry_setups.assert_awaited_once()
         await entered.wait()
-        handler = hass.data["domain"]["entry"]["mqtt_handler"]
+        handler = entry.runtime_data.push
         assert not handler._task.done()
         release.set()
         await handler.async_stop()
@@ -188,23 +204,22 @@ def test_client_creation_failure_is_optional(integration):
     asyncio.run(scenario())
 
 
-def test_unload_platforms_even_when_push_stop_fails(integration, monkeypatch):
+def test_unload_waits_for_cleanup_before_allowing_replacement(integration, monkeypatch):
     async def scenario():
         handler, mqtt, hass = make_handler(integration)
         monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
-        monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.02)
         hass.data["domain"]["entry"]["mqtt_handler"] = handler
         hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
-        entry = SimpleNamespace(entry_id="entry")
+        entry = handler._config_entry
         handler.async_start()
-        await handler._task
+        await asyncio.sleep(0)
         mqtt.stop.side_effect = HTTPError()
-        assert await integration.setup.async_unload_entry(hass, entry)
-        hass.config_entries.async_unload_platforms.assert_awaited_once()
-        assert "entry" not in hass.data["domain"]
+        assert not await integration.setup.async_unload_entry(hass, entry)
+        hass.config_entries.async_unload_platforms.assert_not_awaited()
+        assert "entry" in hass.data["domain"]
         assert handler._mqtt is mqtt
         mqtt.stop.side_effect = None
-        await asyncio.wait_for(handler._stop_task, 1)
+        await asyncio.wait_for(handler._stop_task, 2)
         assert handler._mqtt is None
 
     asyncio.run(scenario())
@@ -245,28 +260,29 @@ def test_shutdown_is_bounded_and_worker_eventually_cleans_up(
         mqtt.stop.side_effect = stop
         hass.data["domain"]["entry"]["mqtt_handler"] = handler
         hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
-        entry = SimpleNamespace(entry_id="entry")
+        entry = handler._config_entry
         handler.async_start()
         try:
             if stage == "stop":
-                await handler._task
+                async with asyncio.timeout(1):
+                    while not mqtt.connect.called:
+                        await asyncio.sleep(0.001)
             else:
                 assert await asyncio.to_thread(entered.wait, 1)
-            assert await asyncio.wait_for(integration.setup.async_unload_entry(hass, entry), 1)
+            assert not await asyncio.wait_for(integration.setup.async_unload_entry(hass, entry), 1)
             assert entered.is_set()
             assert not cleaned.is_set()
             assert not handler._stop_task.done()
-            hass.config_entries.async_unload_platforms.assert_awaited_once()
-            assert "entry" not in hass.data["domain"]
+            hass.config_entries.async_unload_platforms.assert_not_awaited()
+            assert "entry" in hass.data["domain"]
             if cancel_background:
-                handler._stop_task.cancel()
+                # HA cancels background monitors, not the tracked cleanup job.
                 handler._task.cancel()
-                await asyncio.gather(handler._stop_task, handler._task, return_exceptions=True)
         finally:
             release.set()
         assert await asyncio.to_thread(cleaned.wait, 1)
-        if not cancel_background:
-            await asyncio.wait_for(handler._stop_task, 1)
+        await asyncio.wait_for(handler._stop_task, 2)
+        await asyncio.gather(handler._task, return_exceptions=True)
         mqtt.stop.assert_called_once()
         mqtt.connect.assert_called_once()
 
@@ -297,3 +313,31 @@ def test_failed_cleanup_retains_client_and_prevents_replacement(integration):
     assert handler.stop()
     assert handler._mqtt is None
     replacement.stop.assert_called_once()
+
+
+@pytest.mark.parametrize("storage_failure", [False, True])
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+def test_fatal_worker_errors_stop_without_retry_or_blocking_polling(
+    integration, monkeypatch, storage_failure, cleanup_failure
+):
+    async def scenario():
+        handler, mqtt, _ = make_handler(integration)
+        error = EzvizTokenPersistenceError() if storage_failure else EzvizPushFatalError()
+        mqtt.raise_if_failed.side_effect = error
+        if cleanup_failure:
+            mqtt.stop.side_effect = [TimeoutError(), None]
+        monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
+        issue = MagicMock()
+        monkeypatch.setattr(integration.mqtt.ir, "async_create_issue", issue)
+        handler.async_start()
+        await asyncio.wait_for(handler._task, 1)
+        mqtt.connect.assert_called_once()
+        assert mqtt.stop.call_count == (2 if cleanup_failure else 1)
+        if storage_failure:
+            issue.assert_called_once()
+            handler._config_entry.async_start_reauth.assert_not_called()
+        else:
+            handler._config_entry.async_start_reauth.assert_called_once()
+        assert await handler.async_stop()
+
+    asyncio.run(scenario())

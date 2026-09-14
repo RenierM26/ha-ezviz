@@ -14,16 +14,16 @@ from pyezvizapi.exceptions import (
 from pyezvizapi.utils import return_password_hash
 
 from homeassistant.components.text import TextEntity, TextEntityDescription, TextMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNKNOWN, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN, OPTIONS_KEY_CAMERAS
+from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity, EzvizEntity
+from .runtime import EzvizConfigEntry
 
 SCAN_INTERVAL = timedelta(seconds=60)
 PARALLEL_UPDATES = 1
@@ -47,12 +47,10 @@ CAMERA_NAME_TEXT = TextEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     entities: list[TextEntity] = []
 
@@ -70,7 +68,7 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self,
         coordinator: EzvizDataUpdateCoordinator,
         serial: str,
-        entry: ConfigEntry,
+        entry: EzvizConfigEntry,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, serial)

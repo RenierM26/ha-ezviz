@@ -1,13 +1,23 @@
 {
   "domain": "ezviz_cloud",
   "name": "Ezviz(Beta)",
-  "codeowners": ["@RenierM26"],
+  "codeowners": [
+    "@RenierM26"
+  ],
   "config_flow": true,
-  "dependencies": ["ffmpeg", "http"],
+  "dependencies": [
+    "ffmpeg",
+    "http"
+  ],
   "documentation": "https://github.com/RenierM26/ha-ezviz",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/RenierM26/ha-ezviz/issues",
-  "loggers": ["paho_mqtt", "pyezvizapi"],
-  "requirements": ["pyezvizapi==1.0.5.0"],
+  "loggers": [
+    "paho_mqtt",
+    "pyezvizapi"
+  ],
+  "requirements": [
+    "pyezvizapi@https://github.com/RenierM26/pyEzvizApi/archive/ef48b47d10245d38853e67c9e0f1a36050150826.zip"
+  ],
   "version": "0.2.0.25"
 }
