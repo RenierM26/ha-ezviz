@@ -55,6 +55,10 @@ class EzvizMqttHandler:
 
     async def _async_connect(self) -> None:
         """Start once; the SDK owns transient failures and reconnection."""
+        # Stop/unload may have completed while this monitor was still queued.
+        # No await between this check and publishing startup ownership below.
+        if self._stopping.is_set():
+            return
         try:
             self._startup = asyncio.create_task(self._async_start(), name="EZVIZ SDK startup")
             # Cancelling the monitor must not lose ownership of executor startup.

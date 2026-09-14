@@ -371,3 +371,43 @@ async def test_options_flow_reads_entry_runtime_without_legacy_domain_data(tmp_p
         assert result["reason"] == "no_cameras"
     result = await flow.async_step_cloud({"timeout": 60})
     assert result["data"]["timeout"] == 60
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unload", [False, True])
+async def test_deferred_monitor_cannot_start_sdk_after_stop(tmp_path, monkeypatch, unload):
+    """Use HA-owned tasks but hold the monitor until stop/unload completes."""
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    client, mqtt = Mock(), Mock()
+    client.get_mqtt_client.return_value = mqtt
+    coordinator = Mock(async_shutdown=AsyncMock())
+    handler = integration.mqtt.EzvizMqttHandler(hass, client, entry, coordinator)
+    entry.runtime_data = EzvizRuntimeData(client, coordinator, handler, Mock())
+    release = asyncio.Event()
+    create = ConfigEntry.async_create_background_task
+
+    def deferred_create(owner, hass, target, name, eager_start=True):
+        async def deferred():
+            await release.wait()
+            await target
+        return create(owner, hass, deferred(), name, eager_start=False)
+
+    monkeypatch.setattr(ConfigEntry, "async_create_background_task", deferred_create)
+    monkeypatch.setattr(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True))
+    handler.async_start()
+    try:
+        if unload:
+            assert await integration.async_unload_entry(hass, entry)
+            client.close_session.assert_called_once()
+            assert not hasattr(entry, "runtime_data")
+        else:
+            assert await handler.async_stop()
+        assert handler._startup is None
+    finally:
+        release.set()
+        assert handler._task is not None
+        await asyncio.wait_for(handler._task, 1)
+    client.get_mqtt_client.assert_not_called()
+    mqtt.connect.assert_not_called()
+    assert handler._startup is None
