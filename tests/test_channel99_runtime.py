@@ -345,3 +345,29 @@ async def test_unload_failure_restores_push_then_success_releases_runtime(tmp_pa
     assert not hasattr(entry, "runtime_data")
     client.close_session.assert_called_once()
     coordinator.async_shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cameras", [{}, {"C12345": {"name": "Kitchen"}}])
+async def test_options_flow_reads_entry_runtime_without_legacy_domain_data(tmp_path, monkeypatch, cameras):
+    """Exercise the options entry point in the suite CI actually collects."""
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    coordinator = Mock(data=cameras)
+    entry.runtime_data = EzvizRuntimeData(Mock(), coordinator, Mock(), Mock())
+    monkeypatch.setattr(hass.config_entries, "async_get_known_entry", Mock(return_value=entry))
+    flow = config_flow.EzvizOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    assert "ezviz_cloud" not in hass.data
+    result = await flow.async_step_init()
+    assert result["type"] == "menu"
+    assert flow.coordinator is coordinator
+    result = await flow.async_step_camera_select()
+    if cameras:
+        assert result["type"] == "form"
+        assert result["step_id"] == "camera_select"
+    else:
+        assert result["reason"] == "no_cameras"
+    result = await flow.async_step_cloud({"timeout": 60})
+    assert result["data"]["timeout"] == 60
