@@ -39,9 +39,9 @@ the same persisted push identity. HA shutdown itself is not held indefinitely.
 Loaded resources live in typed `ConfigEntry.runtime_data`. Platforms, diagnostics,
 options and media browsing read that same owner. The monitor is an entry-owned
 background task; cleanup is a separate tracked task so monitor cancellation cannot
-skip SDK stop. An early HA shutdown job quiesces polling and stops push before HA
-cancels background tasks or begins deferring storage writes. Ordinary unload
-unregisters this job. Failed setup closes the HTTP client and shuts down its
+skip SDK stop. An awaited HA stop-event handler quiesces polling and waits for that same
+cleanup task after background cancellation. Ordinary unload unregisters the
+handler. Token storage continues to reject deferred shutdown writes. Failed setup closes the HTTP client and shuts down its
 coordinator. If platform unload fails after push stops, a replacement handler is
 started only after the old SDK worker has exited.
 

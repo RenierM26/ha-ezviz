@@ -56,7 +56,7 @@ class EzvizMqttHandler:
     async def _async_connect(self) -> None:
         """Start once; the SDK owns transient failures and reconnection."""
         try:
-            self._startup = asyncio.ensure_future(self._hass.async_add_executor_job(self.start))
+            self._startup = asyncio.create_task(self._async_start(), name="EZVIZ SDK startup")
             # Cancelling the monitor must not lose ownership of executor startup.
             await asyncio.shield(self._startup)
             while not self._stopping.is_set():
@@ -78,6 +78,12 @@ class EzvizMqttHandler:
         finally:
             self._stopping.set()
             await asyncio.shield(self._ensure_cleanup())
+
+    async def _async_start(self) -> None:
+        # HA cancels executor futures submitted from a background task directly,
+        # even when shielded. Own this bootstrap future until cleanup completes.
+        # Network registration/retries are still owned by the SDK worker.
+        await asyncio.to_thread(self.start)
 
     def _ensure_cleanup(self) -> asyncio.Task:
         """One cleanup owner, independent of cancellation of the monitor."""

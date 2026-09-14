@@ -301,7 +301,18 @@ async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_pa
         def blocked_stop():
             assert released.wait(2), "HA did not reach its stop phase"
         mqtt.stop.side_effect = blocked_stop
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, lambda _event: released.set())
+        timed_out = asyncio.Event()
+        original_stop = handler.async_stop
+        async def observed_stop():
+            result = await original_stop()
+            assert not result
+            timed_out.set()
+            return result
+        monkeypatch.setattr(handler, "async_stop", observed_stop)
+        async def release_after_timeout(_event):
+            await timed_out.wait()
+            released.set()
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, release_after_timeout)
     try:
         await hass.async_stop()
     finally:

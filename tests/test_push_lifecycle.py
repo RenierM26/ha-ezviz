@@ -85,7 +85,7 @@ def test_start_failure_is_optional_and_does_not_retry(integration, monkeypatch, 
     asyncio.run(scenario())
 
 
-def test_unload_interrupts_retry_delay(integration):
+def test_stop_during_start_failure_leaves_no_worker(integration):
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
         mqtt.connect.side_effect = HTTPError()
@@ -93,6 +93,7 @@ def test_unload_interrupts_retry_delay(integration):
         await asyncio.sleep(0)
         await asyncio.wait_for(handler.async_stop(), 1)
         assert mqtt.connect.call_count == 1
+        await asyncio.wait_for(handler._task, 1)
         assert handler._task.done()
         handler.async_start()
         assert mqtt.connect.call_count == 1
@@ -102,16 +103,15 @@ def test_unload_interrupts_retry_delay(integration):
 
 def test_stop_waits_for_inflight_start_then_disconnects(integration):
     async def scenario():
-        handler, mqtt, hass = make_handler(integration)
+        handler, mqtt, _ = make_handler(integration)
         entered, release = asyncio.Event(), asyncio.Event()
 
-        async def executor(func, *args):
-            if func == handler.start:
-                entered.set()
-                await release.wait()
-            return func(*args)
+        async def startup():
+            entered.set()
+            await release.wait()
+            await asyncio.to_thread(handler.start)
 
-        hass.async_add_executor_job = executor
+        handler._async_start = startup
         handler.async_start()
         await entered.wait()
         stop_task = asyncio.create_task(handler.async_stop())
@@ -159,10 +159,13 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))
         entered, release = asyncio.Event(), asyncio.Event()
 
+        async def startup(handler):
+            entered.set()
+            await release.wait()
+            await asyncio.to_thread(handler.start)
+
+        monkeypatch.setattr(integration.mqtt.EzvizMqttHandler, "_async_start", startup)
         async def executor(func, *args):
-            if getattr(func, "__name__", None) == "start":
-                entered.set()
-                await release.wait()
             return func(*args)
 
         hass = SimpleNamespace(

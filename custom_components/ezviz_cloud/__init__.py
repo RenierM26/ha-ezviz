@@ -19,9 +19,10 @@ from homeassistant.const import (
     CONF_TIMEOUT,
     CONF_TYPE,
     CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
-from homeassistant.core import HassJob, HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
 
@@ -101,9 +102,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
             domain_data["_http_view_registered"] = True
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        # Run before HA cancels background tasks and defers storage writes.
-        # A normal entry unload must unregister this shutdown job.
-        async def shutdown() -> None:
+        # HA cancels monitors before this event. This awaited handler anchors
+        # shared cleanup in the integration-stop phase, not the earlier task set.
+        async def shutdown(_event: Event) -> None:
             # Quiesce polling before push/token cleanup. Read the current handler
             # in case a failed platform unload required restarting push.
             data = entry.runtime_data
@@ -111,7 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
             if await data.push.async_stop():
                 await hass.async_add_executor_job(data.client.close_session)
 
-        entry.async_on_unload(hass.async_add_shutdown_job(HassJob(shutdown)))
+        entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, shutdown))
         ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
         mqtt_handler.async_start()
         setup_complete = True
