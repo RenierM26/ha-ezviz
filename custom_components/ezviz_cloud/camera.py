@@ -23,7 +23,6 @@ from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import (
@@ -35,28 +34,25 @@ from .const import (
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,  # used here as RTSP path (main/sub)
     CONF_RTSP_USES_VERIFICATION_CODE,
-    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
-    DOMAIN,
     OPTIONS_KEY_CAMERAS,
     SERVICE_WAKE_DEVICE,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EZVIZ cameras for a cloud config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     cams_opts: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 

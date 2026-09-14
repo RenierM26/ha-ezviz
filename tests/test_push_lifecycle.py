@@ -59,24 +59,28 @@ def make_handler(integration):
         data={"domain": {"entry": {"data_coordinator": MagicMock()}}},
         async_add_executor_job=executor,
         async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name: asyncio.create_task(coro),
     )
-    return integration.mqtt.EzvizMqttHandler(hass, client, SimpleNamespace(entry_id="entry", async_start_reauth=MagicMock())), mqtt, hass
+    entry = SimpleNamespace(entry_id="entry", async_start_reauth=MagicMock(),
+        async_create_background_task=lambda _hass, coro, _name: asyncio.create_task(coro))
+    coordinator = hass.data["domain"]["entry"]["data_coordinator"]
+    handler = integration.mqtt.EzvizMqttHandler(hass, client, entry, coordinator)
+    entry.runtime_data = SimpleNamespace(push=handler, client=client, coordinator=coordinator)
+    return handler, mqtt, hass
 
 
 @pytest.mark.parametrize("error", [HTTPError(), OSError(), TimeoutError(), ValueError()])
-def test_failure_and_cleanup_error_do_not_escape_and_retry_recovers(integration, monkeypatch, error):
+def test_start_failure_is_optional_and_does_not_retry(integration, monkeypatch, error):
     async def scenario():
         handler, mqtt, _ = make_handler(integration)
-        mqtt.connect.side_effect = [error, None]
-        mqtt.stop.side_effect = [HTTPError(), None, None]
-        monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.001)
+        mqtt.connect.side_effect = error
+        mqtt.stop.side_effect = [HTTPError(), None]
+        monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
         handler.async_start()
-        async with asyncio.timeout(1):
-            while mqtt.connect.call_count < 2:
-                await asyncio.sleep(0.001)
-        assert mqtt.connect.call_count == 2
+        await asyncio.wait_for(handler._task, 1)
+        mqtt.connect.assert_called_once()
         assert mqtt.stop.call_count == 2
-        await handler.async_stop()
+        assert await handler.async_stop()
 
     asyncio.run(scenario())
 
@@ -132,7 +136,9 @@ def test_coordinator_ready_before_connect_and_duplicate_start_ignored(integratio
         mqtt.connect.side_effect = connect
         handler.async_start()
         handler.async_start()
-        await asyncio.sleep(0)
+        async with asyncio.timeout(1):
+            while not mqtt.connect.called:
+                await asyncio.sleep(0)
         mqtt.connect.assert_called_once()
         await handler.async_stop()
 
@@ -149,7 +155,7 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         monkeypatch.setattr(setup, "EzvizTokenStore", MagicMock(return_value=SimpleNamespace(
             async_load=AsyncMock(return_value=token), save=MagicMock()
         )))
-        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock())
+        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))
         entered, release = asyncio.Event(), asyncio.Event()
 
@@ -162,17 +168,19 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         hass = SimpleNamespace(
             data={}, async_add_executor_job=executor,
             async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name: asyncio.create_task(coro),
             config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()),
-            bus=MagicMock(), http=MagicMock(),
+            bus=MagicMock(), http=MagicMock(), async_add_shutdown_job=MagicMock(),
         )
         entry = MagicMock()
         entry.entry_id = "entry"
+        entry.async_create_background_task.side_effect = lambda _hass, coro, _name: asyncio.create_task(coro)
         entry.data = {"conf_token": token, **token, "conf_type": "attr_type_cloud", "conf_url": "api.test", "conf_user_id": "user"}
         entry.options = {}
         assert await setup.async_setup_entry(hass, entry)
         hass.config_entries.async_forward_entry_setups.assert_awaited_once()
         await entered.wait()
-        handler = hass.data["domain"]["entry"]["mqtt_handler"]
+        handler = entry.runtime_data.push
         assert not handler._task.done()
         release.set()
         await handler.async_stop()
@@ -197,10 +205,9 @@ def test_unload_waits_for_cleanup_before_allowing_replacement(integration, monke
     async def scenario():
         handler, mqtt, hass = make_handler(integration)
         monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
-        monkeypatch.setattr(integration.mqtt, "PUSH_RETRY_SECONDS", 0.02)
         hass.data["domain"]["entry"]["mqtt_handler"] = handler
         hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
-        entry = SimpleNamespace(entry_id="entry")
+        entry = handler._config_entry
         handler.async_start()
         await asyncio.sleep(0)
         mqtt.stop.side_effect = HTTPError()
@@ -217,7 +224,7 @@ def test_unload_waits_for_cleanup_before_allowing_replacement(integration, monke
 
 @pytest.mark.parametrize("stage", ["get_client", "connect", "stop"])
 @pytest.mark.parametrize("cancel_background", [False, True])
-def test_shutdown_is_bounded_and_worker_eventually_cleans_up(  # noqa: PLR0915
+def test_shutdown_is_bounded_and_worker_eventually_cleans_up(
     integration, monkeypatch, stage, cancel_background
 ):
     """A real blocked executor must not hold unload or lose late cleanup."""
@@ -250,7 +257,7 @@ def test_shutdown_is_bounded_and_worker_eventually_cleans_up(  # noqa: PLR0915
         mqtt.stop.side_effect = stop
         hass.data["domain"]["entry"]["mqtt_handler"] = handler
         hass.config_entries = SimpleNamespace(async_unload_platforms=AsyncMock(return_value=True))
-        entry = SimpleNamespace(entry_id="entry")
+        entry = handler._config_entry
         handler.async_start()
         try:
             if stage == "stop":
@@ -266,14 +273,13 @@ def test_shutdown_is_bounded_and_worker_eventually_cleans_up(  # noqa: PLR0915
             hass.config_entries.async_unload_platforms.assert_not_awaited()
             assert "entry" in hass.data["domain"]
             if cancel_background:
-                handler._stop_task.cancel()
+                # HA cancels background monitors, not the tracked cleanup job.
                 handler._task.cancel()
-                await asyncio.gather(handler._stop_task, handler._task, return_exceptions=True)
         finally:
             release.set()
         assert await asyncio.to_thread(cleaned.wait, 1)
-        if not cancel_background:
-            await asyncio.wait_for(handler._stop_task, 2)
+        await asyncio.wait_for(handler._stop_task, 2)
+        await asyncio.gather(handler._task, return_exceptions=True)
         mqtt.stop.assert_called_once()
         mqtt.connect.assert_called_once()
 

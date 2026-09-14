@@ -14,14 +14,13 @@ from homeassistant.components.update import (
     UpdateEntityDescription,
     UpdateEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 
 PARALLEL_UPDATES = 1
 
@@ -53,12 +52,10 @@ UPDATE_ENTITY_DESCRIPTIONS: tuple[EzvizUpdateEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ update entities based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     entities = [
         EzvizUpdateEntity(coordinator, serial, description)

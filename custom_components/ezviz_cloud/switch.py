@@ -20,15 +20,14 @@ from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
+from .runtime import EzvizConfigEntry
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
@@ -487,12 +486,10 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ switches based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     await migrate_unique_ids_with_coordinator(
         hass=hass,

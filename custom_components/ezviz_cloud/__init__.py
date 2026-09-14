@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.exceptions import (
@@ -20,10 +19,9 @@ from homeassistant.const import (
     CONF_TIMEOUT,
     CONF_TYPE,
     CONF_USERNAME,
-    EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HassJob, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
 
@@ -34,17 +32,16 @@ from .const import (
     CONF_FFMPEG_ARGUMENTS,
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_TOKEN,
-    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
-    MQTT_HANDLER,
     OPTIONS_KEY_CAMERAS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
+from .runtime import EzvizConfigEntry, EzvizRuntimeData
 from .token_store import EzvizTokenStore
 from .views import ImageProxyView
 
@@ -69,7 +66,7 @@ PLATFORMS: list[Platform] = [
 TARGET_VERSION = 4
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -83,6 +80,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
     client = None
+    coordinator = None
+    setup_complete = False
     try:
         token_store = EzvizTokenStore(hass, entry)
         token = await token_store.async_load()
@@ -90,68 +89,65 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             token=token, timeout=timeout, on_token_updated=token_store.save
         )
         await hass.async_add_executor_job(client.login)
+        coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
+        await coordinator.async_config_entry_first_refresh()
+
+        mqtt_handler = EzvizMqttHandler(hass, client, entry, coordinator)
+        entry.runtime_data = EzvizRuntimeData(client, coordinator, mqtt_handler, token_store)
+
+        domain_data = hass.data.setdefault(DOMAIN, {})
+        if not domain_data.get("_http_view_registered"):
+            hass.http.register_view(ImageProxyView(hass))
+            domain_data["_http_view_registered"] = True
+
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Run before HA cancels background tasks and defers storage writes.
+        # A normal entry unload must unregister this shutdown job.
+        async def shutdown() -> None:
+            # Quiesce polling before push/token cleanup. Read the current handler
+            # in case a failed platform unload required restarting push.
+            data = entry.runtime_data
+            await data.coordinator.async_shutdown()
+            if await data.push.async_stop():
+                await hass.async_add_executor_job(data.client.close_session)
+
+        entry.async_on_unload(hass.async_add_shutdown_job(HassJob(shutdown)))
+        ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
+        mqtt_handler.async_start()
+        setup_complete = True
+        return True
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
-        if client is not None:
-            await hass.async_add_executor_job(client.close_session)
         raise ConfigEntryAuthFailed from err
     except (InvalidURL, HTTPError, PyEzvizError, OSError) as err:
-        if client is not None:
-            await hass.async_add_executor_job(client.close_session)
         raise ConfigEntryNotReady(
             f"Unable to initialize EZVIZ ({type(err).__name__})"
         ) from err
-
-    ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
-
-    # Coordinator
-    coordinator = EzvizDataUpdateCoordinator(
-        hass,
-        api=client,
-        api_timeout=timeout,
-    )
-    await coordinator.async_config_entry_first_refresh()
-
-    # MQTT handler
-    mqtt_handler = EzvizMqttHandler(hass, client, entry)
-
-    hass.data[DOMAIN][entry.entry_id] = {
-        DATA_COORDINATOR: coordinator,
-        MQTT_HANDLER: mqtt_handler,
-    }
-
-    # Clean shutdown on HA stop (stop MQTT first)
-    async def _shutdown(_event: Any) -> None:
-        await mqtt_handler.async_stop()
-
-    remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
-    entry.async_on_unload(remove_shutdown)
-
-    # Register HTTP view for image proxy/decryption once per instance
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    if not domain_data.get("_http_view_registered"):
-        hass.http.register_view(ImageProxyView(hass))
-        domain_data["_http_view_registered"] = True
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    mqtt_handler.async_start()
-
-    return True
+    finally:
+        if not setup_complete:
+            if coordinator is not None:
+                await coordinator.async_shutdown()
+            if client is not None:
+                await hass.async_add_executor_job(client.close_session)
+            if hasattr(entry, "runtime_data"):
+                del entry.runtime_data
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the EZVIZ cloud entry (stop MQTT first, then platforms)."""
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-
-    if data and (mqtt := data.get(MQTT_HANDLER)) and not await mqtt.async_stop():
+async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
+    """Do not allow replacement until the old SDK worker has exited."""
+    data = getattr(entry, "runtime_data", None)
+    if data is not None and not await data.push.async_stop():
         return False
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok and data:
-        await hass.async_add_executor_job(data[DATA_COORDINATOR].ezviz_client.close_session)
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-
+    if unload_ok and data is not None:
+        await data.coordinator.async_shutdown()
+        await hass.async_add_executor_job(data.client.close_session)
+        del entry.runtime_data
+    elif not unload_ok and data is not None:
+        # HA keeps the entry loaded on failure. Restore optional push only after
+        # the previous worker has demonstrably stopped.
+        data.push = EzvizMqttHandler(hass, data.client, entry, data.coordinator)
+        data.push.async_start()
     return unload_ok
 
 

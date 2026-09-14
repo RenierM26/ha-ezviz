@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-from types import SimpleNamespace
+from threading import Event
+from types import MappingProxyType, SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -15,7 +16,10 @@ from pyezvizapi.exceptions import EzvizAuthVerificationCode
 import custom_components.ezviz_cloud as integration
 from custom_components.ezviz_cloud import config_flow
 from custom_components.ezviz_cloud.const import CONF_TOKEN
+from custom_components.ezviz_cloud.runtime import EzvizRuntimeData
 from custom_components.ezviz_cloud.token_store import EzvizTokenStore
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.util.file import WriteError
@@ -222,3 +226,111 @@ async def test_incomplete_initial_token_requests_reauth_before_sdk_construction(
     with pytest.raises(ConfigEntryAuthFailed):
         await integration.async_setup_entry(hass, entry)
     client.assert_not_called()
+
+
+def runtime_entry(hass):
+    """Use HA's real entry task ownership, without registering devices."""
+    hass.config_entries = Mock(async_forward_entry_setups=AsyncMock(), async_unload_platforms=AsyncMock())
+    return ConfigEntry(
+        domain="ezviz_cloud", entry_id="lifecycle", title="EZVIZ test", unique_id="test",
+        data={"type": "EZVIZ_CLOUD_ACCOUNT", CONF_TOKEN: credentials()},
+        options={}, version=4, minor_version=1, source="user",
+        discovery_keys=MappingProxyType({}), subentries_data=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["login", "refresh", "platforms"])
+async def test_setup_failure_closes_client_and_leaves_no_runtime(tmp_path, monkeypatch, failure_stage):
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    client = Mock()
+    coordinator = Mock(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
+    persistence = Mock(async_load=AsyncMock(return_value=credentials()))
+    monkeypatch.setattr(integration, "EzvizClient", Mock(return_value=client))
+    monkeypatch.setattr(integration, "EzvizTokenStore", Mock(return_value=persistence))
+    monkeypatch.setattr(integration, "EzvizDataUpdateCoordinator", Mock(return_value=coordinator))
+    monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", AsyncMock())
+    hass.http = Mock()
+    monkeypatch.setattr(integration, "ImageProxyView", Mock())
+    error = RuntimeError("synthetic setup failure")
+    if failure_stage == "login":
+        client.login.side_effect = error
+    elif failure_stage == "refresh":
+        coordinator.async_config_entry_first_refresh.side_effect = error
+    else:
+        monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", AsyncMock(side_effect=error))
+    with pytest.raises(RuntimeError, match="synthetic setup failure"):
+        await integration.async_setup_entry(hass, entry)
+    client.close_session.assert_called_once()
+    if failure_stage != "login":
+        coordinator.async_shutdown.assert_awaited_once()
+    assert not hasattr(entry, "runtime_data")
+    client.get_mqtt_client.assert_not_called()
+    assert not hass._shutdown_jobs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_monitor_first, stop_timeout", [(False, False), (True, False), (False, True)])
+async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_path, monkeypatch, cancel_monitor_first, stop_timeout):
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    client, mqtt = Mock(), Mock()
+    client.get_mqtt_client.return_value = mqtt
+    coordinator = Mock(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
+    monkeypatch.setattr(integration, "EzvizClient", Mock(return_value=client))
+    monkeypatch.setattr(integration, "EzvizTokenStore", Mock(return_value=Mock(
+        async_load=AsyncMock(return_value=credentials())
+    )))
+    monkeypatch.setattr(integration, "EzvizDataUpdateCoordinator", Mock(return_value=coordinator))
+    monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", AsyncMock())
+    hass.http = Mock()
+    monkeypatch.setattr(integration, "ImageProxyView", Mock())
+    hass.set_state(CoreState.running)
+    assert await integration.async_setup_entry(hass, entry)
+    handler = entry.runtime_data.push
+    async with asyncio.timeout(1):
+        while not mqtt.connect.called:
+            await asyncio.sleep(0)
+    if cancel_monitor_first:
+        handler._task.cancel()
+        await asyncio.gather(handler._task, return_exceptions=True)
+    released = Event()
+    if stop_timeout:
+        monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
+        def blocked_stop():
+            assert released.wait(2), "HA did not reach its stop phase"
+        mqtt.stop.side_effect = blocked_stop
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, lambda _event: released.set())
+    try:
+        await hass.async_stop()
+    finally:
+        released.set()
+    mqtt.stop.assert_called_once()
+    if not stop_timeout:
+        client.close_session.assert_called_once()
+    coordinator.async_shutdown.assert_awaited_once()
+    assert handler._mqtt is None
+    assert handler._stop_task.done()
+    assert hass.state is CoreState.stopped
+
+
+@pytest.mark.asyncio
+async def test_unload_failure_restores_push_then_success_releases_runtime(tmp_path, monkeypatch):
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    client = Mock()
+    coordinator = Mock(async_shutdown=AsyncMock())
+    old = Mock(async_stop=AsyncMock(return_value=True))
+    entry.runtime_data = EzvizRuntimeData(client, coordinator, old, Mock())
+    new = Mock(async_stop=AsyncMock(return_value=True))
+    monkeypatch.setattr(integration, "EzvizMqttHandler", Mock(return_value=new))
+    monkeypatch.setattr(hass.config_entries, "async_unload_platforms", AsyncMock(side_effect=[False, True]))
+    assert not await integration.async_unload_entry(hass, entry)
+    assert entry.runtime_data.push is new
+    new.async_start.assert_called_once()
+    client.close_session.assert_not_called()
+    assert await integration.async_unload_entry(hass, entry)
+    assert not hasattr(entry, "runtime_data")
+    client.close_session.assert_called_once()
+    coordinator.async_shutdown.assert_awaited_once()

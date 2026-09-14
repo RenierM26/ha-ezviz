@@ -21,7 +21,8 @@ around a disk/permission problem.
 ## Lifecycle
 
 Entities and 30-second polling do not wait for push registration. The SDK handles
-ordinary reconnects. The integration checks fatal worker errors every 5 seconds;
+ordinary registration retries and reconnects; there is no second HA retry loop.
+The integration checks fatal worker errors every 5 seconds;
 authentication/recovery errors request user reauthentication, while storage errors
 create a separate repair issue. Polling remains independent.
 
@@ -34,6 +35,19 @@ Unload waits up to 5 seconds for cleanup. If a setup/network operation is still
 pending, unload returns False and keeps the old runtime registered while cleanup
 continues. Retry reload once cleanup completes. This avoids a second worker using
 the same persisted push identity. HA shutdown itself is not held indefinitely.
+
+Loaded resources live in typed `ConfigEntry.runtime_data`. Platforms, diagnostics,
+options and media browsing read that same owner. The monitor is an entry-owned
+background task; cleanup is a separate tracked task so monitor cancellation cannot
+skip SDK stop. An early HA shutdown job quiesces polling and stops push before HA
+cancels background tasks or begins deferring storage writes. Ordinary unload
+unregisters this job. Failed setup closes the HTTP client and shuts down its
+coordinator. If platform unload fails after push stops, a replacement handler is
+started only after the old SDK worker has exited.
+
+The five-second fatal-error check is a nonblocking SDK state read, not an executor
+job or reconnect loop. An SDK error callback could replace it later; no library
+API change is needed for this lifecycle refactor.
 
 ## Validation and remaining release work
 

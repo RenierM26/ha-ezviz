@@ -53,7 +53,6 @@ from .const import (
     CONF_SESSION_ID,
     CONF_TOKEN,
     CONF_USER_ID,
-    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -444,9 +443,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
     async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Entry menu (bootstrap coordinator)."""
-        self.coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id][
-            DATA_COORDINATOR
-        ]
+        self.coordinator = self.config_entry.runtime_data.coordinator
         return self.async_show_menu(
             step_id="init", menu_options=["cloud", "camera_select"]
         )

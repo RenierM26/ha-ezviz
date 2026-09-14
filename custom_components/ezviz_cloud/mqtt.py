@@ -16,12 +16,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PUSH_RETRY_SECONDS = 300
 PUSH_STOP_TIMEOUT_SECONDS = 5
 PUSH_HEALTH_SECONDS = 5
 PUSH_CLEANUP_RETRY_SECONDS = 1
@@ -32,8 +31,10 @@ class EzvizMqttHandler:
 
     _coordinator: EzvizDataUpdateCoordinator
 
-    def __init__(self, hass: HomeAssistant, client: EzvizClient, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, client: EzvizClient, entry: ConfigEntry,
+                 coordinator: EzvizDataUpdateCoordinator) -> None:
         """Initialize EZVIZ MQTT handler."""
+        self._coordinator = coordinator
         self._entry = entry.entry_id
         self._config_entry = entry
         self._hass = hass
@@ -41,69 +42,59 @@ class EzvizMqttHandler:
         self._mqtt: MQTTClient | None = None
         self._task: asyncio.Task | None = None
         self._stop_task: asyncio.Task | None = None
+        self._startup: asyncio.Future | None = None
         self._stopping = asyncio.Event()
 
     def async_start(self) -> None:
         """Start optional push in the background without delaying entity setup."""
         if self._task is not None or self._stopping.is_set():
             return
-        self._coordinator = self._hass.data[DOMAIN][self._entry][DATA_COORDINATOR]
-        self._task = self._hass.async_create_background_task(
-            self._async_connect(), "EZVIZ push startup"
+        self._task = self._config_entry.async_create_background_task(
+            self._hass, self._async_connect(), "EZVIZ push monitor"
         )
 
     async def _async_connect(self) -> None:
-        """Retry push startup independently of the polling coordinator."""
-        failed = False
-        while not self._stopping.is_set():
-            try:
-                await self._hass.async_add_executor_job(self.start)
-                while not self._stopping.is_set():
-                    await self._hass.async_add_executor_job(self._check_health)
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(self._stopping.wait(), PUSH_HEALTH_SECONDS)
-                return
-            except EzvizTokenPersistenceError:
-                ir.async_create_issue(
-                    self._hass, DOMAIN, f"push_storage_{self._entry}",
-                    is_fixable=False, severity=ir.IssueSeverity.ERROR,
-                    translation_key="push_storage",
-                )
-                _LOGGER.error("EZVIZ push stopped because credential storage failed")
-                await self._async_cleanup()
-                return
-            except (EzvizAuthTokenExpired, EzvizPushFatalError):
-                _LOGGER.warning("EZVIZ push requires reauthentication; polling continues")
-                self._config_entry.async_start_reauth(self._hass)
-                await self._async_cleanup()
-                return
-            except Exception as err:  # Push is optional, including SDK failures.
-                if not failed:
-                    _LOGGER.warning(
-                        "EZVIZ push unavailable (%s); continuing with polling. "
-                        "Retrying in %s seconds",
-                        type(err).__name__,
-                        PUSH_RETRY_SECONDS,
-                    )
-                else:
-                    _LOGGER.debug("EZVIZ push retry failed (%s)", type(err).__name__)
-                failed = True
-                # Also release any partially connected Paho client before retrying.
-                await self._hass.async_add_executor_job(self.stop)
+        """Start once; the SDK owns transient failures and reconnection."""
+        try:
+            self._startup = asyncio.ensure_future(self._hass.async_add_executor_job(self.start))
+            # Cancelling the monitor must not lose ownership of executor startup.
+            await asyncio.shield(self._startup)
+            while not self._stopping.is_set():
+                self._check_health()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._stopping.wait(), PUSH_HEALTH_SECONDS)
+        except EzvizTokenPersistenceError:
+            ir.async_create_issue(
+                self._hass, DOMAIN, f"push_storage_{self._entry}",
+                is_fixable=False, severity=ir.IssueSeverity.ERROR,
+                translation_key="push_storage",
+            )
+            _LOGGER.error("EZVIZ push stopped because credential storage failed")
+        except (EzvizAuthTokenExpired, EzvizPushFatalError):
+            _LOGGER.warning("EZVIZ push requires reauthentication; polling continues")
+            self._config_entry.async_start_reauth(self._hass)
+        except Exception as err:
+            _LOGGER.error("EZVIZ push could not start (%s); polling continues", type(err).__name__)
+        finally:
+            self._stopping.set()
+            await asyncio.shield(self._ensure_cleanup())
 
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._stopping.wait(), PUSH_RETRY_SECONDS)
-
-    async def async_stop(self) -> bool:
-        """Stop retries and bound the caller's wait for SDK cleanup."""
-        self._stopping.set()
-        if self._stop_task is None:
-            self._stop_task = self._hass.async_create_background_task(
+    def _ensure_cleanup(self) -> asyncio.Task:
+        """One cleanup owner, independent of cancellation of the monitor."""
+        if self._stop_task is None or self._stop_task.cancelled():
+            # Not a background task: HA must allow cleanup during shutdown.
+            self._stop_task = self._hass.async_create_task(
                 self._async_finish_stop(), "EZVIZ push cleanup"
             )
+        return self._stop_task
+
+    async def async_stop(self) -> bool:
+        """Stop monitoring and bound the caller's wait for SDK cleanup."""
+        self._stopping.set()
+        cleanup = self._ensure_cleanup()
         try:
             await asyncio.wait_for(
-                asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS
+                asyncio.shield(cleanup), PUSH_STOP_TIMEOUT_SECONDS
             )
         except TimeoutError:
             _LOGGER.debug("EZVIZ push cleanup still pending; retry unloading later")
@@ -117,9 +108,11 @@ class EzvizMqttHandler:
 
     async def _async_finish_stop(self) -> None:
         """Serialize cleanup after startup without blocking the unload caller."""
-        if self._task is not None:
-            # A timeout must not cancel the executor operation or race its cleanup.
-            await asyncio.shield(self._task)
+        if self._startup is not None:
+            # Startup exceptions are reported by the monitor. Still release any
+            # partially-created client; never await the monitor from its cleanup.
+            with contextlib.suppress(Exception):
+                await asyncio.shield(self._startup)
         await self._async_cleanup()
 
     async def _async_cleanup(self) -> None:

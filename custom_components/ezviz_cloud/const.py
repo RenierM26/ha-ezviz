@@ -68,9 +68,7 @@ DEFAULT_FETCH_MY_KEY: Final = "fetch_my_key"
 SERVICE_WAKE_DEVICE: Final = "wake_device"
 
 # ---------------------------
-# hass.data keys
+# Camera options
 # ---------------------------
 
-DATA_COORDINATOR: Final = "coordinator"
-MQTT_HANDLER: Final = "mqtt_handler"
 OPTIONS_KEY_CAMERAS: Final = "cameras"
