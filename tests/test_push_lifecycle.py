@@ -145,6 +145,33 @@ def test_coordinator_ready_before_connect_and_duplicate_start_ignored(integratio
     asyncio.run(scenario())
 
 
+def test_push_diagnostics_track_events_without_exposing_payload(integration):
+    async def scenario():
+        handler, mqtt, hass = make_handler(integration)
+        hass.loop = asyncio.get_running_loop()
+        hass.bus = MagicMock()
+        mqtt.get_push_diagnostics.return_value = {
+            "state": "connected",
+            "worker_alive": True,
+        }
+        handler._mqtt = mqtt
+        handler._state = "monitoring"
+        event = {"ext": {"device_serial": "private-serial"}}
+        handler._on_message(event)
+        await asyncio.sleep(0)
+        snapshot = handler.diagnostics()
+        assert snapshot["state"] == "monitoring"
+        assert snapshot["events_received"] == 1
+        assert snapshot["last_event_at"] is not None
+        assert snapshot["sdk"] == {
+            "state": "connected",
+            "worker_alive": True,
+        }
+        assert "private-serial" not in str(snapshot)
+
+    asyncio.run(scenario())
+
+
 def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatch):
     async def scenario():
         setup = integration.setup
@@ -338,6 +365,12 @@ def test_fatal_worker_errors_stop_without_retry_or_blocking_polling(
             handler._config_entry.async_start_reauth.assert_not_called()
         else:
             handler._config_entry.async_start_reauth.assert_called_once()
+        snapshot = handler.diagnostics()
+        assert snapshot["state"] == "failed"
+        assert snapshot["last_error_category"] == (
+            "credential_storage" if storage_failure else "reauthentication_required"
+        )
+        assert snapshot["last_error_type"] == type(error).__name__
         assert await handler.async_stop()
 
     asyncio.run(scenario())

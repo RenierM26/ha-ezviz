@@ -46,6 +46,11 @@ async def test_real_storage_commits_private_complete_snapshot(tmp_path):
     path = tmp_path / ".storage/ezviz_cloud.synthetic-entry.token"
     assert json.loads(path.read_text())["data"]["token"] == loaded
     assert path.stat().st_mode & 0o077 == 0
+    diagnostics = persistence.diagnostics()
+    assert diagnostics["state"] == "ready"
+    assert diagnostics["file_present"] is True
+    assert diagnostics["last_save_at"] is not None
+    assert diagnostics["credential_generation_current"] is True
     with pytest.raises(RuntimeError, match="executor"):
         persistence.save(loaded)
 
@@ -58,6 +63,8 @@ async def test_real_storage_write_failure_is_not_acknowledged(tmp_path, monkeypa
     monkeypatch.setattr(persistence.store, "_write_prepared_data", Mock(side_effect=WriteError()))
     with pytest.raises(OSError, match="did not complete"):
         await asyncio.to_thread(persistence.save, credentials())
+    assert persistence.diagnostics()["state"] == "error"
+    assert persistence.diagnostics()["last_error_type"] == "OSError"
 
 
 @pytest.mark.asyncio
@@ -266,6 +273,14 @@ async def test_setup_failure_closes_client_and_leaves_no_runtime(tmp_path, monke
     if failure_stage != "login":
         coordinator.async_shutdown.assert_awaited_once()
     assert not hasattr(entry, "runtime_data")
+    expected_stage = {
+        "login": "authentication",
+        "refresh": "initial_refresh",
+        "platforms": "platform_setup",
+    }[failure_stage]
+    assert hass.data["ezviz_cloud"]["_setup_diagnostics"][entry.entry_id][
+        "stage"
+    ] == expected_stage
     client.get_mqtt_client.assert_not_called()
     assert not hass._shutdown_jobs
 

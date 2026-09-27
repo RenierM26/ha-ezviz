@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 
 from pyezvizapi.client import EzvizClient
@@ -39,6 +40,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
+    SETUP_DIAGNOSTICS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
@@ -67,7 +69,23 @@ PLATFORMS: list[Platform] = [
 TARGET_VERSION = 4
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
+def _record_setup_failure(
+    hass: HomeAssistant, entry: ConfigEntry, stage: str, error: BaseException
+) -> None:
+    """Keep a credential-free failure summary available while setup is retried."""
+    hass.data.setdefault(DOMAIN, {}).setdefault(SETUP_DIAGNOSTICS, {})[
+        entry.entry_id
+    ] = {
+        "state": "failed",
+        "stage": stage,
+        "error_type": type(error).__name__,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+
+
+async def async_setup_entry(  # noqa: PLR0915
+    hass: HomeAssistant, entry: EzvizConfigEntry
+) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -77,19 +95,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
 
     # Web-profile tokens cannot be reused for the Android push profile.
     if not isinstance(entry.data.get(CONF_TOKEN), dict):
-        raise ConfigEntryAuthFailed("Sign in again to migrate EZVIZ push credentials")
+        error = ConfigEntryAuthFailed("Sign in again to migrate EZVIZ push credentials")
+        _record_setup_failure(hass, entry, "credential_validation", error)
+        raise error
 
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
     client = None
     coordinator = None
     setup_complete = False
+    setup_stage = "credential_storage"
     try:
         token_store = EzvizTokenStore(hass, entry)
         token = await token_store.async_load()
+        setup_stage = "authentication"
         client = EzvizClient(
             token=token, timeout=timeout, on_token_updated=token_store.save
         )
         await hass.async_add_executor_job(client.login)
+        setup_stage = "initial_refresh"
         coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
         await coordinator.async_config_entry_first_refresh()
 
@@ -101,6 +124,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
             hass.http.register_view(ImageProxyView(hass))
             domain_data["_http_view_registered"] = True
 
+        setup_stage = "platform_setup"
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         # HA cancels monitors before this event. This awaited handler anchors
         # shared cleanup in the integration-stop phase, not the earlier task set.
@@ -114,15 +138,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
 
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, shutdown))
         ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
+        domain_data.setdefault(SETUP_DIAGNOSTICS, {}).pop(entry.entry_id, None)
         mqtt_handler.async_start()
         setup_complete = True
         return True
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
+        _record_setup_failure(hass, entry, setup_stage, err)
         raise ConfigEntryAuthFailed from err
     except (InvalidURL, HTTPError, PyEzvizError, OSError) as err:
+        _record_setup_failure(hass, entry, setup_stage, err)
         raise ConfigEntryNotReady(
             f"Unable to initialize EZVIZ ({type(err).__name__})"
         ) from err
+    except Exception as err:
+        _record_setup_failure(hass, entry, setup_stage, err)
+        raise
     finally:
         if not setup_complete:
             if coordinator is not None:

@@ -4,6 +4,7 @@ from typing import Final
 
 DOMAIN: Final = "ezviz_cloud"
 MANUFACTURER: Final = "EZVIZ"
+SETUP_DIAGNOSTICS: Final = "_setup_diagnostics"
 
 # ---------------------------
 # Entry/data typing

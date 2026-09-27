@@ -1,7 +1,7 @@
 """Provides the ezviz DataUpdateCoordinator."""
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 import logging
 
 from pyezvizapi.client import EzvizClient
@@ -31,17 +31,22 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize global EZVIZ data updater."""
         self.ezviz_client = api
         self._api_timeout = api_timeout
+        self.last_update_attempt_at: str | None = None
+        self.last_update_success_at: str | None = None
         update_interval = timedelta(seconds=30)
 
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval)
 
     async def _async_update_data(self) -> dict:
         """Fetch data from EZVIZ."""
+        self.last_update_attempt_at = datetime.now(UTC).isoformat()
         try:
             async with asyncio.timeout(self._api_timeout):
-                return await self.hass.async_add_executor_job(
+                data = await self.hass.async_add_executor_job(
                     self.ezviz_client.load_cameras
                 )
+            self.last_update_success_at = datetime.now(UTC).isoformat()
+            return data
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error

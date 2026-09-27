@@ -1,6 +1,6 @@
 # Channel-99 migration (preview)
 
-This branch requires pyEzvizApi PR #276. The manifest temporarily pins its reviewed
+This branch requires pyEzvizApi PR #276. The manifest temporarily pins its current
 commit as a source archive; replace this with the published package version before
 releasing the integration. Tested runtime: Home Assistant 2026.9.2 / Python 3.14.
 
@@ -37,7 +37,13 @@ continues. Retry reload once cleanup completes. This avoids a second worker usin
 the same persisted push identity. HA shutdown itself is not held indefinitely.
 
 Loaded resources live in typed `ConfigEntry.runtime_data`. Platforms, diagnostics,
-options and media browsing read that same owner. The monitor is an entry-owned
+options and media browsing read that same owner. Diagnostics are generated from
+cached state only: they never make an EZVIZ request. They report polling health,
+push lifecycle and retry state, event timing, credential-storage health, and safe
+setup-failure categories. Camera serials, names, credentials, endpoints, and other
+identifiers are redacted, including serials used as mapping keys.
+
+The monitor is an entry-owned
 background task; cleanup is a separate tracked task so monitor cancellation cannot
 skip SDK stop. An awaited HA stop-event handler quiesces polling and waits for that same
 cleanup task after background cancellation. Ordinary unload unregisters the
@@ -45,14 +51,14 @@ handler. Token storage continues to reject deferred shutdown writes. Failed setu
 coordinator. If platform unload fails after push stops, a replacement handler is
 started only after the old SDK worker has exited.
 
-The five-second fatal-error check is a nonblocking SDK state read, not an executor
-job or reconnect loop. An SDK error callback could replace it later; no library
-API change is needed for this lifecycle refactor.
+The five-second fatal-error check and diagnostic snapshot are nonblocking SDK state
+reads, not executor jobs or reconnect loops.
 
 ## Validation and remaining release work
 
 - Offline lifecycle and real HA-runtime tests cover setup/polling independence,
-  save acknowledgement/failure, reauth races, initial login/MFA and reauth/MFA.
+  save acknowledgement/failure, reauth races, initial login/MFA, reauth/MFA,
+  degraded diagnostics, and recursive identifier redaction.
 - This is not yet a deployment test in the user's running Home Assistant.
 - Replace the temporary dependency archive pin with a released version.
 - Confirm Android background notification coexistence and long-duration behavior.

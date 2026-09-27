@@ -2,6 +2,7 @@
 
 import asyncio
 from copy import deepcopy
+from datetime import UTC, datetime
 import os
 from typing import Any
 
@@ -61,11 +62,46 @@ class EzvizTokenStore:
         self.removed: set[str] = data.setdefault("removed_token_stores", set())
         locks = data.setdefault("token_store_locks", {})
         self.lock: asyncio.Lock = locks.setdefault(entry.entry_id, asyncio.Lock())
+        self._state = "not_loaded"
+        self._source: str | None = None
+        self._file_present: bool | None = None
+        self._last_load_at: str | None = None
+        self._last_save_at: str | None = None
+        self._last_error_type: str | None = None
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return storage health without exposing paths or credential material."""
+        return {
+            "state": self._state,
+            "source": self._source,
+            "file_present": self._file_present,
+            "last_load_at": self._last_load_at,
+            "last_save_at": self._last_save_at,
+            "last_error_type": self._last_error_type,
+            "save_in_progress": self.lock.locked(),
+            "credential_generation_current": (
+                self.entry.data.get(CONF_TOKEN, {}).get("session_id") == self.seed
+            ),
+        }
 
     async def async_load(self) -> dict[str, Any]:
         """Prefer rotating state only if it belongs to the current login."""
+        try:
+            token = await self._async_load()
+        except Exception as error:
+            self._state = "error"
+            self._last_error_type = type(error).__name__
+            raise
+        self._state = "ready"
+        self._last_error_type = None
+        self._last_load_at = datetime.now(UTC).isoformat()
+        return token
+
+    async def _async_load(self) -> dict[str, Any]:
+        """Load one credential snapshot under the entry's persistence lock."""
         async with self.lock:
             existed = await self.hass.async_add_executor_job(os.path.exists, self.store.path)
+            self._file_present = existed
             # HA Store normally renames corrupt JSON and returns an empty state.
             # Preflight this owned token file so corruption stays fail-closed on
             # subsequent setup retries too, rather than creating another device.
@@ -78,26 +114,39 @@ class EzvizTokenStore:
             if saved is None:
                 if existed:
                     raise OSError("EZVIZ token storage could not be read")
+                self._source = "config_entry"
                 return deepcopy(self.entry.data[CONF_TOKEN])
             if (not isinstance(saved, dict) or not isinstance(saved.get("seed"), str)
                     or not isinstance(saved.get("token"), dict)):
                 raise OSError("EZVIZ token storage is malformed")
             if saved["seed"] == self.seed:
+                self._source = "private_store"
                 return deepcopy(_validate_token(saved["token"]))
             replacement = deepcopy(self.entry.data[CONF_TOKEN])
             await self.store.async_save({"seed": self.seed, "token": replacement})
+            self._file_present = True
+            self._source = "config_entry_replaced_obsolete_store"
             return replacement
 
     async def async_save(self, snapshot: dict[str, Any]) -> None:
         """Serialize saves across reloads, rejecting superseded login state."""
-        async with self.lock:
-            if self.entry.entry_id in self.removed:
-                raise RuntimeError("EZVIZ entry was removed; refusing credential save")
-            if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
-                raise RuntimeError("EZVIZ login changed during token persistence")
-            await self.store.async_save({"seed": self.seed, "token": snapshot})
-            if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
-                raise RuntimeError("EZVIZ login changed during token persistence")
+        try:
+            async with self.lock:
+                if self.entry.entry_id in self.removed:
+                    raise RuntimeError("EZVIZ entry was removed; refusing credential save")
+                if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
+                    raise RuntimeError("EZVIZ login changed during token persistence")
+                await self.store.async_save({"seed": self.seed, "token": snapshot})
+                if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
+                    raise RuntimeError("EZVIZ login changed during token persistence")
+        except Exception as error:
+            self._state = "error"
+            self._last_error_type = type(error).__name__
+            raise
+        self._state = "ready"
+        self._file_present = True
+        self._last_error_type = None
+        self._last_save_at = datetime.now(UTC).isoformat()
 
     @staticmethod
     async def async_remove(hass: HomeAssistant, entry_id: str) -> None:

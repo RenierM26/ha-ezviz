@@ -2,7 +2,9 @@
 
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 import logging
+from typing import Any
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.exceptions import (
@@ -44,11 +46,34 @@ class EzvizMqttHandler:
         self._stop_task: asyncio.Task | None = None
         self._startup: asyncio.Future | None = None
         self._stopping = asyncio.Event()
+        self._state = "idle"
+        self._last_error_category: str | None = None
+        self._last_error_type: str | None = None
+        self._events_received = 0
+        self._last_event_at: str | None = None
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return a credential-free snapshot without performing network I/O."""
+        sdk: dict[str, Any] | None = None
+        if self._mqtt is not None:
+            snapshot = self._mqtt.get_push_diagnostics()
+            if isinstance(snapshot, dict):
+                sdk = snapshot
+        return {
+            "state": self._state,
+            "last_error_category": self._last_error_category,
+            "last_error_type": self._last_error_type,
+            "events_received": self._events_received,
+            "last_event_at": self._last_event_at,
+            "cleanup_pending": self._stop_task is not None and not self._stop_task.done(),
+            "sdk": sdk,
+        }
 
     def async_start(self) -> None:
         """Start optional push in the background without delaying entity setup."""
         if self._task is not None or self._stopping.is_set():
             return
+        self._state = "starting"
         self._task = self._config_entry.async_create_background_task(
             self._hass, self._async_connect(), "EZVIZ push monitor"
         )
@@ -63,21 +88,31 @@ class EzvizMqttHandler:
             self._startup = asyncio.create_task(self._async_start(), name="EZVIZ SDK startup")
             # Cancelling the monitor must not lose ownership of executor startup.
             await asyncio.shield(self._startup)
+            self._state = "monitoring"
             while not self._stopping.is_set():
                 self._check_health()
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stopping.wait(), PUSH_HEALTH_SECONDS)
         except EzvizTokenPersistenceError:
+            self._state = "failed"
+            self._last_error_category = "credential_storage"
+            self._last_error_type = "EzvizTokenPersistenceError"
             ir.async_create_issue(
                 self._hass, DOMAIN, f"push_storage_{self._entry}",
                 is_fixable=False, severity=ir.IssueSeverity.ERROR,
                 translation_key="push_storage",
             )
             _LOGGER.error("EZVIZ push stopped because credential storage failed")
-        except (EzvizAuthTokenExpired, EzvizPushFatalError):
+        except (EzvizAuthTokenExpired, EzvizPushFatalError) as err:
+            self._state = "failed"
+            self._last_error_category = "reauthentication_required"
+            self._last_error_type = type(err).__name__
             _LOGGER.warning("EZVIZ push requires reauthentication; polling continues")
             self._config_entry.async_start_reauth(self._hass)
         except Exception as err:
+            self._state = "failed"
+            self._last_error_category = "startup"
+            self._last_error_type = type(err).__name__
             _LOGGER.error("EZVIZ push could not start (%s); polling continues", type(err).__name__)
         finally:
             self._stopping.set()
@@ -100,6 +135,8 @@ class EzvizMqttHandler:
 
     async def async_stop(self) -> bool:
         """Stop monitoring and bound the caller's wait for SDK cleanup."""
+        if self._state != "failed":
+            self._state = "stopping"
         self._stopping.set()
         cleanup = self._ensure_cleanup()
         try:
@@ -109,6 +146,8 @@ class EzvizMqttHandler:
         except TimeoutError:
             _LOGGER.debug("EZVIZ push cleanup still pending; retry unloading later")
             return False
+        if self._state != "failed":
+            self._state = "stopped"
         return True
 
     def _check_health(self) -> None:
@@ -155,6 +194,8 @@ class EzvizMqttHandler:
             _LOGGER.debug("EZVIZ push cleanup failed (%s)", type(err).__name__)
             return False
         self._mqtt = None
+        if self._state != "failed":
+            self._state = "stopped"
         _LOGGER.debug("EZVIZ MQTT stopped")
         return True
 
@@ -165,6 +206,8 @@ class EzvizMqttHandler:
             """Handle incoming MQTT push message."""
             if self._stopping.is_set():
                 return
+            self._events_received += 1
+            self._last_event_at = datetime.now(UTC).isoformat()
             serial = event["ext"]["device_serial"]
             ha_device_id = None
 
