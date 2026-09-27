@@ -45,7 +45,7 @@ from .const import (
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
 from .runtime import EzvizConfigEntry, EzvizRuntimeData
-from .token_store import EzvizTokenStore
+from .token_store import EzvizTokenStore, create_storage_issue
 from .views import ImageProxyView
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,7 +111,9 @@ async def async_setup_entry(  # noqa: PLR0915
         client = EzvizClient(
             token=token, timeout=timeout, on_token_updated=token_store.save
         )
-        await hass.async_add_executor_job(client.login)
+        token = await hass.async_add_executor_job(client.login)
+        setup_stage = "credential_storage_verification"
+        await token_store.async_save(token)
         setup_stage = "initial_refresh"
         coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
         await coordinator.async_config_entry_first_refresh()
@@ -133,11 +135,10 @@ async def async_setup_entry(  # noqa: PLR0915
             # in case a failed platform unload required restarting push.
             data = entry.runtime_data
             await data.coordinator.async_shutdown()
-            if await data.push.async_stop():
+            if await data.push.async_stop(terminal=True):
                 await hass.async_add_executor_job(data.client.close_session)
 
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, shutdown))
-        ir.async_delete_issue(hass, DOMAIN, f"push_storage_{entry.entry_id}")
         domain_data.setdefault(SETUP_DIAGNOSTICS, {}).pop(entry.entry_id, None)
         mqtt_handler.async_start()
         setup_complete = True
@@ -146,6 +147,11 @@ async def async_setup_entry(  # noqa: PLR0915
         _record_setup_failure(hass, entry, setup_stage, err)
         raise ConfigEntryAuthFailed from err
     except (InvalidURL, HTTPError, PyEzvizError, OSError) as err:
+        if isinstance(err, OSError) or setup_stage in {
+            "credential_storage",
+            "credential_storage_verification",
+        }:
+            create_storage_issue(hass, entry.entry_id)
         _record_setup_failure(hass, entry, setup_stage, err)
         raise ConfigEntryNotReady(
             f"Unable to initialize EZVIZ ({type(err).__name__})"

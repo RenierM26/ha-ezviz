@@ -180,7 +180,9 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         client.login.return_value = token
         monkeypatch.setattr(setup, "EzvizClient", MagicMock(return_value=client))
         monkeypatch.setattr(setup, "EzvizTokenStore", MagicMock(return_value=SimpleNamespace(
-            async_load=AsyncMock(return_value=token), save=MagicMock()
+            async_load=AsyncMock(return_value=token),
+            async_save=AsyncMock(),
+            save=MagicMock(),
         )))
         coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))
@@ -248,6 +250,48 @@ def test_unload_waits_for_cleanup_before_allowing_replacement(integration, monke
         mqtt.stop.side_effect = None
         await asyncio.wait_for(handler._stop_task, 2)
         assert handler._mqtt is None
+
+    asyncio.run(scenario())
+
+
+def test_terminal_stop_cancels_cleanup_retries(integration, monkeypatch):
+    async def scenario():
+        handler, mqtt, _ = make_handler(integration)
+        handler._mqtt = mqtt
+        mqtt.stop.side_effect = HTTPError()
+        monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
+        monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
+
+        assert not await handler.async_stop(terminal=True)
+        calls_after_deadline = mqtt.stop.call_count
+        await asyncio.sleep(0.02)
+
+        assert handler._stop_task.cancelled()
+        assert handler.diagnostics()["cleanup_abandoned"] is True
+        assert mqtt.stop.call_count == calls_after_deadline
+        assert handler._ensure_cleanup() is handler._stop_task
+        assert not await handler.async_stop(terminal=True)
+        assert mqtt.stop.call_count == calls_after_deadline
+
+    asyncio.run(scenario())
+
+
+def test_terminal_stop_does_not_recreate_cleanup_after_late_startup(
+    integration, monkeypatch
+):
+    async def scenario():
+        handler, _, _ = make_handler(integration)
+        release = asyncio.Event()
+        handler._startup = asyncio.create_task(release.wait())
+        monkeypatch.setattr(integration.mqtt, "PUSH_STOP_TIMEOUT_SECONDS", 0.01)
+
+        assert not await handler.async_stop(terminal=True)
+        abandoned = handler._stop_task
+        assert abandoned.cancelled()
+
+        release.set()
+        await handler._startup
+        assert handler._ensure_cleanup() is abandoned
 
     asyncio.run(scenario())
 
@@ -354,14 +398,11 @@ def test_fatal_worker_errors_stop_without_retry_or_blocking_polling(
         if cleanup_failure:
             mqtt.stop.side_effect = [TimeoutError(), None]
         monkeypatch.setattr(integration.mqtt, "PUSH_CLEANUP_RETRY_SECONDS", 0.001)
-        issue = MagicMock()
-        monkeypatch.setattr(integration.mqtt.ir, "async_create_issue", issue)
         handler.async_start()
         await asyncio.wait_for(handler._task, 1)
         mqtt.connect.assert_called_once()
         assert mqtt.stop.call_count == (2 if cleanup_failure else 1)
         if storage_failure:
-            issue.assert_called_once()
             handler._config_entry.async_start_reauth.assert_not_called()
         else:
             handler._config_entry.async_start_reauth.assert_called_once()

@@ -16,7 +16,9 @@ rotation is stored privately through HA's Store API. Storage writes are atomic,
 use fsync, and must complete successfully before the SDK continues its handshake.
 Storage errors stop push and create a repair issue; they never trigger silent
 allocation of another push-device identity. Do not delete token storage to work
-around a disk/permission problem.
+around a disk/permission problem. Setup verifies the private store with an
+acknowledged write before clearing that repair, so merely reading a token after a
+restart does not claim that disk or permission problems are fixed.
 
 ## Lifecycle
 
@@ -35,6 +37,9 @@ Unload waits up to 5 seconds for cleanup. If a setup/network operation is still
 pending, unload returns False and keeps the old runtime registered while cleanup
 continues. Retry reload once cleanup completes. This avoids a second worker using
 the same persisted push identity. HA shutdown itself is not held indefinitely.
+At terminal shutdown the integration cancels its tracked cleanup retry after the
+five-second deadline and marks it abandoned; late startup completion still runs
+the SDK's synchronous stop guard, but cannot create another HA cleanup task.
 
 Loaded resources live in typed `ConfigEntry.runtime_data`. Platforms, diagnostics,
 options and media browsing read that same owner. Diagnostics are generated from

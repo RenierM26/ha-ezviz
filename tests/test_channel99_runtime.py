@@ -22,6 +22,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util.file import WriteError
 
 
@@ -65,6 +66,9 @@ async def test_real_storage_write_failure_is_not_acknowledged(tmp_path, monkeypa
         await asyncio.to_thread(persistence.save, credentials())
     assert persistence.diagnostics()["state"] == "error"
     assert persistence.diagnostics()["last_error_type"] == "OSError"
+    assert ir.async_get(hass).async_get_issue(
+        "ezviz_cloud", "push_storage_entry"
+    ) is not None
 
 
 @pytest.mark.asyncio
@@ -78,6 +82,9 @@ async def test_reauth_rejects_old_saves_and_ignores_old_login_cache(tmp_path):
     assert old.lock is new.lock
     with pytest.raises(RuntimeError, match="login changed"):
         await old.async_save(credentials())
+    assert ir.async_get(hass).async_get_issue(
+        "ezviz_cloud", "push_storage_entry"
+    ) is None
     assert (await new.async_load())["session_id"] == "reauthenticated"
     path = tmp_path / ".storage/ezviz_cloud.entry.token"
     stored = json.loads(path.read_text())["data"]
@@ -189,6 +196,9 @@ async def test_corrupt_json_stays_fail_closed_across_repeated_setup(tmp_path):
         with pytest.raises(OSError, match="decoded"):
             await EzvizTokenStore(hass, entry).async_load()
         assert path.exists()
+        assert ir.async_get(hass).async_get_issue(
+            "ezviz_cloud", "push_storage_entry"
+        ) is not None
 
 
 @pytest.mark.asyncio
@@ -254,6 +264,7 @@ async def test_setup_failure_closes_client_and_leaves_no_runtime(tmp_path, monke
     client = Mock()
     coordinator = Mock(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
     persistence = Mock(async_load=AsyncMock(return_value=credentials()))
+    persistence.async_save = AsyncMock()
     monkeypatch.setattr(integration, "EzvizClient", Mock(return_value=client))
     monkeypatch.setattr(integration, "EzvizTokenStore", Mock(return_value=persistence))
     monkeypatch.setattr(integration, "EzvizDataUpdateCoordinator", Mock(return_value=coordinator))
@@ -286,8 +297,59 @@ async def test_setup_failure_closes_client_and_leaves_no_runtime(tmp_path, monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["load", "verification"])
+async def test_setup_storage_failure_keeps_repair_issue(
+    tmp_path, monkeypatch, failure_stage
+):
+    hass = HomeAssistant(str(tmp_path))
+    entry = runtime_entry(hass)
+    client = Mock(login=Mock(return_value=credentials()))
+    persistence = Mock(
+        async_load=AsyncMock(return_value=credentials()),
+        async_save=AsyncMock(),
+    )
+    error = OSError("synthetic storage failure")
+    if failure_stage == "load":
+        persistence.async_load.side_effect = error
+    else:
+        persistence.async_save.side_effect = error
+    monkeypatch.setattr(integration, "EzvizClient", Mock(return_value=client))
+    monkeypatch.setattr(integration, "EzvizTokenStore", Mock(return_value=persistence))
+
+    with pytest.raises(integration.ConfigEntryNotReady):
+        await integration.async_setup_entry(hass, entry)
+
+    issue = ir.async_get(hass).async_get_issue(
+        "ezviz_cloud", f"push_storage_{entry.entry_id}"
+    )
+    assert issue is not None
+    if failure_stage == "load":
+        client.login.assert_not_called()
+    else:
+        persistence.async_save.assert_awaited_once_with(credentials())
+
+
+@pytest.mark.asyncio
+async def test_successful_store_write_clears_repair_issue(tmp_path):
+    hass = HomeAssistant(str(tmp_path))
+    entry: Any = SimpleNamespace(entry_id="entry", data={CONF_TOKEN: credentials()})
+    integration.create_storage_issue(hass, entry.entry_id)
+    assert ir.async_get(hass).async_get_issue(
+        "ezviz_cloud", "push_storage_entry"
+    ) is not None
+
+    await EzvizTokenStore(hass, entry).async_save(credentials())
+
+    assert ir.async_get(hass).async_get_issue(
+        "ezviz_cloud", "push_storage_entry"
+    ) is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cancel_monitor_first, stop_timeout", [(False, False), (True, False), (False, True)])
-async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_path, monkeypatch, cancel_monitor_first, stop_timeout):
+async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(  # noqa: PLR0915
+    tmp_path, monkeypatch, cancel_monitor_first, stop_timeout
+):
     hass = HomeAssistant(str(tmp_path))
     entry = runtime_entry(hass)
     client, mqtt = Mock(), Mock()
@@ -295,7 +357,8 @@ async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_pa
     coordinator = Mock(async_config_entry_first_refresh=AsyncMock(), async_shutdown=AsyncMock())
     monkeypatch.setattr(integration, "EzvizClient", Mock(return_value=client))
     monkeypatch.setattr(integration, "EzvizTokenStore", Mock(return_value=Mock(
-        async_load=AsyncMock(return_value=credentials())
+        async_load=AsyncMock(return_value=credentials()),
+        async_save=AsyncMock(),
     )))
     monkeypatch.setattr(integration, "EzvizDataUpdateCoordinator", Mock(return_value=coordinator))
     monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", AsyncMock())
@@ -318,8 +381,9 @@ async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_pa
         mqtt.stop.side_effect = blocked_stop
         timed_out = asyncio.Event()
         original_stop = handler.async_stop
-        async def observed_stop():
-            result = await original_stop()
+        async def observed_stop(*, terminal=False):
+            assert terminal
+            result = await original_stop(terminal=terminal)
             assert not result
             timed_out.set()
             return result
@@ -332,6 +396,10 @@ async def test_real_ha_shutdown_cleans_up_even_after_monitor_cancellation(tmp_pa
         await hass.async_stop()
     finally:
         released.set()
+    if stop_timeout:
+        async with asyncio.timeout(1):
+            while handler._mqtt is not None:
+                await asyncio.sleep(0)
     mqtt.stop.assert_called_once()
     if not stop_timeout:
         client.close_session.assert_called_once()

@@ -16,7 +16,7 @@ from pyezvizapi.mqtt import MQTTClient
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
@@ -51,6 +51,7 @@ class EzvizMqttHandler:
         self._last_error_type: str | None = None
         self._events_received = 0
         self._last_event_at: str | None = None
+        self._cleanup_abandoned = False
 
     def diagnostics(self) -> dict[str, Any]:
         """Return a credential-free snapshot without performing network I/O."""
@@ -66,6 +67,7 @@ class EzvizMqttHandler:
             "events_received": self._events_received,
             "last_event_at": self._last_event_at,
             "cleanup_pending": self._stop_task is not None and not self._stop_task.done(),
+            "cleanup_abandoned": self._cleanup_abandoned,
             "sdk": sdk,
         }
 
@@ -97,11 +99,6 @@ class EzvizMqttHandler:
             self._state = "failed"
             self._last_error_category = "credential_storage"
             self._last_error_type = "EzvizTokenPersistenceError"
-            ir.async_create_issue(
-                self._hass, DOMAIN, f"push_storage_{self._entry}",
-                is_fixable=False, severity=ir.IssueSeverity.ERROR,
-                translation_key="push_storage",
-            )
             _LOGGER.error("EZVIZ push stopped because credential storage failed")
         except (EzvizAuthTokenExpired, EzvizPushFatalError) as err:
             self._state = "failed"
@@ -116,7 +113,8 @@ class EzvizMqttHandler:
             _LOGGER.error("EZVIZ push could not start (%s); polling continues", type(err).__name__)
         finally:
             self._stopping.set()
-            await asyncio.shield(self._ensure_cleanup())
+            if not self._cleanup_abandoned:
+                await asyncio.shield(self._ensure_cleanup())
 
     async def _async_start(self) -> None:
         # HA cancels executor futures submitted from a background task directly,
@@ -126,6 +124,9 @@ class EzvizMqttHandler:
 
     def _ensure_cleanup(self) -> asyncio.Task:
         """One cleanup owner, independent of cancellation of the monitor."""
+        if self._cleanup_abandoned:
+            assert self._stop_task is not None
+            return self._stop_task
         if self._stop_task is None or self._stop_task.cancelled():
             # Not a background task: HA must allow cleanup during shutdown.
             self._stop_task = self._hass.async_create_task(
@@ -133,17 +134,27 @@ class EzvizMqttHandler:
             )
         return self._stop_task
 
-    async def async_stop(self) -> bool:
-        """Stop monitoring and bound the caller's wait for SDK cleanup."""
+    async def async_stop(self, *, terminal: bool = False) -> bool:
+        """Stop monitoring, abandoning tracked cleanup only at HA shutdown."""
         if self._state != "failed":
             self._state = "stopping"
         self._stopping.set()
+        if self._cleanup_abandoned:
+            return False
         cleanup = self._ensure_cleanup()
         try:
             await asyncio.wait_for(
                 asyncio.shield(cleanup), PUSH_STOP_TIMEOUT_SECONDS
             )
         except TimeoutError:
+            if terminal:
+                self._cleanup_abandoned = True
+                cleanup.cancel()
+                await asyncio.gather(cleanup, return_exceptions=True)
+                _LOGGER.warning(
+                    "EZVIZ push cleanup exceeded the shutdown deadline; abandoning wait"
+                )
+                return False
             _LOGGER.debug("EZVIZ push cleanup still pending; retry unloading later")
             return False
         if self._state != "failed":

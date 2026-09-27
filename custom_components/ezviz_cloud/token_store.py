@@ -11,10 +11,23 @@ from pyezvizapi.exceptions import EzvizAuthTokenExpired
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.util.json import load_json
 
 from .const import CONF_TOKEN, DOMAIN
+
+
+def create_storage_issue(hass: HomeAssistant, entry_id: str) -> None:
+    """Report that credentials could not be read or written durably."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"push_storage_{entry_id}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="push_storage",
+    )
 
 
 def _validate_token(token: Any) -> dict[str, Any]:
@@ -91,6 +104,8 @@ class EzvizTokenStore:
         except Exception as error:
             self._state = "error"
             self._last_error_type = type(error).__name__
+            if isinstance(error, OSError):
+                create_storage_issue(self.hass, self.entry.entry_id)
             raise
         self._state = "ready"
         self._last_error_type = None
@@ -142,11 +157,16 @@ class EzvizTokenStore:
         except Exception as error:
             self._state = "error"
             self._last_error_type = type(error).__name__
+            if isinstance(error, OSError):
+                create_storage_issue(self.hass, self.entry.entry_id)
             raise
         self._state = "ready"
         self._file_present = True
         self._last_error_type = None
         self._last_save_at = datetime.now(UTC).isoformat()
+        ir.async_delete_issue(
+            self.hass, DOMAIN, f"push_storage_{self.entry.entry_id}"
+        )
 
     @staticmethod
     async def async_remove(hass: HomeAssistant, entry_id: str) -> None:
