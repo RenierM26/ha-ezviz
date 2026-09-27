@@ -13,15 +13,14 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .migration import migrate_unique_ids_with_coordinator
+from .runtime import EzvizConfigEntry
 from .utility import (
     network_type_value,
     passes_description_gates,
@@ -184,12 +183,10 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     await migrate_unique_ids_with_coordinator(
         hass,

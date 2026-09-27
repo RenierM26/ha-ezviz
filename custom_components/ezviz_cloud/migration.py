@@ -19,7 +19,6 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.issue_registry import (
@@ -30,6 +29,7 @@ from homeassistant.helpers.issue_registry import (
 
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
+from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def _build_legacy_map(
 
 def _create_or_clear_issue(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     platform_domain: str,
     stats: MigrationStats,
     skipped_entity_ids: list[str],
@@ -190,7 +190,7 @@ def _compute_change_for_entry(
 
 async def migrate_unique_ids_with_coordinator(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     coordinator: EzvizDataUpdateCoordinator,
     *,
     platform_domain: str,  # "sensor", "binary_sensor", "switch"

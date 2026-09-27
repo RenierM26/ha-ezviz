@@ -4,6 +4,7 @@ from typing import Final
 
 DOMAIN: Final = "ezviz_cloud"
 MANUFACTURER: Final = "EZVIZ"
+SETUP_DIAGNOSTICS: Final = "_setup_diagnostics"
 
 # ---------------------------
 # Entry/data typing
@@ -16,6 +17,8 @@ ATTR_SERIAL: Final = "serial"
 # ---------------------------
 # Config flow / data keys
 # ---------------------------
+
+CONF_TOKEN: Final = "token"
 
 CONF_SESSION_ID: Final = "session_id"
 CONF_RF_SESSION_ID: Final = "rf_session_id"
@@ -66,9 +69,7 @@ DEFAULT_FETCH_MY_KEY: Final = "fetch_my_key"
 SERVICE_WAKE_DEVICE: Final = "wake_device"
 
 # ---------------------------
-# hass.data keys
+# Camera options
 # ---------------------------
 
-DATA_COORDINATOR: Final = "coordinator"
-MQTT_HANDLER: Final = "mqtt_handler"
 OPTIONS_KEY_CAMERAS: Final = "cameras"

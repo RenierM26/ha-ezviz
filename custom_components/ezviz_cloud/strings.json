@@ -87,8 +87,8 @@
         "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
-          "password": "Verification code (older cams) or leave “fetch_my_key”",
-          "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+          "password": "Verification code (older cams) or leave \u201cfetch_my_key\u201d",
+          "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
           "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
           "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
           "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)"
@@ -526,6 +526,10 @@
     "uid_migration_review": {
       "title": "Review skipped {platform} unique_id migrations",
       "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}"
+    },
+    "push_storage": {
+      "title": "EZVIZ push credential storage failed",
+      "description": "Push notifications have stopped because rotating credentials could not be saved. Check available disk space and Home Assistant storage permissions, then reload the integration. Polling remains available. Do not delete the saved push identity to work around a storage failure."
     }
   }
 }

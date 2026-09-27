@@ -1,0 +1,192 @@
+"""Durable whole-token persistence shared by polling and push workers."""
+
+import asyncio
+from copy import deepcopy
+from datetime import UTC, datetime
+import os
+from typing import Any
+
+from pyezvizapi.exceptions import EzvizAuthTokenExpired
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
+from homeassistant.util.json import load_json
+
+from .const import CONF_TOKEN, DOMAIN
+
+
+def create_storage_issue(hass: HomeAssistant, entry_id: str) -> None:
+    """Report that credentials could not be read or written durably."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"push_storage_{entry_id}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="push_storage",
+    )
+
+
+def _validate_token(token: Any) -> dict[str, Any]:
+    """Reject incomplete credential snapshots before storage or network access."""
+    required = ("session_id", "rf_session_id", "api_url", "username", "user_id", "feature_code")
+    if (not isinstance(token, dict)
+            or any(not isinstance(token.get(key), str) or not token[key] for key in required)
+            or token.get("push_profile") != "android-channel99"):
+        raise EzvizAuthTokenExpired("EZVIZ credentials are incomplete; sign in again")
+    return token
+
+
+class DurableTokenStore(Store[dict[str, Any]]):
+    """Surface failures/deferred saves that ordinary HA Store only logs."""
+
+    _written = False
+
+    async def async_save(self, data: dict[str, Any]) -> None:
+        """Require completion, not a shutdown-delayed write acknowledgement."""
+        if self.hass.state is CoreState.stopping:
+            raise OSError("Home Assistant is stopping; token save not acknowledged")
+        self._written = False
+        await super().async_save(data)
+        if not self._written:
+            raise OSError("EZVIZ token storage did not complete")
+
+    async def _async_write_data(self, data: dict) -> None:
+        """Mark successful completion of the actual storage write."""
+        await super()._async_write_data(data)
+        self._written = True
+
+
+class EzvizTokenStore:
+    """Acknowledge SDK saves only after Home Assistant has written the snapshot."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Bind persistence to one credential login, not an obsolete reauth worker."""
+        self.hass = hass
+        self.entry = entry
+        self.seed = _validate_token(entry.data.get(CONF_TOKEN))["session_id"]
+        self.store = DurableTokenStore(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.token", private=True, atomic_writes=True
+        )
+        data = hass.data.setdefault(DOMAIN, {})
+        self.removed: set[str] = data.setdefault("removed_token_stores", set())
+        locks = data.setdefault("token_store_locks", {})
+        self.lock: asyncio.Lock = locks.setdefault(entry.entry_id, asyncio.Lock())
+        self._state = "not_loaded"
+        self._source: str | None = None
+        self._file_present: bool | None = None
+        self._last_load_at: str | None = None
+        self._last_save_at: str | None = None
+        self._last_error_type: str | None = None
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return storage health without exposing paths or credential material."""
+        return {
+            "state": self._state,
+            "source": self._source,
+            "file_present": self._file_present,
+            "last_load_at": self._last_load_at,
+            "last_save_at": self._last_save_at,
+            "last_error_type": self._last_error_type,
+            "save_in_progress": self.lock.locked(),
+            "credential_generation_current": (
+                self.entry.data.get(CONF_TOKEN, {}).get("session_id") == self.seed
+            ),
+        }
+
+    async def async_load(self) -> dict[str, Any]:
+        """Prefer rotating state only if it belongs to the current login."""
+        try:
+            token = await self._async_load()
+        except Exception as error:
+            self._state = "error"
+            self._last_error_type = type(error).__name__
+            if isinstance(error, OSError):
+                create_storage_issue(self.hass, self.entry.entry_id)
+            raise
+        self._state = "ready"
+        self._last_error_type = None
+        self._last_load_at = datetime.now(UTC).isoformat()
+        return token
+
+    async def _async_load(self) -> dict[str, Any]:
+        """Load one credential snapshot under the entry's persistence lock."""
+        async with self.lock:
+            existed = await self.hass.async_add_executor_job(os.path.exists, self.store.path)
+            self._file_present = existed
+            # HA Store normally renames corrupt JSON and returns an empty state.
+            # Preflight this owned token file so corruption stays fail-closed on
+            # subsequent setup retries too, rather than creating another device.
+            if existed:
+                try:
+                    await self.hass.async_add_executor_job(load_json, self.store.path)
+                except HomeAssistantError as error:
+                    raise OSError("EZVIZ token storage could not be decoded") from error
+            saved = await self.store.async_load()
+            if saved is None:
+                if existed:
+                    raise OSError("EZVIZ token storage could not be read")
+                self._source = "config_entry"
+                return deepcopy(self.entry.data[CONF_TOKEN])
+            if (not isinstance(saved, dict) or not isinstance(saved.get("seed"), str)
+                    or not isinstance(saved.get("token"), dict)):
+                raise OSError("EZVIZ token storage is malformed")
+            if saved["seed"] == self.seed:
+                self._source = "private_store"
+                return deepcopy(_validate_token(saved["token"]))
+            replacement = deepcopy(self.entry.data[CONF_TOKEN])
+            await self.store.async_save({"seed": self.seed, "token": replacement})
+            self._file_present = True
+            self._source = "config_entry_replaced_obsolete_store"
+            return replacement
+
+    async def async_save(self, snapshot: dict[str, Any]) -> None:
+        """Serialize saves across reloads, rejecting superseded login state."""
+        try:
+            async with self.lock:
+                if self.entry.entry_id in self.removed:
+                    raise RuntimeError("EZVIZ entry was removed; refusing credential save")
+                if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
+                    raise RuntimeError("EZVIZ login changed during token persistence")
+                await self.store.async_save({"seed": self.seed, "token": snapshot})
+                if self.entry.data[CONF_TOKEN]["session_id"] != self.seed:
+                    raise RuntimeError("EZVIZ login changed during token persistence")
+        except Exception as error:
+            self._state = "error"
+            self._last_error_type = type(error).__name__
+            if isinstance(error, OSError):
+                create_storage_issue(self.hass, self.entry.entry_id)
+            raise
+        self._state = "ready"
+        self._file_present = True
+        self._last_error_type = None
+        self._last_save_at = datetime.now(UTC).isoformat()
+        ir.async_delete_issue(
+            self.hass, DOMAIN, f"push_storage_{self.entry.entry_id}"
+        )
+
+    @staticmethod
+    async def async_remove(hass: HomeAssistant, entry_id: str) -> None:
+        """Delete credentials after in-flight saves, blocking late recreation."""
+        data = hass.data.setdefault(DOMAIN, {})
+        lock = data.setdefault("token_store_locks", {}).setdefault(entry_id, asyncio.Lock())
+        async with lock:
+            data.setdefault("removed_token_stores", set()).add(entry_id)
+            await DurableTokenStore(
+                hass, 1, f"{DOMAIN}.{entry_id}.token", private=True, atomic_writes=True
+            ).async_remove()
+
+    def save(self, snapshot: dict[str, Any]) -> None:
+        """SDK worker callback; never call from the Home Assistant event loop."""
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is self.hass.loop:
+            raise RuntimeError("EZVIZ token callback must run in an executor")
+        asyncio.run_coroutine_threadsafe(
+            self.async_save(deepcopy(snapshot)), self.hass.loop
+        ).result()

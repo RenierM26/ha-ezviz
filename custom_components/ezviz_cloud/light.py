@@ -16,7 +16,6 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -25,9 +24,9 @@ from homeassistant.util.percentage import (
     ranged_value_to_percentage,
 )
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -100,12 +99,10 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ lights based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     async_add_entities(
         EzvizLight(coordinator, serial, desc)

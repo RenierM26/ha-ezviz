@@ -15,7 +15,7 @@ from homeassistant.components.media_source import (
 )
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import DOMAIN
 from .views import async_generate_image_proxy_url
 
 ALL_CAMERAS_ID = "ALL"
@@ -87,12 +87,12 @@ class EzvizMediaSource(MediaSource):
 
         # Enumerate loaded config entries for this domain and list cameras
         for config_entry in self.hass.config_entries.async_loaded_entries(DOMAIN):
-            data = self.hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+            data = getattr(config_entry, "runtime_data", None)
             if not data:
                 continue
 
             # Per-camera entries from coordinator data
-            coordinator = data[DATA_COORDINATOR]
+            coordinator = data.coordinator
             for serial, cam in (coordinator.data or {}).items():
                 title = cam.get("name") or serial
                 # Use proxied thumbnail to support decryption like camera views
@@ -135,7 +135,8 @@ class EzvizMediaSource(MediaSource):
         self, entry_id: str, serial: str, limit: int
     ) -> BrowseMediaSource:
         """Return list of recent alarms for a camera."""
-        data = self.hass.data.get(DOMAIN, {}).get(entry_id)
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        data = getattr(entry, "runtime_data", None)
         if not data:
             return BrowseMediaSource(
                 domain=DOMAIN,
@@ -148,7 +149,7 @@ class EzvizMediaSource(MediaSource):
                 children=[],
             )
 
-        coordinator = data[DATA_COORDINATOR]
+        coordinator = data.coordinator
         client = coordinator.ezviz_client
         cam_name = (coordinator.data or {}).get(serial, {}).get("name", serial)
 

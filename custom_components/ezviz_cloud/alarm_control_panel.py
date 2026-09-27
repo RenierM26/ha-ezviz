@@ -15,14 +15,14 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntityFeature,
     AlarmControlPanelState,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN, MANUFACTURER
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
+from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,12 +49,10 @@ ALARM_TYPE = EzvizAlarmControlPanelEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up Ezviz alarm control panel."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     identifier = entry.unique_id or entry.entry_id
     device_info = DeviceInfo(

@@ -36,7 +36,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Cache pip
         uses: actions/cache@v6
@@ -51,7 +51,9 @@ jobs:
       - name: Install tooling + deps
         run: |
           pip install ruff mypy pytest types-requests
-          pip install pyezvizapi  # your runtime dep
+          pip install homeassistant==2026.9.2 pytest-asyncio
+          python -c 'import json; print("\n".join(json.load(open("custom_components/ezviz_cloud/manifest.json"))["requirements"]))' > /tmp/ezviz-requirements.txt
+          pip install -r /tmp/ezviz-requirements.txt
 
       - name: Ruff
         run: ruff check .
@@ -64,7 +66,7 @@ jobs:
         run: |
           if compgen -G "tests/test_*.py" > /dev/null; then
             # Nested tests/components requires a Home Assistant core checkout.
-            # This standalone job installs only the SDK and test tooling.
+            # Standalone tests also exercise the installed HA runtime.
             pytest -q tests/test_*.py
           else
             echo "No tests found under tests/, skipping pytest."
