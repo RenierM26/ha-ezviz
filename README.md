@@ -158,7 +158,7 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 
 See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
 Requires **pyezvizapi >=2.0.0**, now published on PyPI, for the inventory and
-channel-99 API; there are no old-SDK fallbacks. Both CI jobs qualify the published
+channel-99 API; there are no old-SDK fallbacks. All CI runtime jobs qualify the published
 2.0.0 minimum, not a source checkout. Existing camera IDs and user-data migration
 are preserved. This PR supersedes the older channel-99 proposal #234.
 
@@ -167,3 +167,10 @@ are preserved. This PR supersedes the older channel-99 proposal #234.
 See [capture-picture and snapshot behavior](docs/capture-picture.md) for the
 `ezviz_cloud.capture_picture` action, optional response and per-camera Snapshot
 image entity.
+
+## Supported HA baseline
+
+Requires **Home Assistant 2026.10.4 or newer**. CI retains the pinned 2026.10.4
+acceptance suite and separately checks native lifecycle/image/storage behavior
+on 2026.10.4 and 2026.11.0. See the shared-inventory contract for the precise
+synthetic-test boundaries and the built-in/custom EZVIZ coexistence limitation.

@@ -77,7 +77,7 @@ push health diagnostics. There is no obsolete-SDK loader, credential-login or
 constructor fallback. Existing config-entry/registry migration and web-profile
 reauthentication remain: those migrate user data, not SDK versions.
 
-Both CI jobs install **pyezvizapi==2.0.0 from PyPI** to qualify the declared
+All CI runtime jobs install **pyezvizapi==2.0.0 from PyPI** to qualify the declared
 minimum. Python 3.12 covers standalone lint/types/lifecycle tests; the separate
 Python 3.14 job qualifies actual HA 2026.10.4 and disk storage. No editable SDK
 checkout, direct-Git manifest requirement or unpublished dependency remains.
@@ -86,6 +86,43 @@ The SDK release gate is complete. Review and merge this integration separately;
 HA integration publication and production deployment still require their own
 authorization. This work supersedes the older channel-99 proposal #234 rather
 than merging its obsolete SDK pin and alternate runtime implementation.
+
+## Image CPU and shutdown ownership
+
+Last motion and Snapshot images retain separate, stable entity IDs. Both reject
+older downloads after a URL, encryption-key or capture generation update.
+Decryption, JPEG scanning, PIL decode/cropping and proxy decryption execute on
+owned worker tasks with immutable byte/key/lens inputs, not on HA's event loop.
+The image proxy releases its downloaded response and never forwards incoming HA
+authentication headers; it refuses requests once the integration is stopping.
+
+An executor call alone is not shutdown ownership. HA can cancel background
+futures before its stop event while the underlying threads continue. Critical
+worker tasks are tracked before dispatch (non-eager start), shielded from caller
+cancellation, retained by their integration owner, and joined through temporary
+stop listeners. Completion removes those listeners. Polls, actions, push
+connect/health/stop, credential login, token saves and cleanup use this boundary.
+Cancelled background push monitors are distinct from their still-owned workers.
+The registered integration stop callback awaits completed cleanup rather than
+returning at the five-second foreground-unload deadline. The framework's forced
+shutdown deadline remains a limit; arbitrary OS threads are not cancellable.
+
+Coordinators receive their config entry explicitly rather than relying on the
+ContextVar fallback. HACS declares HA 2026.10.4 as the supported minimum.
+
+## Latest-stable runtime qualification
+
+The full 52-control acceptance suite remains on the matching HA 2026.10.4 test
+plugin. A separate 16-control native suite runs on actual HA 2026.10.4 and
+2026.11.0, with neither the HA test plugin nor inconsistent dependency overrides.
+It covers real atomic/fsynced storage, failures/deferred writes, cancelled token
+producers, actual core shutdown, cancelled push/credential workers, late capture
+suppression, off-loop image/proxy processing and bounded listener lifetime.
+
+These are isolated API/lifecycle controls, not a production-instance upgrade or
+live media/broker/hardware qualification. The unmodified core's HTTP module emits
+an aiohttp inheritance deprecation warning in these environments; no integration
+warning or validator is suppressed.
 
 ## Narrow hassfest exception
 

@@ -18,6 +18,7 @@ def tokens(monkeypatch):
     package.__path__ = [str(ROOT)]
     monkeypatch.setitem(sys.modules, "token_test", package)
     monkeypatch.setitem(sys.modules, "token_test.const", SimpleNamespace(CONF_SDK_TOKEN="sdk_token", DOMAIN="ezviz_cloud"))
+    monkeypatch.setitem(sys.modules, "homeassistant.const", SimpleNamespace(EVENT_HOMEASSISTANT_STOP="homeassistant_stop"))
     class Store:
         def __init__(self, *args, **kwargs):
             assert kwargs == {"private": True, "atomic_writes": True}
@@ -47,7 +48,7 @@ def tokens(monkeypatch):
 
 def persistence(tokens, session="one", initial=None):
     entry = SimpleNamespace(entry_id="entry", data={"session_id": session, "user_id": "same-user", "url": "api.test", "sdk_token": initial})
-    return tokens.TokenPersistence(SimpleNamespace(loop=asyncio.get_running_loop()), entry)
+    return tokens.TokenPersistence(SimpleNamespace(loop=asyncio.get_running_loop(), async_create_task=lambda coro, *_args, **_kwargs: asyncio.create_task(coro), bus=SimpleNamespace(async_listen=lambda *_args: lambda: None)), entry)
 
 
 def test_worker_ack_waits_for_completed_atomic_save_and_copies_input(tokens):

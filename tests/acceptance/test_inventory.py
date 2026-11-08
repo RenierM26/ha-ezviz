@@ -33,6 +33,7 @@ from custom_components.ezviz_cloud.inventory_binary_sensor import EzvizDetectorB
 from custom_components.ezviz_cloud.inventory_power import EzvizInventoryLight, EzvizInventoryPlug
 from custom_components.ezviz_cloud.inventory_sensor import EzvizDetectorSensor
 from homeassistant.config_entries import current_entry
+from homeassistant.exceptions import HomeAssistantError
 
 
 def info(serial, category, **extra):
@@ -100,7 +101,7 @@ async def make(hass, api):
     entry.add_to_hass(hass)
     token = current_entry.set(entry)
     try:
-        result = coordinator.EzvizDataUpdateCoordinator(hass, api=api, api_timeout=2)
+        result = coordinator.EzvizDataUpdateCoordinator(hass, config_entry=entry, api=api, api_timeout=2)
     finally:
         current_entry.reset(token)
     result.async_set_updated_data(await result._async_update_data())
@@ -333,7 +334,7 @@ async def test_cancelled_camera_command_is_drained_before_session_close(
             await task
         await owner.async_stop()
         assert not order and not owner.task.done()
-        with pytest.raises(RuntimeError, match="shutting down"):
+        with pytest.raises(HomeAssistantError, match="shutting down"):
             await data.async_execute(command)
     finally:
         release.set()

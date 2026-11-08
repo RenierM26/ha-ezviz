@@ -14,6 +14,7 @@ from homeassistant.helpers import device_registry as dr
 
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
+from .workers import create_critical_task, create_executor_task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class EzvizMqttHandler:
         self._task: asyncio.Task | None = None
         self._stop_task: asyncio.Task | None = None
         self._health_task: asyncio.Task | None = None
+        self._worker_futures: set[asyncio.Future] = set()
         self._reauth_requested = False
         self._stopping = asyncio.Event()
 
@@ -53,7 +55,7 @@ class EzvizMqttHandler:
         failed = False
         while not self._stopping.is_set():
             try:
-                await self._hass.async_add_executor_job(self.start)
+                await self._async_run_worker(self.start)
             except Exception as err:  # Push is optional, including SDK failures.
                 if (
                     isinstance(err, (EzvizAuthTokenExpired, EzvizAuthVerificationCode))
@@ -74,7 +76,7 @@ class EzvizMqttHandler:
                     _LOGGER.debug("EZVIZ push retry failed (%s)", type(err).__name__)
                 failed = True
                 # Also release any partially connected Paho client before retrying.
-                await self._hass.async_add_executor_job(self.stop)
+                await self._async_run_worker(self.stop)
             else:
                 if failed and not self._stopping.is_set():
                     _LOGGER.info("EZVIZ push connection restored")
@@ -99,7 +101,7 @@ class EzvizMqttHandler:
                 mqtt = self._mqtt
                 if mqtt is None:
                     return
-                await self._hass.async_add_executor_job(mqtt.raise_if_failed)
+                await self._async_run_worker(mqtt.raise_if_failed)
             except Exception as err:
                 _LOGGER.warning(
                     "EZVIZ push worker failed (%s); polling remains active", type(err).__name__
@@ -114,9 +116,7 @@ class EzvizMqttHandler:
         """Stop retries and bound the caller's wait for SDK cleanup."""
         self._stopping.set()
         if self._stop_task is None:
-            self._stop_task = self._hass.async_create_background_task(
-                self._async_finish_stop(), "EZVIZ push cleanup"
-            )
+            self._stop_task = create_critical_task(self._hass, self._async_finish_stop(), "EZVIZ push cleanup")
         try:
             await asyncio.wait_for(asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS)
         except TimeoutError:
@@ -130,13 +130,28 @@ class EzvizMqttHandler:
 
     async def _async_finish_stop(self) -> None:
         """Serialize cleanup after startup without blocking the unload caller."""
-        if self._health_task is not None:
-            await asyncio.shield(self._health_task)
-        if self._task is not None:
-            # A timeout must not cancel the executor operation or race its cleanup.
-            await asyncio.shield(self._task)
-        while not await self._hass.async_add_executor_job(self.stop):
+        monitors = tuple(task for task in (self._health_task, self._task) if task is not None)
+        if monitors:
+            await asyncio.gather(*(asyncio.shield(task) for task in monitors), return_exceptions=True)
+        # HA may cancel the monitors first; their executor work still has owners.
+        if self._worker_futures:
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in tuple(self._worker_futures)),
+                return_exceptions=True,
+            )
+        while not await self._async_run_worker(self.stop):
             await asyncio.sleep(PUSH_RETRY_SECONDS)
+
+    async def _async_run_worker(self, func):
+        future = create_executor_task(self._hass, func)
+        self._worker_futures.add(future)
+        future.add_done_callback(self._worker_done)
+        return await asyncio.shield(future)
+
+    def _worker_done(self, future):
+        self._worker_futures.discard(future)
+        if not future.cancelled():
+            future.exception()
 
     def start(self) -> None:
         """Start MQTT listener (executor only)."""

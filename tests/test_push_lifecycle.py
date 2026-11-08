@@ -71,6 +71,8 @@ def make_handler(integration):
         data={"domain": {"entry": {"data_coordinator": MagicMock()}}},
         async_add_executor_job=executor,
         async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name, **_kwargs: asyncio.create_task(coro),
+        bus=SimpleNamespace(async_listen=lambda *_args: lambda: None),
     )
     return integration.mqtt.EzvizMqttHandler(hass, client, "entry"), mqtt, hass
 
@@ -170,6 +172,7 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         hass = SimpleNamespace(
             data={}, async_add_executor_job=executor,
             async_create_background_task=lambda coro, _name: asyncio.create_task(coro),
+        async_create_task=lambda coro, _name, **_kwargs: asyncio.create_task(coro),
             config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()),
             bus=MagicMock(), http=MagicMock(),
         )

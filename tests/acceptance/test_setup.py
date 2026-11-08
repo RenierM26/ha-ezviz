@@ -143,7 +143,7 @@ async def test_poll_timeout_and_close_keep_single_worker_and_reject_late_publish
     entry.add_to_hass(hass)
     context = current_entry.set(entry)
     try:
-        data = coordinator.EzvizDataUpdateCoordinator(hass, api=api, api_timeout=0.01)
+        data = coordinator.EzvizDataUpdateCoordinator(hass, config_entry=entry, api=api, api_timeout=0.01)
     finally:
         current_entry.reset(context)
     monkeypatch.setattr(hass, "async_add_executor_job", executor)

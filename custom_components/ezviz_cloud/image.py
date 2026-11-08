@@ -17,6 +17,7 @@ from homeassistant.components.text import DOMAIN as TEXT_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -91,6 +92,8 @@ async def async_setup_entry(
 class EzvizLastMotion(EzvizEntity, ImageEntity):
     """Return Last Motion Image from Ezviz Camera."""
 
+    _cached_image: Image | None = None
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -104,6 +107,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         """Initialize an image entity."""
         EzvizEntity.__init__(self, coordinator, serial)
         ImageEntity.__init__(self, hass)
+        self._image_generation = 0
         self._lens_index = max(1, lens_index)
         self._lens_total = max(1, lens_total)
         unique_suffix = (
@@ -137,30 +141,49 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         return True
 
     async def _async_load_image_from_url(self, url: str) -> Image | None:
-        """Load an image by url."""
+        """Fetch asynchronously and process immutable image inputs off the loop."""
+        if self.coordinator.shutting_down:
+            return None
         if response := await self._fetch_url(url):
-            image_data = response.content
-            if self.alarm_image_password:
-                try:
-                    decrypted = decrypt_image(
-                        response.content, self.alarm_image_password
-                    )
-                    segments = _extract_jpeg_segments(decrypted) or [decrypted]
-                    if len(segments) == 1 and self._lens_total > 1:
-                        segments = _split_composite_image(segments[0], self._lens_total)
-                    idx = min(self._lens_index - 1, len(segments) - 1)
-                    image_data = segments[idx]
-                except PyEzvizError:
-                    _LOGGER.warning(
-                        "%s: Can't decrypt last alarm picture, looks like it was encrypted with other password",
-                        self.entity_id,
-                    )
-                    image_data = response.content
-            return Image(
-                content=image_data,
-                content_type="image/jpeg",  # Actually returns binary/octet-stream
-            )
+            try:
+                image_data = await self.coordinator.async_execute(
+                    _process_image_bytes, response.content, self.alarm_image_password,
+                    self._lens_index, self._lens_total,
+                )
+            except HomeAssistantError:
+                if self.coordinator.shutting_down:
+                    return None
+                raise
+            except PyEzvizError:
+                _LOGGER.warning(
+                    "%s: Can't decrypt image with the configured camera key", self.entity_id
+                )
+                image_data = response.content
+            return Image(content=image_data, content_type="image/jpeg")
         return None
+
+    async def async_image(self) -> bytes | None:
+        """Reject downloads superseded by a capture, alarm URL or key update."""
+        if self.coordinator.shutting_down:
+            return None
+        if self._cached_image is not None:
+            return self._cached_image.content
+        url = self.image_url
+        if not isinstance(url, str) or not url:
+            return None
+        generation = self._image_generation
+        image = await self._async_load_image_from_url(url)
+        if self.coordinator.shutting_down or generation != self._image_generation or image is None:
+            return None
+        self._cached_image = image
+        self._attr_content_type = image.content_type
+        return image.content
+
+    @callback
+    def _invalidate_image(self) -> None:
+        """Keep older downloads from publishing after state or key changes."""
+        self._image_generation += 1
+        self._cached_image = None
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -176,7 +199,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             not in (STATE_UNAVAILABLE, self.alarm_image_password)
         ):
             self.alarm_image_password = cam_enc_key_entity_state.state
-            self._cached_image = None
+            self._invalidate_image()
             _LOGGER.debug(
                 "Camera encryption key updated for %s, encryption entity id is: %s",
                 self.entity_id,
@@ -190,10 +213,10 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
     def _sync_image_url(self) -> None:
         """Follow the last alarm picture reported by the cloud."""
         if self.data["last_alarm_pic"] != self._attr_image_url:
-            _LOGGER.debug("Image url changed to %s", self.data["last_alarm_pic"])
+            _LOGGER.debug("Image URL changed for %s", self.entity_id)
 
             self._attr_image_url = self.data["last_alarm_pic"]
-            self._cached_image = None
+            self._invalidate_image()
             self._attr_image_last_updated = dt_util.parse_datetime(
                 str(self.data["last_alarm_time"])
             )
@@ -215,7 +238,6 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_unique_id = f"{serial}_{SNAPSHOT_TYPE.key}"
         self._attr_image_url = None
         self._attr_image_last_updated = None
-        self._capture_generation = 0
 
     async def async_added_to_hass(self) -> None:
         """Listen for pictures captured by the camera entity."""
@@ -228,35 +250,28 @@ class EzvizSnapshot(EzvizLastMotion):
             )
         )
 
-    async def async_image(self) -> bytes | None:
-        """Never cache or return a download superseded by a newer capture.
-
-        Each call performs at most one download. A superseded caller gets no
-        image; a request for the new capture can load/cache its current bytes.
-        """
-        if self._cached_image is not None:
-            return self._cached_image.content
-        url = self.image_url
-        if not isinstance(url, str) or not url:
-            return None
-        generation = self._capture_generation
-        image = await self._async_load_image_from_url(url)
-        if generation != self._capture_generation or image is None:
-            return None
-        self._cached_image = image
-        self._attr_content_type = image.content_type
-        return image.content
-
     @callback
     def _handle_picture_captured(self, pic_url: str) -> None:
-        self._capture_generation += 1
         self._attr_image_url = pic_url
-        self._cached_image = None
+        self._invalidate_image()
         self._attr_image_last_updated = dt_util.utcnow()
         self.async_write_ha_state()
 
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
+
+
+def _process_image_bytes(
+    image_data: bytes, password: str | None, lens_index: int, lens_total: int
+) -> bytes:
+    """Pure worker-side decryption, JPEG scanning, decoding and lens cropping."""
+    if not password:
+        return image_data
+    decrypted = decrypt_image(image_data, password)
+    segments = _extract_jpeg_segments(decrypted) or [decrypted]
+    if len(segments) == 1 and lens_total > 1:
+        segments = _split_composite_image(segments[0], lens_total)
+    return segments[min(lens_index - 1, len(segments) - 1)]
 
 
 def _extract_jpeg_segments(image_data: bytes) -> list[bytes]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 import logging
 from typing import Any, cast
@@ -67,6 +68,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .tokens import credential_login
+from .workers import create_executor_task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -202,7 +204,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                         timeout=timeout,
                     )
                     # First attempt without SMS -> returns a token dict on success
-                    token = await self.hass.async_add_executor_job(credential_login, client)
+                    token = await asyncio.shield(create_executor_task(self.hass, credential_login, client))
 
                 except EzvizAuthVerificationCode:
                     # Stash pending values; request SMS code
@@ -268,7 +270,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._pending_user_url,
                     timeout=self._pending_user_timeout,
                 )
-                token = await self.hass.async_add_executor_job(credential_login, client, sms_code)
+                token = await asyncio.shield(create_executor_task(self.hass, credential_login, client, sms_code))
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"
@@ -334,7 +336,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
                 )
-                token = await self.hass.async_add_executor_job(credential_login, client)
+                token = await asyncio.shield(create_executor_task(self.hass, credential_login, client))
 
             except EzvizAuthVerificationCode:
                 return await self.async_step_reauth_mfa()
@@ -378,9 +380,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
                 )
-                token = await self.hass.async_add_executor_job(
-                    credential_login, client, user_input["sms_code"]
-                )
+                token = await asyncio.shield(create_executor_task(
+                    self.hass, credential_login, client, user_input["sms_code"]
+                ))
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"

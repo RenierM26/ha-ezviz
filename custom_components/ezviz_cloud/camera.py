@@ -217,7 +217,7 @@ class EzvizCamera(EzvizEntity, Camera):
         is shown by the camera's snapshot image entity.
         """
         try:
-            result = await self.hass.async_add_executor_job(
+            result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.capture_picture, self._serial, 1
             )
         except (HTTPError, PyEzvizError) as err:

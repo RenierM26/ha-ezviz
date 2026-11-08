@@ -32,19 +32,29 @@ raise a controlled action error without publishing a snapshot update. Failed
 image downloads are not cached. Existing JPEG loading/decryption and stable
 entity/service identifiers are retained.
 
-## SDK and validation boundary
+## Worker lifecycle and SDK requirement
 
-This follow-up deliberately keeps `pyezvizapi>=1.0.5.0,<2.0.0` until the separate
-inventory/channel-99 integration migration is ready. Both CI jobs exercise the
-published 1.0.5.0 minimum; the bounded range passes stock hassfest without a
-custom exception. Do not silently install SDK 2.0.0 into the unmigrated push path.
+Capture calls and image decryption/JPEG processing use coordinator-owned executor
+jobs. This includes the alarm-image HTTP proxy. Jobs are shielded from caller
+cancellation, tracked before dispatch, and joined during HA's integration-stop
+phase. Normal unload retains cleanup after its foreground wait; late results
+cannot publish after shutdown begins. HA's forced-shutdown deadlines still apply;
+Python cannot terminate an arbitrary stuck OS thread.
 
-Real-HA acceptance uses Python 3.14 and HA 2026.10.4 with synthetic SDK responses
-and mocked image downloads. It covers service dispatch/response, snapshot cache
-ordering, plain JPEG handling and error cases; it does not perform real camera
-captures or claim live device qualification.
+The manifest requires published `pyezvizapi>=2.0.0` for shared inventory and
+channel-99 migration. All CI runtime jobs qualify the actual published 2.0.0 minimum.
+The earlier bounded 1.x dependency from #237 is intentionally superseded here.
+HACS requires HA 2026.10.4 or newer, matching the tested baseline.
+
+The 24 original snapshot acceptance controls are retained alongside the inventory,
+config and push acceptance controls in pinned HA 2026.10.4. Native-runtime checks
+also run against HA 2026.10.4 and 2026.11.0, without the HA pytest plugin or a
+forced override of its dependencies. The native fixtures initialize real entries,
+registries and disk storage, and use actual `HomeAssistant.async_stop()`; network
+boundaries remain synthetic. They do not establish production boot, real camera
+captures, broker delivery or player/browser compatibility.
 
 ```sh
-python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==1.0.5.0
-python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
+python -m pip install -r tests/runtime/requirements.txt homeassistant==2026.11.0 pyezvizapi==2.0.0
+python -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 ```

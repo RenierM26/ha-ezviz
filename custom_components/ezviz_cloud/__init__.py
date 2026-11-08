@@ -50,6 +50,7 @@ from .mqtt import EzvizMqttHandler
 from .runtime import RuntimeCleanup
 from .tokens import TokenPersistence
 from .views import ImageProxyView
+from .workers import create_critical_task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
 
-    coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
+    coordinator = EzvizDataUpdateCoordinator(hass, config_entry=entry, api=client, api_timeout=timeout)
     runtime = RuntimeCleanup(hass, coordinator, persistence=persistence)
     runtimes[entry.entry_id] = runtime
 
@@ -155,7 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Clean shutdown on HA stop (stop MQTT first)
     async def _shutdown(_event: Any) -> None:
-        await runtime.async_stop()
+        await runtime.async_wait_stopped()
 
     remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
     entry.async_on_unload(remove_shutdown)
@@ -207,7 +208,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         persistence = runtime.persistence if runtime is not None else None
         await (persistence or TokenPersistence(hass, entry)).async_remove()
 
-    hass.async_create_background_task(remove(), "EZVIZ credential removal")
+    create_critical_task(hass, remove(), "EZVIZ credential removal")
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

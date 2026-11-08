@@ -29,6 +29,7 @@ def coordinator_module(monkeypatch):
     package.__path__ = [str(ROOT)]
     monkeypatch.setitem(sys.modules, "contract_test", package)
     monkeypatch.setitem(sys.modules, "contract_test.const", SimpleNamespace(DOMAIN="ezviz_cloud"))
+    monkeypatch.setitem(sys.modules, "homeassistant.const", SimpleNamespace(EVENT_HOMEASSISTANT_STOP="homeassistant_stop"))
     class Base:
         def __init__(self, hass, *args, **kwargs):
             self.hass = hass
@@ -42,7 +43,7 @@ def coordinator_module(monkeypatch):
         pass
     for name in ("homeassistant", "homeassistant.core", "homeassistant.helpers"):
         monkeypatch.setitem(sys.modules, name, MagicMock())
-    monkeypatch.setitem(sys.modules, "homeassistant.exceptions", SimpleNamespace(ConfigEntryAuthFailed=Failed))
+    monkeypatch.setitem(sys.modules, "homeassistant.exceptions", SimpleNamespace(ConfigEntryAuthFailed=Failed, HomeAssistantError=Failed))
     monkeypatch.setitem(sys.modules, "homeassistant.helpers.update_coordinator",
                         SimpleNamespace(DataUpdateCoordinator=Base, UpdateFailed=Failed))
     return load(monkeypatch, "contract_test.coordinator", "coordinator.py")
@@ -63,7 +64,7 @@ def test_availability_requires_poll_success_and_known_online(monkeypatch, status
 
 
 def test_push_does_not_mutate_previous_snapshot_or_create_phantom_device(coordinator_module):
-    c = coordinator_module.EzvizDataUpdateCoordinator(None, api=None, api_timeout=1)
+    c = coordinator_module.EzvizDataUpdateCoordinator(None, config_entry=None, api=None, api_timeout=1)
     before = {"ONE": {"status": 1, "Motion_Trigger": False, "nested": {"value": 1}}}
     retained = deepcopy(before)
     c.data = before
@@ -86,8 +87,8 @@ def test_timed_out_poll_keeps_one_worker_until_it_finishes(coordinator_module):
             await release.wait()
             now = datetime.now(UTC)
             return DeviceSnapshot(1, now, {"ONE": DeviceState("ONE", "camera", {"status": 1})}, {"ONE": DeviceHealth(True, True, now)})
-        c = coordinator_module.EzvizDataUpdateCoordinator(SimpleNamespace(async_add_executor_job=executor),
-            api=SimpleNamespace(poll_devices=lambda options: None), api_timeout=0.01)
+        c = coordinator_module.EzvizDataUpdateCoordinator(SimpleNamespace(async_add_executor_job=executor, async_create_task=lambda coro, *_args, **_kwargs: asyncio.create_task(coro), bus=SimpleNamespace(async_listen=lambda *_args: lambda: None)),
+            config_entry=None, api=SimpleNamespace(poll_devices=lambda options: None), api_timeout=0.01)
         try:
             for _ in range(2):
                 with pytest.raises(coordinator_module.UpdateFailed):

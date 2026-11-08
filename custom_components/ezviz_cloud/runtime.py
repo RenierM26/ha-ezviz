@@ -6,6 +6,8 @@ import asyncio
 import logging
 from typing import Any
 
+from .workers import create_critical_task, create_executor_task
+
 _LOGGER = logging.getLogger(__name__)
 SHUTDOWN_TIMEOUT = 5
 
@@ -28,7 +30,7 @@ class RuntimeCleanup:
         """A cancelled setup waiter must not orphan a login/token-save worker."""
         if self._stopping:
             raise RuntimeError("EZVIZ runtime is shutting down")
-        future = asyncio.ensure_future(self.hass.async_add_executor_job(func, *args))
+        future = create_executor_task(self.hass, func, *args)
         self._workers.add(future)
         future.add_done_callback(self._worker_done)
         return await asyncio.shield(future)
@@ -42,13 +44,17 @@ class RuntimeCleanup:
         self._stopping = True
         self.coordinator.begin_shutdown()
         if self.task is None:
-            self.task = self.hass.async_create_background_task(
-                self._finish(), "EZVIZ runtime cleanup"
-            )
+            self.task = create_critical_task(self.hass, self._finish(), "EZVIZ runtime cleanup")
         try:
             await asyncio.wait_for(asyncio.shield(self.task), SHUTDOWN_TIMEOUT)
         except TimeoutError:
             _LOGGER.debug("EZVIZ runtime cleanup still owns pending workers")
+
+    async def async_wait_stopped(self) -> None:
+        """HA shutdown must await the owned cleanup, not just its foreground bound."""
+        await self.async_stop()
+        if self.task is not None:
+            await asyncio.shield(self.task)
 
     async def _finish(self) -> None:
         if self._workers:

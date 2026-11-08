@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.helpers.storage import Store
 
 from .const import CONF_SDK_TOKEN, DOMAIN
+from .workers import create_critical_task
 
 PERSIST_TIMEOUT = 30
 
@@ -111,6 +112,11 @@ class TokenPersistence:
         with self._pending_lock:
             self._pending.discard(future)
 
+    async def _async_owned_save(self, token: dict) -> None:
+        """Keep HA from cancelling a Store's executor future during stop phase 1."""
+        task = create_critical_task(self._hass, self.async_save(token), "EZVIZ durable token save")
+        await asyncio.shield(task)
+
     def save_from_worker(self, token: dict) -> None:
         """Never acknowledge a queued/delayed HA config-entry update as durable."""
         try:
@@ -123,7 +129,7 @@ class TokenPersistence:
             if self._removed:
                 raise OSError("EZVIZ token owner has been removed")
             future = asyncio.run_coroutine_threadsafe(
-                self.async_save(deepcopy(token)), self._hass.loop
+                self._async_owned_save(deepcopy(token)), self._hass.loop
             )
             self._pending.add(future)
             future.add_done_callback(self._save_finished)
