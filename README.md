@@ -153,3 +153,9 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 - Entity identifiers are preserved.
 
 ---
+
+## On-demand pictures
+
+See [capture-picture and snapshot behavior](docs/capture-picture.md) for the
+`ezviz_cloud.capture_picture` action, optional response and per-camera Snapshot
+image entity.

@@ -26,6 +26,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYEZVIZAPI_VERSION: 1.0.5.0
+
 jobs:
   lint-test:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -51,7 +54,8 @@ jobs:
       - name: Install tooling + deps
         run: |
           pip install ruff mypy pytest types-requests
-          pip install pyezvizapi  # your runtime dep
+          pip install "pyezvizapi==${PYEZVIZAPI_VERSION}"
+          python -m pip check
 
       - name: Ruff
         run: ruff check .
@@ -69,3 +73,19 @@ jobs:
           else
             echo "No tests found under tests/, skipping pytest."
           fi
+
+  snapshot-ha:
+    name: Snapshot service and image lifecycle (HA 2026.10.4)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install real HA and the declared SDK minimum
+        run: |
+          python -m pip install -r tests/acceptance/requirements.txt "pyezvizapi==${PYEZVIZAPI_VERSION}"
+          python -m pip check
+      - name: Snapshot response, dispatcher and image cache controls
+        run: python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance

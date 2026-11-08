@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
@@ -220,9 +221,21 @@ class EzvizCamera(EzvizEntity, Camera):
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot capture picture: {err}") from err
 
-        pic_url = (result.get("captureInfo") or {}).get("picUrl")
-        if not pic_url:
+        capture_info = result.get("captureInfo") if isinstance(result, Mapping) else None
+        pic_url = capture_info.get("picUrl") if isinstance(capture_info, Mapping) else None
+        if not isinstance(pic_url, str) or not pic_url:
             raise HomeAssistantError("EZVIZ returned no picture url")
+        try:
+            parsed_url = urlsplit(pic_url)
+            valid_url = (
+                parsed_url.scheme in ("http", "https")
+                and parsed_url.hostname is not None
+                and parsed_url.port != 0
+            )
+        except ValueError as err:
+            raise HomeAssistantError("EZVIZ returned an invalid picture URL") from err
+        if not valid_url:
+            raise HomeAssistantError("EZVIZ returned an invalid picture URL")
 
         async_dispatcher_send(
             self.hass, SIGNAL_PICTURE_CAPTURED.format(self._serial), pic_url
