@@ -157,8 +157,7 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 ## Shared inventory and channel-99 migration
 
 See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
-This branch requires the new pyezvizapi inventory/channel-99 API directly, without
-old-SDK fallbacks. The owner will release the library first; raise the manifest
-minimum to that actual release before finishing/merging HA. CI qualifies a pinned
-new-SDK source revision in the meantime. Existing camera IDs and user-data
-migration are preserved.
+Requires **pyezvizapi >=2.0.0**, now published on PyPI, for the inventory and
+channel-99 API; there are no old-SDK fallbacks. Both CI jobs qualify the published
+2.0.0 minimum, not a source checkout. Existing camera IDs and user-data migration
+are preserved. This PR supersedes the older channel-99 proposal #234.

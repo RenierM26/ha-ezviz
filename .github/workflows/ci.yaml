@@ -27,8 +27,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Replaced with the owner-published release at integration release handoff.
-  PYEZVIZAPI_REF: bdfe09c655c6f7e9a99265239274a4d5b44ab843
+  # Exercise the published minimum declared by the integration manifest.
+  PYEZVIZAPI_VERSION: 2.0.0
 
 jobs:
   lint-test:
@@ -41,13 +41,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - name: Check out the required SDK candidate
-        uses: actions/checkout@v7
-        with:
-          repository: RenierM26/pyEzvizApi
-          ref: ${{ env.PYEZVIZAPI_REF }}
-          path: .sdk
 
       - name: Cache pip
         uses: actions/cache@v6
@@ -62,7 +55,8 @@ jobs:
       - name: Install tooling + deps
         run: |
           pip install ruff mypy pytest types-requests
-          pip install -e .sdk  # require the new SDK; no released-version fallback
+          pip install "pyezvizapi==${PYEZVIZAPI_VERSION}"
+          python -m pip check
 
       - name: Ruff
         run: ruff check custom_components tests
@@ -90,14 +84,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Check out reviewed inventory SDK candidate
-        uses: actions/checkout@v7
-        with:
-          repository: RenierM26/pyEzvizApi
-          # Source qualification, not a fictional PyPI release/manifest bump.
-          ref: ${{ env.PYEZVIZAPI_REF }}
-          path: .sdk
-      - name: Install isolated real-HA runtime and candidate SDK
-        run: python -m pip install -r tests/acceptance/requirements.txt -e .sdk
+      - name: Install isolated real-HA runtime and published SDK
+        run: |
+          python -m pip install -r tests/acceptance/requirements.txt "pyezvizapi==${PYEZVIZAPI_VERSION}"
+          python -m pip check
       - name: Actual HA storage, inventory, config, commands and lifecycle controls
         run: python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance

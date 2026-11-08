@@ -34,7 +34,7 @@ is reported as confirmed. No production device actions were used for qualificati
 
 ## Channel-99 and credentials
 
-Fresh credential/MFA login uses `enable_channel99()` when the SDK supports it.
+Fresh credential/MFA login uses the required `enable_channel99()` API.
 Legacy web-profile tokens cannot be migrated by a header change; push asks for
 reauthentication while polling continues. Full SDK token snapshots are retained,
 including push state; the password and one-time MFA code are not persisted.
@@ -66,31 +66,26 @@ Diagnostics use only cached allowlisted scalar/health fields and credential-free
 push health; they do not fetch the account again or include full token/session,
 image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
-## New-SDK requirement and release handoff
+## Published SDK requirement and release handoff
 
-This integration requires the SDK API containing
-[pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427). It directly
-uses `poll_devices()`, typed snapshots, `enable_channel99()`, the durable callback,
-and push health diagnostics. There is no old-SDK loader, credential-login or
+The manifest requires **pyezvizapi >=2.0.0**. The
+[published 2.0.0 release](https://pypi.org/project/pyezvizapi/2.0.0/) contains
+[pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), LAN RTSP
+controls and the alarm epoch correction. This integration directly uses
+`poll_devices()`, typed snapshots, `enable_channel99()`, durable callbacks and
+push health diagnostics. There is no obsolete-SDK loader, credential-login or
 constructor fallback. Existing config-entry/registry migration and web-profile
-reauthentication remain: those migrate user data, not obsolete SDK versions.
+reauthentication remain: those migrate user data, not SDK versions.
 
-Both CI jobs install the same immutable new-SDK source revision. The Python3.12
-job covers standalone lint/types/lifecycle tests, while the separate Python3.14
-job qualifies actual HA2026.10.4 and disk storage.
+Both CI jobs install **pyezvizapi==2.0.0 from PyPI** to qualify the declared
+minimum. Python 3.12 covers standalone lint/types/lifecycle tests; the separate
+Python 3.14 job qualifies actual HA 2026.10.4 and disk storage. No editable SDK
+checkout, direct-Git manifest requirement or unpublished dependency remains.
 
-The owner plans to release pyezvizapi before finishing this integration. Until
-that real release exists, the manifest's existing minimum **>=1.0.5.0 is not the
-final dependency declaration** for this PR: it must be raised to the actual new
-release before HA merge/release. No speculative version or direct-Git manifest
-requirement is introduced. Do not install this branch with the old PyPI SDK;
-use the exact CI-pinned candidate for development.
-
-Release order: merge/release the SDK through the owner-approved process; update
-this manifest to that real release; rerun integration checks; then finish/merge
-and release HA. SDK release and the final manifest bump remain explicit handoff
-gates, not an excuse to maintain compatibility fallbacks. Neither publication
-nor production deployment is part of the current implementation task.
+The SDK release gate is complete. Review and merge this integration separately;
+HA integration publication and production deployment still require their own
+authorization. This work supersedes the older channel-99 proposal #234 rather
+than merging its obsolete SDK pin and alternate runtime implementation.
 
 ## Firmware status and plug channels
 
@@ -105,11 +100,11 @@ No firmware upgrades are performed by the acceptance tests.
 
 ```sh
 python3.14 -m venv .venv-ha
-.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt -e /path/to/reviewed/pyEzvizApi
+.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.0.0
 .venv-ha/bin/python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
 ```
 
 Tests use actual HA classes and disk storage in temporary config directories,
 synthetic account/device data, and mocked outbound account/command boundaries.
-The normal Python3.12 CI uses that same new SDK revision; older SDK versions are
+The normal Python 3.12 CI uses that same published minimum; older SDK versions are
 not supported by this integration branch.
