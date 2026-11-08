@@ -23,11 +23,19 @@
       "alarm_sound_mode": {
         "default": "mdi:alarm"
       }
+    },
+    "image": {
+      "snapshot": {
+        "default": "mdi:camera"
+      }
     }
   },
   "services": {
     "wake_device": {
       "service": "mdi:sleep-off"
+    },
+    "capture_picture": {
+      "service": "mdi:camera"
     }
   }
 }

@@ -250,6 +250,9 @@
     "image": {
       "last_motion_image": {
         "name": "Last motion image"
+      },
+      "snapshot": {
+        "name": "Snapshot"
       }
     },
     "text": {
@@ -511,6 +514,10 @@
     "wake_device": {
       "name": "Wake camera",
       "description": "This can be used to wake the camera/device from hibernation."
+    },
+    "capture_picture": {
+      "name": "Capture picture",
+      "description": "Take a new picture through the EZVIZ cloud and show it in the snapshot image entity. Works without RTSP and wakes battery devices from standby."
     }
   },
   "selector": {

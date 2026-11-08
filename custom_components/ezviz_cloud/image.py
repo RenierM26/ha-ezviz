@@ -18,10 +18,17 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN, OPTIONS_KEY_CAMERAS
+from .const import (
+    CONF_ENC_KEY,
+    DATA_COORDINATOR,
+    DOMAIN,
+    OPTIONS_KEY_CAMERAS,
+    SIGNAL_PICTURE_CAPTURED,
+)
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 
@@ -31,6 +38,10 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 IMAGE_TYPE = ImageEntityDescription(
     key="last_motion_image",
     translation_key="last_motion_image",
+)
+SNAPSHOT_TYPE = ImageEntityDescription(
+    key="snapshot",
+    translation_key="snapshot",
 )
 
 JPEG_SOI = b"\xff\xd8"
@@ -70,6 +81,10 @@ async def async_setup_entry(
             )
             + 1,
         )
+    )
+    async_add_entities(
+        EzvizSnapshot(hass, coordinator, camera, cams_options.get(camera, {}))
+        for camera in coordinator.data
     )
 
 
@@ -168,6 +183,12 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 self.cam_key_entity_id,
             )
 
+        self._sync_image_url()
+
+        super()._handle_coordinator_update()
+
+    def _sync_image_url(self) -> None:
+        """Follow the last alarm picture reported by the cloud."""
         if self.data["last_alarm_pic"] != self._attr_image_url:
             _LOGGER.debug("Image url changed to %s", self.data["last_alarm_pic"])
 
@@ -177,7 +198,44 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 str(self.data["last_alarm_time"])
             )
 
-        super()._handle_coordinator_update()
+
+class EzvizSnapshot(EzvizLastMotion):
+    """Picture taken on demand with the camera's capture_picture service."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        credentials: Mapping[str, Any],
+    ) -> None:
+        """Initialize the snapshot image entity."""
+        super().__init__(hass, coordinator, serial, credentials)
+        self.entity_description = SNAPSHOT_TYPE
+        self._attr_unique_id = f"{serial}_{SNAPSHOT_TYPE.key}"
+        self._attr_image_url = None
+        self._attr_image_last_updated = None
+
+    async def async_added_to_hass(self) -> None:
+        """Listen for pictures captured by the camera entity."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PICTURE_CAPTURED.format(self._serial),
+                self._handle_picture_captured,
+            )
+        )
+
+    @callback
+    def _handle_picture_captured(self, pic_url: str) -> None:
+        self._attr_image_url = pic_url
+        self._cached_image = None
+        self._attr_image_last_updated = dt_util.utcnow()
+        self.async_write_ha_state()
+
+    def _sync_image_url(self) -> None:
+        """Snapshots only change through capture_picture."""
 
 
 def _extract_jpeg_segments(image_data: bytes) -> list[bytes]:

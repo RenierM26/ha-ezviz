@@ -64,6 +64,8 @@ DEFAULT_FETCH_MY_KEY: Final = "fetch_my_key"
 # ---------------------------
 
 SERVICE_WAKE_DEVICE: Final = "wake_device"
+SERVICE_CAPTURE_PICTURE: Final = "capture_picture"
+SIGNAL_PICTURE_CAPTURED: Final = "ezviz_cloud_picture_captured_{}"
 
 # ---------------------------
 # hass.data keys
