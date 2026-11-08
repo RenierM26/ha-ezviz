@@ -6,6 +6,7 @@ from copy import deepcopy
 import logging
 
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.exceptions import EzvizAuthTokenExpired, EzvizAuthVerificationCode
 from pyezvizapi.mqtt import MQTTClient
 
 from homeassistant.core import HomeAssistant
@@ -18,6 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PUSH_RETRY_SECONDS = 300
 PUSH_STOP_TIMEOUT_SECONDS = 5
+PUSH_HEALTH_SECONDS = 5
 
 
 class EzvizMqttHandler:
@@ -33,6 +35,8 @@ class EzvizMqttHandler:
         self._mqtt: MQTTClient | None = None
         self._task: asyncio.Task | None = None
         self._stop_task: asyncio.Task | None = None
+        self._health_task: asyncio.Task | None = None
+        self._reauth_requested = False
         self._stopping = asyncio.Event()
 
     def async_start(self) -> None:
@@ -51,6 +55,11 @@ class EzvizMqttHandler:
             try:
                 await self._hass.async_add_executor_job(self.start)
             except Exception as err:  # Push is optional, including SDK failures.
+                if isinstance(err, (EzvizAuthTokenExpired, EzvizAuthVerificationCode)) and not self._reauth_requested:
+                    self._reauth_requested = True
+                    entry = self._hass.config_entries.async_get_entry(self._entry)
+                    if entry is not None:
+                        entry.async_start_reauth(self._hass)
                 if not failed:
                     _LOGGER.warning(
                         "EZVIZ push unavailable (%s); continuing with polling. "
@@ -66,10 +75,35 @@ class EzvizMqttHandler:
             else:
                 if failed and not self._stopping.is_set():
                     _LOGGER.info("EZVIZ push connection restored")
+                if not self._stopping.is_set() and callable(getattr(self._mqtt, "raise_if_failed", None)):
+                    self._health_task = self._hass.async_create_background_task(
+                        self._async_watch_health(), "EZVIZ push health"
+                    )
                 return
 
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), PUSH_RETRY_SECONDS)
+
+    async def _async_watch_health(self) -> None:
+        """A successful connect() is not proof its background worker stayed healthy."""
+        while not self._stopping.is_set():
+            try:
+                await asyncio.wait_for(self._stopping.wait(), PUSH_HEALTH_SECONDS)
+                return
+            except TimeoutError:
+                pass
+            try:
+                mqtt = self._mqtt
+                if mqtt is None:
+                    return
+                await self._hass.async_add_executor_job(mqtt.raise_if_failed)
+            except Exception as err:
+                _LOGGER.warning("EZVIZ push worker failed (%s); polling remains active", type(err).__name__)
+                if not self._stopping.is_set():
+                    self._task = self._hass.async_create_background_task(
+                        self._async_connect(), "EZVIZ push recovery"
+                    )
+                return
 
     async def async_stop(self) -> None:
         """Stop retries and bound the caller's wait for SDK cleanup."""
@@ -87,6 +121,8 @@ class EzvizMqttHandler:
 
     async def _async_finish_stop(self) -> None:
         """Serialize cleanup after startup without blocking the unload caller."""
+        if self._health_task is not None:
+            await asyncio.shield(self._health_task)
         if self._task is not None:
             # A timeout must not cancel the executor operation or race its cleanup.
             await asyncio.shield(self._task)

@@ -20,6 +20,7 @@ ATTR_SERIAL: Final = "serial"
 CONF_SESSION_ID: Final = "session_id"
 CONF_RF_SESSION_ID: Final = "rf_session_id"
 CONF_USER_ID: Final = "user_id"
+CONF_SDK_TOKEN: Final = "sdk_token"
 CONF_EZVIZ_ACCOUNT: Final = "ezviz_account"
 
 CONF_ENC_KEY: Final = "enc_key"

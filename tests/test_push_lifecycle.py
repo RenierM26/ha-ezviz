@@ -23,6 +23,7 @@ def integration(monkeypatch):
     for name in (
         "homeassistant", "homeassistant.config_entries", "homeassistant.const",
         "homeassistant.core", "homeassistant.exceptions", "homeassistant.helpers",
+        "homeassistant.helpers.storage",
         "push_test.const", "push_test.coordinator", "push_test.views",
     ):
         monkeypatch.setitem(sys.modules, name, MagicMock())

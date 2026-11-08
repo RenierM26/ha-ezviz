@@ -47,6 +47,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
+from .tokens import TokenPersistence, supports_durable_callback
 from .views import ImageProxyView
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,19 +88,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-    client = EzvizClient(
-        token={
-            CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
-            CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-            "api_url": entry.data[CONF_URL],
-            "username": entry.data[CONF_USER_ID],
-        },
-        timeout=timeout,
-    )
+    persistence = TokenPersistence(hass, entry) if supports_durable_callback(EzvizClient) else None
+    saved = await persistence.async_load() if persistence else None
+    token_input = saved or {
+        CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
+        CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
+        "api_url": entry.data[CONF_URL], "username": entry.data[CONF_USER_ID],
+    }
+    callback_options = {"on_token_updated": persistence.save_from_worker} if persistence else {}
+    client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
 
     # Refresh/login to validate tokens (and maybe rotate)
     try:
         token = await hass.async_add_executor_job(client.login)
+        if persistence:
+            await hass.async_add_executor_job(persistence.save_from_worker, client.export_token())
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
         raise ConfigEntryAuthFailed from err
     except (InvalidURL, HTTPError, PyEzvizError) as err:
@@ -116,7 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
     if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
         updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
-    if updates:
+    if updates and persistence is None:
         hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
 
     # Coordinator
