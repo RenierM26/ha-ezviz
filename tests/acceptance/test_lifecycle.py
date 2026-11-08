@@ -228,7 +228,8 @@ async def test_timed_out_disk_write_cannot_recreate_removed_credentials(hass, mo
             await hass.async_add_executor_job(
                 persistence.save_from_worker, {"session_id": "synthetic"}
             )
-        assert entered.is_set() and persistence._pending
+        assert await asyncio.to_thread(entered.wait, 2)
+        assert persistence._pending
         await ezviz_cloud.async_remove_entry(hass, entry)
         await asyncio.sleep(0.02)
         assert owner.task is not None and not owner.task.done()
