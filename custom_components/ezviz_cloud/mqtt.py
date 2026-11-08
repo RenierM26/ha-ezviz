@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+from copy import deepcopy
 import logging
 
 from pyezvizapi.client import EzvizClient
@@ -122,6 +123,13 @@ class EzvizMqttHandler:
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""
+
+        if self._stopping.is_set() or not isinstance(event, dict):
+            return
+        ext = event.get("ext")
+        if not isinstance(ext, dict) or not isinstance(ext.get("device_serial"), str):
+            return
+        event = deepcopy(event)
 
         def _handle() -> None:
             """Handle incoming MQTT push message."""

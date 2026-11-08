@@ -14,6 +14,7 @@ from homeassistant.helpers.device_registry import (
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .availability import device_available
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
 
@@ -89,12 +90,12 @@ class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
     @property
     def data(self) -> Any:
         """Return coordinator data for this entity."""
-        return self.coordinator.data[self._serial]
+        return (self.coordinator.data or {}).get(self._serial, {})
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.data["status"] != 2)
+        return device_available(self.coordinator, self._serial)
 
 
 class EzvizBaseEntity(Entity):
@@ -117,9 +118,9 @@ class EzvizBaseEntity(Entity):
     @property
     def data(self) -> Any:
         """Return coordinator data for this entity."""
-        return self.coordinator.data[self._serial]
+        return (self.coordinator.data or {}).get(self._serial, {})
 
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.data["status"] != 2)
+        return device_available(self.coordinator, self._serial)
