@@ -137,6 +137,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = RuntimeCleanup(hass, coordinator, persistence=persistence)
     runtimes[entry.entry_id] = runtime
 
+    # Clean shutdown on HA stop (stop MQTT first)
+    async def _shutdown(_event: Any) -> None:
+        await runtime.async_wait_stopped()
+
+    remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
+    entry.async_on_unload(remove_shutdown)
+
     await _async_validate_login(hass, entry, client, persistence, runtime)
 
     try:
@@ -154,13 +161,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         MQTT_HANDLER: mqtt_handler,
     }
 
-    # Clean shutdown on HA stop (stop MQTT first)
-    async def _shutdown(_event: Any) -> None:
-        await runtime.async_wait_stopped()
-
-    remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
-    entry.async_on_unload(remove_shutdown)
-
     # Register HTTP view for image proxy/decryption once per instance
     domain_data = hass.data.setdefault(DOMAIN, {})
     if not domain_data.get("_http_view_registered"):
@@ -169,6 +169,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        if coordinator.shutting_down:
+            raise ConfigEntryNotReady("EZVIZ setup stopped during shutdown")
     except BaseException:
         await runtime.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id, None)

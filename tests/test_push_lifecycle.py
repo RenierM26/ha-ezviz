@@ -159,7 +159,7 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         client.login.return_value = token
         client.export_token.return_value = token
         monkeypatch.setattr(setup, "EzvizClient", MagicMock(return_value=client))
-        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock())
+        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock(), shutting_down=False)
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))
         entered, release = asyncio.Event(), asyncio.Event()
 

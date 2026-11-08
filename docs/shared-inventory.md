@@ -103,7 +103,8 @@ cancellation, retained by their integration owner, and joined through temporary
 stop listeners. Completion removes those listeners. Polls, actions, push
 connect/health/stop, credential login, token saves and cleanup use this boundary.
 Cancelled background push monitors are distinct from their still-owned workers.
-The registered integration stop callback awaits completed cleanup rather than
+The stop callback is registered before login/first refresh so initial setup cannot
+start platforms or push after shutdown begins. It awaits completed cleanup rather than
 returning at the five-second foreground-unload deadline. The framework's forced
 shutdown deadline remains a limit; arbitrary OS threads are not cancellable.
 
@@ -113,7 +114,7 @@ ContextVar fallback. HACS declares HA 2026.10.4 as the supported minimum.
 ## Latest-stable runtime qualification
 
 The full 52-control acceptance suite remains on the matching HA 2026.10.4 test
-plugin. A separate 16-control native suite runs on actual HA 2026.10.4 and
+plugin. A separate 19-control native suite runs on actual HA 2026.10.4 and
 2026.11.0, with neither the HA test plugin nor inconsistent dependency overrides.
 It covers real atomic/fsynced storage, failures/deferred writes, cancelled token
 producers, actual core shutdown, cancelled push/credential workers, late capture

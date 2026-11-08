@@ -538,3 +538,68 @@ async def test_completed_critical_work_removes_temporary_stop_listeners(hass):
         assert hass.bus.async_listeners().get(EVENT_HOMEASSISTANT_STOP, 0) == before
     await data.async_close()
     assert hass.bus.async_listeners().get(EVENT_HOMEASSISTANT_STOP, 0) == before
+
+
+@pytest.mark.parametrize("stage", ["login", "poll", "platforms"])
+async def test_stop_during_initial_setup_cannot_complete_or_start_push(hass, monkeypatch, stage):
+    entry = entry_for(hass, state=ConfigEntryState.SETUP_IN_PROGRESS)
+    entered, release, platform_release = Event(), Event(), asyncio.Event()
+    order = []
+
+    def work(label):
+        if stage == label:
+            entered.set()
+            assert release.wait(5)
+            order.append(label)
+
+    def poll(_options):
+        work("poll")
+        return DeviceSnapshot(1, datetime.now(UTC), {}, {})
+
+    api = SimpleNamespace(
+        login=lambda: work("login"),
+        export_token=lambda: dict(entry.data[CONF_SDK_TOKEN]),
+        poll_devices=poll,
+        close_session=MagicMock(side_effect=lambda: order.append("close")),
+    )
+    monkeypatch.setattr(ezviz_cloud, "EzvizClient", lambda **_kwargs: api)
+    push = SimpleNamespace(async_start=MagicMock(), async_wait_stopped=AsyncMock())
+    monkeypatch.setattr(ezviz_cloud, "EzvizMqttHandler", lambda *_args: push)
+
+    async def forward_platforms(*_args):
+        if stage == "platforms":
+            entered.set()
+            await platform_release.wait()
+            order.append("platforms")
+
+    forward = AsyncMock(side_effect=forward_platforms)
+    monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", forward)
+    monkeypatch.setattr(ezviz_cloud, "ImageProxyView", lambda _hass: object())
+    hass.http = SimpleNamespace(register_view=lambda _view: None)
+    context = current_entry.set(entry)
+    try:
+        task = asyncio.create_task(ezviz_cloud.async_setup_entry(hass, entry))
+    finally:
+        current_entry.reset(context)
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+
+        def resume():
+            release.set()
+            platform_release.set()
+
+        hass.loop.call_later(0.05, resume)
+        await hass.async_stop()
+    finally:
+        release.set()
+        platform_release.set()
+        outcome = await asyncio.gather(task, return_exceptions=True)
+    if stage == "platforms":
+        forward.assert_called_once()
+        assert order == ["close", "platforms"]
+    else:
+        forward.assert_not_called()
+        assert order == [stage, "close"]
+    push.async_start.assert_not_called()
+    assert isinstance(outcome[0], Exception)
+    api.close_session.assert_called_once()
