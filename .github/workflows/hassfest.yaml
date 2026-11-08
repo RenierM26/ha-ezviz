@@ -9,6 +9,7 @@ on:
       - "hacs.json"
       - "manifest.json"
       - ".github/workflows/hassfest.yaml"
+      - "tools/check_hassfest.py"
       - "!**/*.md"
       - "!docs/**"
   push:
@@ -31,5 +32,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Run hassfest
-        uses: home-assistant/actions/hassfest@master
+      - name: Run hassfest (one documented custom-only SDK exception)
+        run: |
+          docker run --rm \
+            --workdir /usr/src/homeassistant \
+            --volume "${GITHUB_WORKSPACE}:/github/workspace:ro" \
+            --entrypoint python3 \
+            ghcr.io/home-assistant/hassfest \
+            /github/workspace/tools/check_hassfest.py \
+            --action validate \
+            --integration-path /github/workspace/custom_components/ezviz_cloud

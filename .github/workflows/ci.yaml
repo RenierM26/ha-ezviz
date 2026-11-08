@@ -8,6 +8,7 @@ on:
     paths:
       - "custom_components/**"
       - "tests/**"
+      - "tools/check_hassfest.py"
       - "pyproject.toml"
       - ".ruff.toml"
       - ".github/workflows/**"
@@ -59,10 +60,10 @@ jobs:
           python -m pip check
 
       - name: Ruff
-        run: ruff check custom_components tests
+        run: ruff check custom_components tests tools
 
       - name: mypy
-        run: mypy --install-types --non-interactive custom_components tests
+        run: mypy --install-types --non-interactive custom_components tests tools
 
       - name: pytest (only if tests exist)
         shell: bash
