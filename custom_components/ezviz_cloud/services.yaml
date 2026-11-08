@@ -3,3 +3,8 @@ wake_device:
     entity:
       integration: ezviz_cloud
       domain: camera
+capture_picture:
+  target:
+    entity:
+      integration: ezviz_cloud
+      domain: camera

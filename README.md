@@ -161,3 +161,9 @@ Requires **pyezvizapi >=2.0.0**, now published on PyPI, for the inventory and
 channel-99 API; there are no old-SDK fallbacks. Both CI jobs qualify the published
 2.0.0 minimum, not a source checkout. Existing camera IDs and user-data migration
 are preserved. This PR supersedes the older channel-99 proposal #234.
+
+## On-demand pictures
+
+See [capture-picture and snapshot behavior](docs/capture-picture.md) for the
+`ezviz_cloud.capture_picture` action, optional response and per-camera Snapshot
+image entity.
