@@ -47,6 +47,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
+from .runtime import RuntimeCleanup
 from .tokens import TokenPersistence, supports_durable_callback
 from .views import ImageProxyView
 
@@ -71,6 +72,44 @@ PLATFORMS: list[Platform] = [
 TARGET_VERSION = 4
 
 
+async def _async_validate_login(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    client: EzvizClient,
+    persistence: TokenPersistence | None,
+    runtime: RuntimeCleanup,
+) -> None:
+    """Validate session and persist rotation before platforms or push start."""
+    try:
+        token = await runtime.async_run(client.login)
+        if persistence:
+            await runtime.async_run(persistence.save_from_worker, client.export_token())
+    except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
+        await runtime.async_stop()
+        raise ConfigEntryAuthFailed from err
+    except (InvalidURL, HTTPError, PyEzvizError) as err:
+        await runtime.async_stop()
+        raise ConfigEntryNotReady(
+            f"Unable to connect to Ezviz service ({type(err).__name__})"
+        ) from err
+    except Exception as err:
+        await runtime.async_stop()
+        raise ConfigEntryNotReady(f"EZVIZ login failed ({type(err).__name__})") from err
+
+    except BaseException:
+        await runtime.async_stop()
+        raise
+
+    # Old SDKs have no durable callback; retain their flat-token compatibility.
+    updates: dict = {}
+    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
+        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
+    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
+        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
+    if updates and persistence is None:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -82,10 +121,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Require all token fields
     required = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
     if not all(k in entry.data for k in required):
-        raise ConfigEntryAuthFailed(
-            "Missing EZVIZ token fields; reauthenticate required"
-        )
+        raise ConfigEntryAuthFailed("Missing EZVIZ token fields; reauthenticate required")
 
+    runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})
+    previous = runtimes.get(entry.entry_id)
+    if previous is not None and previous.task is not None and not previous.task.done():
+        raise ConfigEntryNotReady("Previous EZVIZ workers are still shutting down")
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
     persistence = TokenPersistence(hass, entry) if supports_durable_callback(EzvizClient) else None
@@ -93,45 +134,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     token_input = saved or {
         CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
         CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-        "api_url": entry.data[CONF_URL], "username": entry.data[CONF_USER_ID],
+        "api_url": entry.data[CONF_URL],
+        "username": entry.data[CONF_USER_ID],
     }
-    callback_options = {"on_token_updated": persistence.save_from_worker} if persistence else {}
+    callback_options: dict[str, Any] = {"on_token_updated": persistence.save_from_worker} if persistence else {}
     client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
 
-    # Refresh/login to validate tokens (and maybe rotate)
+    coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
+    runtime = RuntimeCleanup(hass, coordinator)
+    runtimes[entry.entry_id] = runtime
+
+    await _async_validate_login(hass, entry, client, persistence, runtime)
+
     try:
-        token = await hass.async_add_executor_job(client.login)
-        if persistence:
-            await hass.async_add_executor_job(persistence.save_from_worker, client.export_token())
-    except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
-        raise ConfigEntryAuthFailed from err
-    except (InvalidURL, HTTPError, PyEzvizError) as err:
-        raise ConfigEntryNotReady(f"Unable to connect to Ezviz service: {err}") from err
-    except Exception as err:
-        raise ConfigEntryNotReady(
-            f"Unexpected error logging in to Ezviz: {err}"
-        ) from err
-
-    # Persist rotated tokens if they changed
-    # EZVIZ seems to ignore rotation but this is future-proofing
-    updates: dict = {}
-    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
-        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
-    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
-        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
-    if updates and persistence is None:
-        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
-
-    # Coordinator
-    coordinator = EzvizDataUpdateCoordinator(
-        hass,
-        api=client,
-        api_timeout=timeout,
-    )
-    await coordinator.async_config_entry_first_refresh()
+        await coordinator.async_config_entry_first_refresh()
+    except BaseException:
+        await runtime.async_stop()
+        raise
 
     # MQTT handler
     mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
+    runtime.push = mqtt_handler
 
     hass.data[DOMAIN][entry.entry_id] = {
         DATA_COORDINATOR: coordinator,
@@ -140,7 +163,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Clean shutdown on HA stop (stop MQTT first)
     async def _shutdown(_event: Any) -> None:
-        await mqtt_handler.async_stop()
+        await runtime.async_stop()
 
     remove_shutdown = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
     entry.async_on_unload(remove_shutdown)
@@ -151,7 +174,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(ImageProxyView(hass))
         domain_data["_http_view_registered"] = True
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except BaseException:
+        await runtime.async_stop()
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise
 
     mqtt_handler.async_start()
 
@@ -159,18 +187,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the EZVIZ cloud entry (stop MQTT first, then platforms)."""
+    """Unload platforms; on success stop owned workers before closing HTTP."""
     data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-
-    if data and (mqtt := data.get(MQTT_HANDLER)):
-        await mqtt.async_stop()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
+        runtime = hass.data.get(DOMAIN, {}).get("_runtimes", {}).get(entry.entry_id)
+        if runtime is not None:
+            await runtime.async_stop()
+        elif data and (mqtt := data.get(MQTT_HANDLER)):
+            await mqtt.async_stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove private credentials after any late token-producing worker exits."""
+    runtime = hass.data.get(DOMAIN, {}).get("_runtimes", {}).pop(entry.entry_id, None)
+
+    async def remove() -> None:
+        if runtime is not None:
+            await runtime.async_stop()
+            if runtime.task is not None:
+                await runtime.task
+        await TokenPersistence(hass, entry).async_remove()
+
+    hass.async_create_background_task(remove(), "EZVIZ credential removal")
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -199,20 +243,14 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for cam in legacy_cams:
         serial = cam.unique_id  # strict
         if serial in cameras_map:
-            _LOGGER.warning(
-                "Skipping duplicate camera serial during migration: %s", serial
-            )
+            _LOGGER.warning("Skipping duplicate camera serial during migration: %s", serial)
             continue
         cameras_map[serial] = {
             CONF_USERNAME: cam.data.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
             CONF_PASSWORD: cam.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
             CONF_ENC_KEY: cam.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
-            CONF_RTSP_USES_VERIFICATION_CODE: cam.data.get(
-                CONF_RTSP_USES_VERIFICATION_CODE, False
-            ),
-            CONF_FFMPEG_ARGUMENTS: cam.options.get(
-                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-            ),
+            CONF_RTSP_USES_VERIFICATION_CODE: cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
+            CONF_FFMPEG_ARGUMENTS: cam.options.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
         }
 
     hass.config_entries.async_update_entry(
@@ -234,9 +272,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             await hass.config_entries.async_remove(v.entry_id)
         except Exception:
-            _LOGGER.exception(
-                "Failed to remove legacy entry %s during migration", v.entry_id
-            )
+            _LOGGER.exception("Failed to remove legacy entry %s during migration", v.entry_id)
 
     _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True

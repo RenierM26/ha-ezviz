@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -28,6 +29,8 @@ def tokens(monkeypatch):
         async def async_load(self):
             return deepcopy(self.saved)
         async def async_save(self, value):
+            await self._async_write_data(value)
+        async def _async_write_data(self, value):
             self.entered.set()
             await self.release.wait()
             if self.failure:
@@ -51,7 +54,7 @@ def test_worker_ack_waits_for_completed_atomic_save_and_copies_input(tokens):
     async def scenario():
         value = persistence(tokens)
         value._store.release.clear()
-        token = {"session_id": "SYNTHETIC", "push_state": {"counter": 1}}
+        token: dict[str, Any] = {"session_id": "SYNTHETIC", "push_state": {"counter": 1}}
         task = asyncio.create_task(asyncio.to_thread(value.save_from_worker, token))
         await value._store.entered.wait()
         token["push_state"]["counter"] = 2

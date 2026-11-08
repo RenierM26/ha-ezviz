@@ -55,7 +55,10 @@ class EzvizMqttHandler:
             try:
                 await self._hass.async_add_executor_job(self.start)
             except Exception as err:  # Push is optional, including SDK failures.
-                if isinstance(err, (EzvizAuthTokenExpired, EzvizAuthVerificationCode)) and not self._reauth_requested:
+                if (
+                    isinstance(err, (EzvizAuthTokenExpired, EzvizAuthVerificationCode))
+                    and not self._reauth_requested
+                ):
                     self._reauth_requested = True
                     entry = self._hass.config_entries.async_get_entry(self._entry)
                     if entry is not None:
@@ -75,7 +78,9 @@ class EzvizMqttHandler:
             else:
                 if failed and not self._stopping.is_set():
                     _LOGGER.info("EZVIZ push connection restored")
-                if not self._stopping.is_set() and callable(getattr(self._mqtt, "raise_if_failed", None)):
+                if not self._stopping.is_set() and callable(
+                    getattr(self._mqtt, "raise_if_failed", None)
+                ):
                     self._health_task = self._hass.async_create_background_task(
                         self._async_watch_health(), "EZVIZ push health"
                     )
@@ -96,9 +101,14 @@ class EzvizMqttHandler:
                 mqtt = self._mqtt
                 if mqtt is None:
                     return
-                await self._hass.async_add_executor_job(mqtt.raise_if_failed)
+                check = getattr(mqtt, "raise_if_failed", None)
+                if not callable(check):
+                    return
+                await self._hass.async_add_executor_job(check)
             except Exception as err:
-                _LOGGER.warning("EZVIZ push worker failed (%s); polling remains active", type(err).__name__)
+                _LOGGER.warning(
+                    "EZVIZ push worker failed (%s); polling remains active", type(err).__name__
+                )
                 if not self._stopping.is_set():
                     self._task = self._hass.async_create_background_task(
                         self._async_connect(), "EZVIZ push recovery"
@@ -113,11 +123,15 @@ class EzvizMqttHandler:
                 self._async_finish_stop(), "EZVIZ push cleanup"
             )
         try:
-            await asyncio.wait_for(
-                asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS)
         except TimeoutError:
             _LOGGER.debug("EZVIZ push cleanup still pending; continuing shutdown")
+
+    async def async_wait_stopped(self) -> None:
+        """Resource owners can await full cleanup after the foreground timeout."""
+        await self.async_stop()
+        if self._stop_task is not None:
+            await asyncio.shield(self._stop_task)
 
     async def _async_finish_stop(self) -> None:
         """Serialize cleanup after startup without blocking the unload caller."""
@@ -157,13 +171,33 @@ class EzvizMqttHandler:
         _LOGGER.debug("EZVIZ MQTT stopped")
         return True
 
+    def get_diagnostics(self) -> dict:
+        """Only credential-free worker fields; no full tokens or session payload."""
+        getter = getattr(self._mqtt, "get_push_diagnostics", None)
+        if not callable(getter):
+            return {"state": "unavailable", "reauth_requested": self._reauth_requested}
+        allowed = {
+            "state",
+            "worker_alive",
+            "retry_delay_seconds",
+            "attempts",
+            "transient_failures",
+            "last_error_type",
+            "fatal_error_type",
+        }
+        return {k: v for k, v in getter().items() if k in allowed}
+
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""
 
         if self._stopping.is_set() or not isinstance(event, dict):
             return
         ext = event.get("ext")
-        if not isinstance(ext, dict) or not isinstance(ext.get("device_serial"), str):
+        if (
+            not isinstance(ext, dict)
+            or not isinstance(ext.get("device_serial"), str)
+            or not ext.get("device_serial")
+        ):
             return
         event = deepcopy(event)
 

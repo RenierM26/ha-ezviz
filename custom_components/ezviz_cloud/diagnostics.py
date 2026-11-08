@@ -1,70 +1,50 @@
-"""Diagnostics support for EZVIZ."""
+"""Cached, allowlisted diagnostics without a second cloud/account request."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_COORDINATOR, DOMAIN
-from .coordinator import EzvizDataUpdateCoordinator
+from .const import DATA_COORDINATOR, DOMAIN, MQTT_HANDLER
 
-TO_REDACT_COORDINATOR = {
-    "serial",
-    "last_alarm_pic",
-    "wan_ip",
-    "encrypted_pwd_hash",
-    "last_alarm_time",
-    "ssid",
-    "mac_address",
-    "CLOUD",
-    "VTM",
-    "P2P",
-    "KMS",
-    "VIDEO_QUALITY",
-}
-
-TO_REDACT_PYEZVIZ_DATA = {
-    "deviceSerial",
-    "netIp",
-    "wanIp",
-    "encryptPwd",
-    "ssid",
-    "mac",
-    "userName",
-    "fullSerial",
-    "superDeviceSerial",
-    "resourceId",
-    "CLOUD",
-    "VTM",
-    "P2P",
-    "KMS",
-    "TIME_PLAN",
-    "CHANNEL",
-    "QOS",
-    "VIDEO_QUALITY",
-}
+# Names, serial keys, URLs, network addresses and complete vendor mappings are
+# intentionally excluded, rather than relying on an expanding credential denylist.
+SAFE_FIELDS = {"device_category", "device_sub_category", "version", "status", "battery_level"}
 
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
-    """Return diagnostics for a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
-
-    ezviz_api_page_list = await hass.async_add_executor_job(
-        coordinator.ezviz_client.get_device_infos
-    )
-
-    return {
-        "ezviz_coordinator_data": [
-            async_redact_data(coordinator.data, TO_REDACT_COORDINATOR)
-        ],
-        "ezviz_api_page_list": [
-            async_redact_data(ezviz_api_page_list, TO_REDACT_PYEZVIZ_DATA)
+    """Do not expose full SDK tokens, push counters/keys, or camera image URLs."""
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    coordinator = runtime[DATA_COORDINATOR]
+    snapshot = coordinator.inventory_snapshot
+    devices = coordinator.inventory_data if snapshot is not None else (coordinator.data or {})
+    result: dict[str, Any] = {
+        "poll_success": coordinator.last_update_success,
+        "devices": [
+            {
+                k: v
+                for k, v in device.items()
+                if k in SAFE_FIELDS and (v is None or isinstance(v, (str, int, float, bool)))
+            }
+            for device in devices.values()
         ],
     }
+    if snapshot is not None:
+        result["inventory_revision"] = snapshot.revision
+        result["device_health"] = [
+            {
+                "present": health.present,
+                "current": health.current,
+                "last_success": health.last_success.isoformat() if health.last_success else None,
+                "error_type": health.error_type,
+            }
+            for health in snapshot.health.values()
+        ]
+    push = runtime.get(MQTT_HANDLER)
+    if push is not None:
+        result["push"] = push.get_diagnostics()
+    return result

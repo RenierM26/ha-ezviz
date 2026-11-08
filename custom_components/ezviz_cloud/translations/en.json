@@ -377,6 +377,21 @@
       },
       "last_offline_time": {
         "name": "Last offline"
+      },
+      "door_status": {
+        "name": "Contact status (raw)"
+      },
+      "water_leak_status": {
+        "name": "Water status (raw)"
+      },
+      "siren_work_state": {
+        "name": "Siren state (raw)"
+      },
+      "zigbee_signal": {
+        "name": "Zigbee signal (raw)"
+      },
+      "power_mode": {
+        "name": "Power mode (raw)"
       }
     },
     "switch": {

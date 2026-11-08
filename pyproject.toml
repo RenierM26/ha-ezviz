@@ -22,6 +22,8 @@ max-returns = 10    # instead of 6
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]
+# Real-HA tests use their separately pinned runtime and candidate SDK.
+exclude = ["^tests/acceptance/"]
 python_version = "3.12"
 files = ["custom_components"]
 ignore_missing_imports = true

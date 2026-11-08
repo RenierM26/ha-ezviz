@@ -28,6 +28,8 @@ from homeassistant.util.percentage import (
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .inventory import async_add_inventory_entities
+from .inventory_power import light_entities
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -106,6 +108,8 @@ async def async_setup_entry(
     coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         DATA_COORDINATOR
     ]
+
+    async_add_inventory_entities(coordinator, entry, async_add_entities, "light", light_entities)
 
     async_add_entities(
         EzvizLight(coordinator, serial, desc)

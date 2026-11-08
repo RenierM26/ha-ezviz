@@ -19,6 +19,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .inventory import async_add_inventory_entities
+from .inventory_binary_sensor import detector_binary_sensors
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import passes_description_gates
 
@@ -87,6 +89,8 @@ async def async_setup_entry(
         platform_domain="binary_sensor",
         allowed_keys=tuple(desc.key for desc in BINARY_SENSORS),
     )
+
+    async_add_inventory_entities(coordinator, entry, async_add_entities, "detector", detector_binary_sensors)
 
     async_add_entities(
         EzvizBinarySensor(coordinator, serial, desc)

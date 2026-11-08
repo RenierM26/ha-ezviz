@@ -21,6 +21,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .inventory import async_add_inventory_entities
+from .inventory_sensor import detector_sensors
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
     network_type_value,
@@ -198,6 +200,8 @@ async def async_setup_entry(
         platform_domain="sensor",
         allowed_keys=tuple(desc.key for desc in SENSORS),
     )
+
+    async_add_inventory_entities(coordinator, entry, async_add_entities, "detector", detector_sensors)
 
     async_add_entities(
         EzvizSensor(coordinator, serial, desc)

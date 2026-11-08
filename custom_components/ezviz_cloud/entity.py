@@ -124,3 +124,16 @@ class EzvizBaseEntity(Entity):
     def available(self) -> bool:
         """Return True if entity is available."""
         return device_available(self.coordinator, self._serial)
+
+
+class EzvizInventoryEntity(EzvizEntity):
+    """Non-camera entities share the same poll and registry identity policy."""
+
+    @property
+    def data(self) -> Any:
+        return self.coordinator.device_data(self._serial)
+
+    @property
+    def device_state(self) -> Any:
+        snapshot = self.coordinator.inventory_snapshot
+        return snapshot.devices.get(self._serial) if snapshot is not None else None

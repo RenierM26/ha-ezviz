@@ -69,3 +69,24 @@ jobs:
           else
             echo "No tests found under tests/, skipping pytest."
           fi
+
+  real-ha:
+    name: Real HA inventory and push contract (2026.10.4)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Check out reviewed inventory SDK candidate
+        uses: actions/checkout@v7
+        with:
+          repository: RenierM26/pyEzvizApi
+          # Source qualification, not a fictional PyPI release/manifest bump.
+          ref: 5ed017902a1751a7a5fcfe54f3bf7410cb2d25e7
+          path: .sdk
+      - name: Install isolated real-HA runtime and candidate SDK
+        run: python -m pip install -r tests/acceptance/requirements.txt -e .sdk
+      - name: Actual HA storage, inventory, config, commands and lifecycle controls
+        run: python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance

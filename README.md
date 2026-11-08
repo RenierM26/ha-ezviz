@@ -153,3 +153,10 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 - Entity identifiers are preserved.
 
 ---
+
+## Shared inventory and channel-99 migration
+
+See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
+The manifest remains on the released SDK; source-qualified inventory features
+need a future library release and manifest update before ordinary HACS installs
+can use them. Existing camera IDs and released-SDK fallback are preserved.

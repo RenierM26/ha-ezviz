@@ -32,6 +32,8 @@ def coordinator_module(monkeypatch):
             self.hass = hass
             self.data = {}
             self.last_update_success = True
+        def async_update_listeners(self):
+            pass
         def async_set_updated_data(self, value):
             self.data = value
     class Failed(Exception):

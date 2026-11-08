@@ -28,6 +28,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .inventory import async_add_inventory_entities
+from .inventory_power import plug_entities
 from .migration import migrate_unique_ids_with_coordinator
 from .utility import (
     PortSecurityToggle,
@@ -508,6 +510,8 @@ async def async_setup_entry(
         for desc in SWITCHES
         if _is_desc_supported(camera_data, desc)
     ]
+
+    async_add_inventory_entities(coordinator, entry, async_add_entities, "plug", plug_entities)
 
     async_add_entities(entities)
 
