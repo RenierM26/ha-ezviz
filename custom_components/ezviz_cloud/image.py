@@ -237,7 +237,7 @@ class EzvizSnapshot(EzvizLastMotion):
         if self._cached_image is not None:
             return self._cached_image.content
         url = self.image_url
-        if not url:
+        if not isinstance(url, str) or not url:
             return None
         generation = self._capture_generation
         image = await self._async_load_image_from_url(url)
