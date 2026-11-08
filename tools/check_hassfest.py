@@ -44,7 +44,7 @@ def validate_with_exception(
     # Retain errors from earlier plugins and every other requirements finding.
     integration.errors[start:] = [error for error in added if error is not allowed[0]]
     print(
-        "::warning title=Known custom-only EZVIZ dependency exception::"
+        "\n::warning title=Known custom-only EZVIZ dependency exception::"
         f"{EXPECTED_ERROR} Custom-only 2.0.0 acceptance passes; simultaneous use "
         "with built-in EZVIZ is not qualified. All other hassfest errors remain fatal."
     )

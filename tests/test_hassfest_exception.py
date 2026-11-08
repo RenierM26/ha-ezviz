@@ -35,9 +35,10 @@ def validator(*errors):
 def test_expected_conflict_warns_and_keeps_prior_plugin_errors(capsys):
     prior = error("Invalid manifest", "manifest")
     component = integration(errors=[prior])
+    print("Validating requirements...", end="")
     assert CHECK.validate_with_exception(validator(error()), component, None)
     assert component.errors == [prior]
-    assert "::warning" in capsys.readouterr().out
+    assert "\n::warning" in capsys.readouterr().out
 
 
 def test_expected_conflict_does_not_hide_an_additional_failure():
