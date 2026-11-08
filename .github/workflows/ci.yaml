@@ -84,7 +84,7 @@ jobs:
         with:
           repository: RenierM26/pyEzvizApi
           # Source qualification, not a fictional PyPI release/manifest bump.
-          ref: 3888af35ea16a5db146c025c1a893159b6855a6b
+          ref: 3d95dcd40dbabe630221c553628b03331f829293
           path: .sdk
       - name: Install isolated real-HA runtime and candidate SDK
         run: python -m pip install -r tests/acceptance/requirements.txt -e .sdk
