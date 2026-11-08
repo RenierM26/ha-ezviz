@@ -1,7 +1,6 @@
 """Provides the ezviz DataUpdateCoordinator."""
 
 import asyncio
-from contextlib import suppress
 from copy import deepcopy
 from datetime import timedelta
 import logging
@@ -40,7 +39,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict = {}
         self._closing = False
-        self.worker_owner: Any = None
+        self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
         update_interval = timedelta(seconds=30)
 
@@ -95,9 +94,11 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         """Keep new inventory command workers owned across cancellation/unload."""
         if self._closing:
             raise RuntimeError("EZVIZ coordinator is shutting down")
-        if self.worker_owner is not None:
-            return await self.worker_owner.async_run(func, *args)
-        return await self.hass.async_add_executor_job(func, *args)
+        future = asyncio.ensure_future(self.hass.async_add_executor_job(func, *args))
+        self._action_futures.add(future)
+        future.add_done_callback(self._action_futures.discard)
+        future.add_done_callback(_retrieve_worker_error)
+        return await asyncio.shield(future)
 
     def begin_shutdown(self) -> None:
         """Reject new polling work before waiting for optional push cleanup."""
@@ -113,9 +114,13 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         await asyncio.shield(self._close_task)
 
     async def _async_finish_close(self) -> None:
+        pending = tuple(self._action_futures)
         if self._poll_future is not None:
-            with suppress(Exception):
-                await asyncio.shield(self._poll_future)
+            pending += (self._poll_future,)
+        if pending:
+            await asyncio.gather(
+                *(asyncio.shield(future) for future in pending), return_exceptions=True
+            )
         await self.hass.async_add_executor_job(self.ezviz_client.close_session)
 
     def merge_mqtt_update(self, serial: str, mqtt_data: dict) -> None:

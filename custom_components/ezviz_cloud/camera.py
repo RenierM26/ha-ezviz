@@ -54,9 +54,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EZVIZ cameras for a cloud config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     cams_opts: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 
@@ -100,9 +98,7 @@ async def async_setup_entry(
 
     # Expose wake service on the camera platform.
     platform = async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_WAKE_DEVICE, None, "perform_wake_device"
-    )
+    platform.async_register_entity_service(SERVICE_WAKE_DEVICE, None, "async_perform_wake_device")
 
 
 class EzvizCamera(EzvizEntity, Camera):
@@ -155,18 +151,22 @@ class EzvizCamera(EzvizEntity, Camera):
         """Return True if motion detection is enabled."""
         return bool(self.data["alarm_notify"])
 
-    def enable_motion_detection(self) -> None:
+    async def async_enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
-            self.coordinator.ezviz_client.set_camera_defence(self._serial, 1)
+            await self.coordinator.async_execute(
+                self.coordinator.ezviz_client.set_camera_defence, self._serial, 1
+            )
 
         except InvalidHost as err:
             raise InvalidHost("Error enabling motion detection") from err
 
-    def disable_motion_detection(self) -> None:
+    async def async_disable_motion_detection(self) -> None:
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
-            self.coordinator.ezviz_client.set_camera_defence(self._serial, 0)
+            await self.coordinator.async_execute(
+                self.coordinator.ezviz_client.set_camera_defence, self._serial, 0
+            )
 
         except InvalidHost as err:
             raise InvalidHost("Error disabling motion detection") from err
@@ -190,9 +190,11 @@ class EzvizCamera(EzvizEntity, Camera):
         )
         return self._build_rtsp()
 
-    def perform_wake_device(self) -> None:
+    async def async_perform_wake_device(self) -> None:
         """Wake/ping the camera using a lightweight API call."""
         try:
-            self.coordinator.ezviz_client.get_detection_sensibility(self._serial)
+            await self.coordinator.async_execute(
+                self.coordinator.ezviz_client.get_detection_sensibility, self._serial
+            )
         except (HTTPError, PyEzvizError) as err:
             raise PyEzvizError("Cannot wake device") from err

@@ -64,9 +64,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     required_device_categories: tuple[str, ...] | None = None
 
 
-def _is_desc_supported(
-    camera_data: dict[str, Any], desc: EzvizLightEntityDescription
-) -> bool:
+def _is_desc_supported(camera_data: dict[str, Any], desc: EzvizLightEntityDescription) -> bool:
     """Return True if this light description is supported by the camera."""
     return passes_description_gates(
         camera_data,
@@ -81,9 +79,7 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
     EzvizLightEntityDescription(
         key="Light",
         translation_key="light",
-        is_on_value=lambda d: (d.get("switches") or {}).get(
-            DeviceSwitchType.ALARM_LIGHT.value
-        ),
+        is_on_value=lambda d: (d.get("switches") or {}).get(DeviceSwitchType.ALARM_LIGHT.value),
         brightness_value=lambda d: d.get("alarm_light_luminance"),
         brightness_range=(1, 255),
         supported_ext_key=str(SupportExt.SupportAlarmLight.value),
@@ -105,9 +101,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ lights based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     async_add_inventory_entities(coordinator, entry, async_add_entities, "light", light_entities)
 
@@ -146,11 +140,7 @@ class EzvizLight(EzvizEntity, LightEntity):
         self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
         percent = self.entity_description.brightness_value(self.data)
         self._attr_brightness = (
-            round(
-                percentage_to_ranged_value(
-                    self.entity_description.brightness_range, percent
-                )
-            )
+            round(percentage_to_ranged_value(self.entity_description.brightness_range, percent))
             if isinstance(percent, int)
             else None
         )
@@ -159,17 +149,14 @@ class EzvizLight(EzvizEntity, LightEntity):
         """Turn on light (optionally set brightness first)."""
         try:
             # If brightness provided, set luminance first (1-255 -> 0-100 %)
-            if (
-                ATTR_BRIGHTNESS in kwargs
-                and self.entity_description.set_brightness is not None
-            ):
+            if ATTR_BRIGHTNESS in kwargs and self.entity_description.set_brightness is not None:
                 percent = int(
                     ranged_value_to_percentage(
                         self.entity_description.brightness_range,
                         kwargs[ATTR_BRIGHTNESS],
                     )
                 )
-                ok = await self.hass.async_add_executor_job(
+                ok = await self.coordinator.async_execute(
                     self.entity_description.set_brightness,
                     self.coordinator.ezviz_client,
                     self._serial,
@@ -179,7 +166,7 @@ class EzvizLight(EzvizEntity, LightEntity):
                     self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
 
             # Then power on
-            ok = await self.hass.async_add_executor_job(
+            ok = await self.coordinator.async_execute(
                 self.entity_description.power_on,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -194,7 +181,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off light."""
         try:
-            ok = await self.hass.async_add_executor_job(
+            ok = await self.coordinator.async_execute(
                 self.entity_description.power_off,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -213,11 +200,7 @@ class EzvizLight(EzvizEntity, LightEntity):
 
         percent = self.entity_description.brightness_value(self.data)
         self._attr_brightness = (
-            round(
-                percentage_to_ranged_value(
-                    self.entity_description.brightness_range, percent
-                )
-            )
+            round(percentage_to_ranged_value(self.entity_description.brightness_range, percent))
             if isinstance(percent, int)
             else None
         )

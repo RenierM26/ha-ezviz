@@ -146,7 +146,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
     async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.upgrade_device, self._serial
             )
 

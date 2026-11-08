@@ -441,7 +441,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
 
         try:
             # Run potentially blocking client call in executor
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.set_current_option,
                 self.coordinator.ezviz_client,
                 self._serial,

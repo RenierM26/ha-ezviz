@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from functools import partial
 import logging
 
 from pyezvizapi.exceptions import (
@@ -50,9 +51,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     entities: list[TextEntity] = []
 
@@ -102,20 +101,21 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
         self.current_enc_key_hash = return_password_hash(self._attr_native_value)
         return None
 
-    def set_value(self, value: str) -> None:
+    async def async_set_value(self, value: str) -> None:
         """Set camera encryption key."""
         try:
-            self.coordinator.ezviz_client.set_video_enc(
-                serial=self._serial,
-                enable=2,
-                new_password=value,
-                old_password=self._attr_native_value,
+            await self.coordinator.async_execute(
+                partial(
+                    self.coordinator.ezviz_client.set_video_enc,
+                    serial=self._serial,
+                    enable=2,
+                    new_password=value,
+                    old_password=self._attr_native_value,
+                )
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Cannot set camera encryption key for {self.name}"
-            ) from err
+            raise HomeAssistantError(f"Cannot set camera encryption key for {self.name}") from err
 
         self._attr_native_value = value
         self.current_enc_key_hash = return_password_hash(self._attr_native_value)
@@ -155,7 +155,7 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
             )
 
             try:
-                new_encryption_key = await self.hass.async_add_executor_job(
+                new_encryption_key = await self.coordinator.async_execute(
                     self.coordinator.ezviz_client.get_cam_key, self._serial
                 )
 
@@ -169,9 +169,7 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity, RestoreEntity):
                 EzvizAuthTokenExpired,
                 PyEzvizError,
             ) as error:
-                raise HomeAssistantError(
-                    f"Invalid response from API: {error}"
-                ) from error
+                raise HomeAssistantError(f"Invalid response from API: {error}") from error
 
             self._attr_native_value = new_encryption_key
             self.current_enc_key_hash = return_password_hash(self._attr_native_value)
@@ -199,7 +197,7 @@ class EzvizCameraNameText(EzvizEntity, TextEntity):
         """Rename the camera through the EZVIZ API."""
 
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.update_device_name,
                 self._serial,
                 value,

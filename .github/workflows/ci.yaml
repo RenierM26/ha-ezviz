@@ -28,7 +28,7 @@ concurrency:
 
 env:
   # Replaced with the owner-published release at integration release handoff.
-  PYEZVIZAPI_REF: 1a0e19771cc49dc5d0afefab12ee74044d26ea3c
+  PYEZVIZAPI_REF: bdfe09c655c6f7e9a99265239274a4d5b44ab843
 
 jobs:
   lint-test:

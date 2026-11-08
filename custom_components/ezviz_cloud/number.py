@@ -320,7 +320,7 @@ class EzvizNumber(EzvizEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value to the device and refresh coordinator state."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.set_value,
                 self.coordinator.ezviz_client,
                 self._serial,

@@ -98,9 +98,7 @@ class EzvizMediaSource(MediaSource):
                 # Use proxied thumbnail to support decryption like camera views
                 last_pic = cam.get("last_alarm_pic")
                 thumb = (
-                    async_generate_image_proxy_url(
-                        config_entry.entry_id, serial, last_pic
-                    )
+                    async_generate_image_proxy_url(config_entry.entry_id, serial, last_pic)
                     if last_pic
                     else None
                 )
@@ -149,10 +147,9 @@ class EzvizMediaSource(MediaSource):
             )
 
         coordinator = data[DATA_COORDINATOR]
-        client = coordinator.ezviz_client
         cam_name = (coordinator.data or {}).get(serial, {}).get("name", serial)
 
-        alarms = await self._async_get_alarms(client, serial=serial, limit=limit)
+        alarms = await self._async_get_alarms(coordinator, serial=serial, limit=limit)
         children: list[BrowseMediaSource] = []
         for alarm in alarms:
             item = self._alarm_to_media_item(entry_id, alarm, {serial: cam_name})
@@ -170,20 +167,18 @@ class EzvizMediaSource(MediaSource):
             children=children,
         )
 
-    async def _async_get_alarms(
-        self, client: Any, *, serial: str, limit: int
-    ) -> list[dict]:
+    async def _async_get_alarms(self, coordinator: Any, *, serial: str, limit: int) -> list[dict]:
         """Fetch alarms via the client in the executor and normalize."""
 
         def _fetch() -> list[dict]:
-            data = client.get_alarminfo(serial, limit)
+            data = coordinator.ezviz_client.get_alarminfo(serial, limit)
             # Expected format: { "alarms": [ { ... } ], "page": { ... } }
             alarms = data.get("alarms") or []
             # Ensure dictionaries only
             return [a for a in alarms if isinstance(a, dict)]
 
         # Run sync call in executor with a bounded timeout
-        return await self.hass.async_add_executor_job(_fetch)
+        return await coordinator.async_execute(_fetch)
 
     def _alarm_to_media_item(
         self, entry_id: str, alarm: dict, serial_to_name: dict[str, str] | None = None
@@ -213,9 +208,7 @@ class EzvizMediaSource(MediaSource):
         )
         # Build a proxied thumbnail too (avoids showing encrypted thumbs)
         proxy_serial: str = str(cam_serial or "")
-        thumb = (
-            async_generate_image_proxy_url(entry_id, proxy_serial, pic) if pic else None
-        )
+        thumb = async_generate_image_proxy_url(entry_id, proxy_serial, pic) if pic else None
 
         return BrowseMediaSource(
             domain=DOMAIN,

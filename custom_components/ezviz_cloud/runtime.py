@@ -18,7 +18,6 @@ class RuntimeCleanup:
     ) -> None:
         self.hass = hass
         self.coordinator = coordinator
-        coordinator.worker_owner = self
         self.push = push
         self.persistence = persistence
         self.task: asyncio.Task | None = None

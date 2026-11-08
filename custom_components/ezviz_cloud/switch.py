@@ -537,7 +537,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on on the device."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -552,7 +552,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off on the device."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,

@@ -690,7 +690,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         try:
             # ENC key (used by newer cams & for last motion images)
             if data.get(CONF_ENC_KEY) == DEFAULT_FETCH_MY_KEY:
-                data[CONF_ENC_KEY] = await self.hass.async_add_executor_job(
+                data[CONF_ENC_KEY] = await self.coordinator.async_execute(
                     _get_cam_enc_key,
                     data,
                     ezviz_client,
@@ -700,7 +700,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
             # Verification (sticker) code (older cam RTSP auth)
             if data.get(CONF_PASSWORD) == DEFAULT_FETCH_MY_KEY:
-                data[CONF_PASSWORD] = await self.hass.async_add_executor_job(
+                data[CONF_PASSWORD] = await self.coordinator.async_execute(
                     _get_cam_verification_code,
                     data,
                     ezviz_client,
@@ -710,7 +710,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
             # Optional one-time RTSP test: only if user requested
             if data.get("ephemeral_test_rtsp"):
-                await self.hass.async_add_executor_job(_wake_camera, data, ezviz_client)
+                await self.coordinator.async_execute(_wake_camera, data, ezviz_client)
                 _LOGGER.debug("RTSP credentials verified for camera %s", data[ATTR_SERIAL])
 
         except EzvizAuthVerificationCode:

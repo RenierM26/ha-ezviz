@@ -1,7 +1,9 @@
 """Candidate SDK + real HA classes; synthetic account data and commands only."""
 
+import asyncio
 from copy import deepcopy
 import json
+from threading import Event
 from unittest.mock import AsyncMock, MagicMock
 
 from pyezvizapi import (
@@ -15,10 +17,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ezviz_cloud import (
     binary_sensor,
+    button,
     camera,
     coordinator,
     light,
+    runtime,
     sensor,
+    siren,
     switch,
     update,
 )
@@ -255,3 +260,113 @@ async def test_sdk_firmware_status_reaches_real_ha_update_entity(
     assert entity.update_percentage == (25 if active else None)
     assert entity.latest_version == ("V2" if needed else "V1")
     assert entity.extra_state_attributes == {"upgrade_status": code, "upgrade_phase": phase}
+
+
+def make_owned_camera_action(hass, api, data, monkeypatch, command, action):
+    if action == "firmware":
+        monkeypatch.setattr(api, "upgrade_device", command)
+        entity = update.EzvizUpdateEntity(data, "CAM001", update.UPDATE_ENTITY_DESCRIPTIONS[0])
+        return entity, entity.async_install(None, False)
+    elif action == "switch":
+        monkeypatch.setattr(api, "set_camera_defence", command)
+        desc = switch.EzvizSwitchEntityDescription(
+            key="synthetic",
+            value_fn=lambda d: False,
+            method=lambda sdk, serial, value: sdk.set_camera_defence(serial, value),
+        )
+        entity = switch.EzvizSwitch(data, "CAM001", desc)
+        return entity, entity.async_turn_on()
+    elif action == "motion":
+        monkeypatch.setattr(api, "set_camera_defence", command)
+        monkeypatch.setattr(camera, "get_ffmpeg_manager", lambda h: MagicMock())
+        entity = camera.EzvizCamera(
+            hass=hass,
+            coordinator=data,
+            serial="CAM001",
+            camera_username="admin",
+            camera_password="synthetic",
+            rtsp_path="/synthetic",
+        )
+        return entity, entity.async_enable_motion_detection()
+    else:
+        monkeypatch.setattr(api, "reboot_camera", command)
+        desc = button.EzvizButtonEntityDescription(
+            key="synthetic", method=lambda sdk, serial: sdk.reboot_camera(serial)
+        )
+        entity = button.EzvizButtonEntity(data, "CAM001", desc)
+        return entity, entity.async_press()
+
+
+@pytest.mark.parametrize("action", ["firmware", "switch", "motion", "button"])
+async def test_cancelled_camera_command_is_drained_before_session_close(
+    hass, client, monkeypatch, action
+):
+    """Use real entity actions and a blocked worker, not a fake owned-task counter."""
+
+    api, _, _ = client
+    data = await make(hass, api)
+    owner = runtime.RuntimeCleanup(hass, data)
+    monkeypatch.setattr(runtime, "SHUTDOWN_TIMEOUT", 0.01)
+    entered, release = Event(), Event()
+    order = []
+
+    def command(*args):
+        entered.set()
+        assert release.wait(5)
+        order.append("command")
+        return True
+
+    original_close = api.close_session
+
+    def close():
+        order.append("close")
+        original_close()
+
+    monkeypatch.setattr(api, "close_session", close)
+    entity, call = make_owned_camera_action(hass, api, data, monkeypatch, command, action)
+    entity.hass = hass
+    task = asyncio.create_task(call)
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await owner.async_stop()
+        assert not order and not owner.task.done()
+        with pytest.raises(RuntimeError, match="shutting down"):
+            await data.async_execute(command)
+    finally:
+        release.set()
+    await owner.task
+    assert order == ["command", "close"]
+    assert not data._action_futures
+    await owner.async_stop()
+    assert order == ["command", "close"]
+
+
+async def test_camera_siren_waits_for_owned_command_before_reporting_on(hass, client, monkeypatch):
+
+    api, _, _ = client
+    data = await make(hass, api)
+    entered, release = Event(), Event()
+
+    def command(*args):
+        entered.set()
+        assert release.wait(5)
+        return True
+
+    monkeypatch.setattr(api, "sound_alarm", command)
+    entity = siren.EzvizSirenEntity(data, "CAM001", siren.SIREN_ENTITY_TYPE)
+    entity.hass = hass
+    monkeypatch.setattr(entity, "async_write_ha_state", MagicMock())
+    task = asyncio.create_task(entity.async_turn_on())
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        assert not task.done()
+    finally:
+        release.set()
+    await task
+    assert entity.is_on
+    if entity._delay_listener is not None:
+        entity._delay_listener()
+        entity._delay_listener = None

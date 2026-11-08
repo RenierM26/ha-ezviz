@@ -40,9 +40,7 @@ class EzvizButtonEntityHandler:
     """Class to handle multi actions for button."""
 
     @staticmethod
-    def press_ptz(
-        pyezviz_client: EzvizClient, direction: PTZDirection, serial: str
-    ) -> None:
+    def press_ptz(pyezviz_client: EzvizClient, direction: PTZDirection, serial: str) -> None:
         """Execute the button action for PTZ."""
         pyezviz_client.ptz_control(direction, serial, "START")
         pyezviz_client.ptz_control(direction, serial, "STOP")
@@ -68,9 +66,7 @@ class EzvizButtonEntityDescription(ButtonEntityDescription):
     is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
-def _is_desc_supported(
-    camera_data: dict[str, Any], desc: EzvizButtonEntityDescription
-) -> bool:
+def _is_desc_supported(camera_data: dict[str, Any], desc: EzvizButtonEntityDescription) -> bool:
     """Return True if this button description is supported by the camera."""
 
     return passes_description_gates(
@@ -115,9 +111,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ button based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     async_add_entities(
         EzvizButtonEntity(coordinator, serial, description)
@@ -143,10 +137,12 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self.entity_description = description
 
-    def press(self) -> None:
+    async def async_press(self) -> None:
         """Execute the button action."""
         try:
-            self.entity_description.method(self.coordinator.ezviz_client, self._serial)
+            await self.coordinator.async_execute(
+                self.entity_description.method, self.coordinator.ezviz_client, self._serial
+            )
 
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot perform action on {self.name}") from err

@@ -38,9 +38,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     async_add_entities(
         EzvizSirenEntity(coordinator, camera, SIREN_ENTITY_TYPE)
@@ -83,14 +81,12 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off camera siren."""
         try:
-            result = await self.hass.async_add_executor_job(
+            result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 1
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Failed to turn siren off for {self.name}"
-            ) from err
+            raise HomeAssistantError(f"Failed to turn siren off for {self.name}") from err
 
         if result:
             if self._delay_listener is not None:
@@ -103,14 +99,12 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on camera siren."""
         try:
-            result = self.hass.async_add_executor_job(
+            result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 2
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Failed to turn siren on for {self.name}"
-            ) from err
+            raise HomeAssistantError(f"Failed to turn siren on for {self.name}") from err
 
         if result:
             if self._delay_listener is not None:

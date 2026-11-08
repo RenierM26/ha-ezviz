@@ -54,8 +54,13 @@ before recovery, and preserves polling during outages. Runtime cleanup retains
 ownership after the five-second foreground unload wait; HTTP closes only after
 owned login/action, push and polling workers finish. Reload cannot start a new
 client while a previous runtime is still stopping. Failed platform unload keeps
-the existing runtime intact. Existing legacy camera action implementations are
-unchanged; new inventory actions participate in runtime ownership.
+the existing runtime intact. All shared-client actions participate in coordinator ownership: camera motion
+and wake, buttons/PTZ, switches/lights/sirens, account alarm actions/status,
+numbers/selections/text, media alarm metadata and Options Flow SDK calls.
+Services use HA's async methods; cancelled callers cannot cancel their executor
+workers. HTTP closure drains both polling and action futures. Fresh credential
+clients and push startup/cleanup keep their separate explicit lifecycle owners.
+Entity and service IDs remain unchanged.
 
 Diagnostics use only cached allowlisted scalar/health fields and credential-free
 push health; they do not fetch the account again or include full token/session,
