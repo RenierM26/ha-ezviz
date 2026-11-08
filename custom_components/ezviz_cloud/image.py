@@ -215,6 +215,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_unique_id = f"{serial}_{SNAPSHOT_TYPE.key}"
         self._attr_image_url = None
         self._attr_image_last_updated = None
+        self._capture_generation = 0
 
     async def async_added_to_hass(self) -> None:
         """Listen for pictures captured by the camera entity."""
@@ -227,8 +228,28 @@ class EzvizSnapshot(EzvizLastMotion):
             )
         )
 
+    async def async_image(self) -> bytes | None:
+        """Never cache or return a download superseded by a newer capture.
+
+        Each call performs at most one download. A superseded caller gets no
+        image; a request for the new capture can load/cache its current bytes.
+        """
+        if self._cached_image is not None:
+            return self._cached_image.content
+        url = self.image_url
+        if not url:
+            return None
+        generation = self._capture_generation
+        image = await self._async_load_image_from_url(url)
+        if generation != self._capture_generation or image is None:
+            return None
+        self._cached_image = image
+        self._attr_content_type = image.content_type
+        return image.content
+
     @callback
     def _handle_picture_captured(self, pic_url: str) -> None:
+        self._capture_generation += 1
         self._attr_image_url = pic_url
         self._cached_image = None
         self._attr_image_last_updated = dt_util.utcnow()

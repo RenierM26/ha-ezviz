@@ -22,6 +22,8 @@ max-returns = 10    # instead of 6
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]
+# Actual-HA acceptance has its separately pinned runtime.
+exclude = ["^tests/acceptance/"]
 python_version = "3.12"
 files = ["custom_components"]
 ignore_missing_imports = true
