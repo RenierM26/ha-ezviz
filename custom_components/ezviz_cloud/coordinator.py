@@ -3,12 +3,13 @@
 import asyncio
 from contextlib import suppress
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import Any
 
+from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.devices.snapshot import DeviceKind
 from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
     EzvizAuthVerificationCode,
@@ -26,12 +27,6 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class _InventoryResult:
-    snapshot: Any
-    cameras: dict
-
-
 class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching EZVIZ data."""
 
@@ -42,7 +37,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         self.ezviz_client = api
         self._api_timeout = api_timeout
         self._poll_future: asyncio.Future | None = None
-        self.inventory_snapshot: Any = None
+        self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict = {}
         self._closing = False
         self.worker_owner: Any = None
@@ -65,11 +60,9 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
-            if isinstance(result, _InventoryResult):
-                self.inventory_snapshot = result.snapshot
-                self.inventory_data = result.snapshot.as_dict()
-                return result.cameras
-            return deepcopy(result)
+            self.inventory_snapshot = result
+            self.inventory_data = result.as_dict()
+            return result.as_dict("camera")
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error
@@ -77,22 +70,15 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         except (InvalidURL, HTTPError, PyEzvizError, OSError, TimeoutError) as error:
             raise UpdateFailed(f"EZVIZ polling failed ({type(error).__name__})") from error
 
-    def _poll_sync(self) -> _InventoryResult | dict:
-        """One SDK poll, never a separate refresh per HA platform/device family."""
-        poll = getattr(self.ezviz_client, "poll_devices", None)
-        if callable(poll):
-            # Keep the released legacy SDK usable until the new API is released.
-            import pyezvizapi as sdk  # noqa: PLC0415
-
-            snapshot = poll(sdk.DevicePollOptions(timeout=self._api_timeout))
-            return _InventoryResult(snapshot, snapshot.as_dict("camera"))
-        return self.ezviz_client.load_cameras()
+    def _poll_sync(self) -> DeviceSnapshot:
+        """Require the new SDK's single deadline-bound mixed-family poll."""
+        return self.ezviz_client.poll_devices(DevicePollOptions(timeout=self._api_timeout))
 
     def device_data(self, serial: str) -> dict:
         """Use the camera push projection, otherwise the detached inventory view."""
         return (self.data or {}).get(serial, self.inventory_data.get(serial, {}))
 
-    def devices_of_kind(self, kind: str) -> dict:
+    def devices_of_kind(self, kind: DeviceKind) -> dict:
         """Selectors are cached views, not additional SDK/network calls."""
         if self.inventory_snapshot is None:
             return {}
@@ -101,7 +87,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     def device_is_current(self, serial: str) -> bool:
         """Missing or failed device rendering never inherits stale online state."""
         if self.inventory_snapshot is None:
-            return True  # Legacy SDK has only whole-poll health.
+            return False
         health = self.inventory_snapshot.health.get(serial)
         return health is not None and health.present and health.current
 

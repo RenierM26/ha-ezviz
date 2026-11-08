@@ -1,12 +1,14 @@
 """HA-facing state contracts without starting HA or contacting devices."""
 import asyncio
 from copy import deepcopy
+from datetime import UTC, datetime
 import importlib.util
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
+from pyezvizapi import DeviceHealth, DeviceSnapshot, DeviceState
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1] / "custom_components/ezviz_cloud"
@@ -82,9 +84,10 @@ def test_timed_out_poll_keeps_one_worker_until_it_finishes(coordinator_module):
             calls.append(func)
             entered.set()
             await release.wait()
-            return {"ONE": {"status": 1}}
+            now = datetime.now(UTC)
+            return DeviceSnapshot(1, now, {"ONE": DeviceState("ONE", "camera", {"status": 1})}, {"ONE": DeviceHealth(True, True, now)})
         c = coordinator_module.EzvizDataUpdateCoordinator(SimpleNamespace(async_add_executor_job=executor),
-            api=SimpleNamespace(load_cameras=lambda: None), api_timeout=0.01)
+            api=SimpleNamespace(poll_devices=lambda options: None), api_timeout=0.01)
         try:
             for _ in range(2):
                 with pytest.raises(coordinator_module.UpdateFailed):

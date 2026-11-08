@@ -46,6 +46,17 @@ def integration(monkeypatch):
 
     mqtt = load("push_test.mqtt", "mqtt.py")
     setup = load("push_test", "__init__.py")
+    class Persistence:
+        """Storage is mocked here; actual disk contracts live in real-HA tests."""
+        def __init__(self, *args):
+            pass
+        async def async_load(self):
+            return None
+        def save_from_worker(self, token):
+            pass
+        async def async_drain(self):
+            pass
+    setup.TokenPersistence = Persistence
     return SimpleNamespace(mqtt=mqtt, setup=setup)
 
 
@@ -144,6 +155,7 @@ def test_setup_loads_entities_while_push_connect_pending(integration, monkeypatc
         token = {"conf_session_id": "session", "conf_rf_session_id": "refresh"}
         client = MagicMock()
         client.login.return_value = token
+        client.export_token.return_value = token
         monkeypatch.setattr(setup, "EzvizClient", MagicMock(return_value=client))
         coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock())
         monkeypatch.setattr(setup, "EzvizDataUpdateCoordinator", MagicMock(return_value=coordinator))

@@ -78,9 +78,7 @@ class EzvizMqttHandler:
             else:
                 if failed and not self._stopping.is_set():
                     _LOGGER.info("EZVIZ push connection restored")
-                if not self._stopping.is_set() and callable(
-                    getattr(self._mqtt, "raise_if_failed", None)
-                ):
+                if not self._stopping.is_set():
                     self._health_task = self._hass.async_create_background_task(
                         self._async_watch_health(), "EZVIZ push health"
                     )
@@ -101,10 +99,7 @@ class EzvizMqttHandler:
                 mqtt = self._mqtt
                 if mqtt is None:
                     return
-                check = getattr(mqtt, "raise_if_failed", None)
-                if not callable(check):
-                    return
-                await self._hass.async_add_executor_job(check)
+                await self._hass.async_add_executor_job(mqtt.raise_if_failed)
             except Exception as err:
                 _LOGGER.warning(
                     "EZVIZ push worker failed (%s); polling remains active", type(err).__name__
@@ -173,8 +168,7 @@ class EzvizMqttHandler:
 
     def get_diagnostics(self) -> dict:
         """Only credential-free worker fields; no full tokens or session payload."""
-        getter = getattr(self._mqtt, "get_push_diagnostics", None)
-        if not callable(getter):
+        if self._mqtt is None:
             return {"state": "unavailable", "reauth_requested": self._reauth_requested}
         allowed = {
             "state",
@@ -185,7 +179,7 @@ class EzvizMqttHandler:
             "last_error_type",
             "fatal_error_type",
         }
-        return {k: v for k, v in getter().items() if k in allowed}
+        return {k: v for k, v in self._mqtt.get_push_diagnostics().items() if k in allowed}
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""

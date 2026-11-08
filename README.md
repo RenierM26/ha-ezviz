@@ -157,6 +157,8 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 ## Shared inventory and channel-99 migration
 
 See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
-The manifest keeps the released minimum SDK; source-qualified inventory features
-need a future library release and manifest update before ordinary HACS installs
-can use them. Existing camera IDs and released-SDK fallback are preserved.
+This branch requires the new pyezvizapi inventory/channel-99 API directly, without
+old-SDK fallbacks. The owner will release the library first; raise the manifest
+minimum to that actual release before finishing/merging HA. CI qualifies a pinned
+new-SDK source revision in the meantime. Existing camera IDs and user-data
+migration are preserved.

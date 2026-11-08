@@ -25,6 +25,7 @@ from .entity import EzvizEntity
 
 PARALLEL_UPDATES = 1
 
+
 @dataclass(frozen=True, kw_only=True)
 class EzvizUpdateEntityDescription(UpdateEntityDescription):
     """EZVIZ update entity description with optional support predicate."""
@@ -46,8 +47,9 @@ UPDATE_ENTITY_DESCRIPTIONS: tuple[EzvizUpdateEntityDescription, ...] = (
     EzvizUpdateEntityDescription(
         key="version",
         device_class=UpdateDeviceClass.FIRMWARE,
-        is_supported_fn=lambda data: isinstance(data.get("version"), str)
-        and bool(data.get("version")),
+        is_supported_fn=lambda data: (
+            isinstance(data.get("version"), str) and bool(data.get("version"))
+        ),
     ),
 )
 
@@ -56,9 +58,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ update entities based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][DATA_COORDINATOR]
 
     entities = [
         EzvizUpdateEntity(coordinator, serial, description)
@@ -101,7 +101,15 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
     @property
     def in_progress(self) -> bool:
         """Update installation progress."""
-        return bool(self.data["upgrade_in_progress"])
+        return bool(self.data.get("upgrade_in_progress"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Keep the SDK's phase visible rather than hiding active reboot/download."""
+        return {
+            "upgrade_status": self.data.get("upgrade_status"),
+            "upgrade_phase": self.data.get("upgrade_phase"),
+        }
 
     @property
     def latest_version(self) -> str | None:
@@ -135,9 +143,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
                 return int(percent)
         return None
 
-    async def async_install(
-        self, version: str | None, backup: bool, **kwargs: Any
-    ) -> None:
+    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
         try:
             await self.hass.async_add_executor_job(
@@ -145,6 +151,4 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Failed to update firmware on {self.name}"
-            ) from err
+            raise HomeAssistantError(f"Failed to update firmware on {self.name}") from err

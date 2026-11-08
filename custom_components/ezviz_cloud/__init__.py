@@ -48,7 +48,7 @@ from .const import (
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
 from .runtime import RuntimeCleanup
-from .tokens import TokenPersistence, supports_durable_callback
+from .tokens import TokenPersistence
 from .views import ImageProxyView
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,14 +76,13 @@ async def _async_validate_login(
     hass: HomeAssistant,
     entry: ConfigEntry,
     client: EzvizClient,
-    persistence: TokenPersistence | None,
+    persistence: TokenPersistence,
     runtime: RuntimeCleanup,
 ) -> None:
     """Validate session and persist rotation before platforms or push start."""
     try:
-        token = await runtime.async_run(client.login)
-        if persistence:
-            await runtime.async_run(persistence.save_from_worker, client.export_token())
+        await runtime.async_run(client.login)
+        await runtime.async_run(persistence.save_from_worker, client.export_token())
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
         await runtime.async_stop()
         raise ConfigEntryAuthFailed from err
@@ -99,15 +98,6 @@ async def _async_validate_login(
     except BaseException:
         await runtime.async_stop()
         raise
-
-    # Old SDKs have no durable callback; retain their flat-token compatibility.
-    updates: dict = {}
-    if token[CONF_SESSION_ID] != entry.data[CONF_SESSION_ID]:
-        updates[CONF_SESSION_ID] = token[CONF_SESSION_ID]
-    if token[CONF_RF_SESSION_ID] != entry.data[CONF_RF_SESSION_ID]:
-        updates[CONF_RF_SESSION_ID] = token[CONF_RF_SESSION_ID]
-    if updates and persistence is None:
-        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -129,8 +119,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady("Previous EZVIZ workers are still shutting down")
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-    persistence = TokenPersistence(hass, entry) if supports_durable_callback(EzvizClient) else None
-    saved = await persistence.async_load() if persistence else None
+    persistence = TokenPersistence(hass, entry)
+    saved = await persistence.async_load()
     token_input = saved or {
         CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
         CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],

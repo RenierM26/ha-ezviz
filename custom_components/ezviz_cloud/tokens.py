@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from concurrent.futures import Future
 from copy import deepcopy
 import hashlib
-from inspect import signature
 import json
 from threading import RLock
 from typing import Any
@@ -42,20 +41,14 @@ class AcknowledgedStore(Store):
         self._write_acknowledged = True
 
 
-def supports_durable_callback(client_type: Any) -> bool:
-    """Released older SDKs may not yet provide the new persistence contract."""
-    return "on_token_updated" in signature(client_type).parameters
-
-
 def credential_login(client: Any, code: str | None = None) -> dict:
     """A real credential login can migrate profile; stored passwords are unnecessary."""
-    login = getattr(client, "enable_channel99", client.login)
     try:
-        return deepcopy(login() if code is None else login(code))
+        return deepcopy(
+            client.enable_channel99() if code is None else client.enable_channel99(code)
+        )
     finally:
-        close = getattr(client, "close_session", None)
-        if callable(close):
-            close()
+        client.close_session()
 
 
 class TokenPersistence:

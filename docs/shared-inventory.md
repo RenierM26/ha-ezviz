@@ -61,22 +61,40 @@ Diagnostics use only cached allowlisted scalar/health fields and credential-free
 push health; they do not fetch the account again or include full token/session,
 image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
-## Release / compatibility handoff
+## New-SDK requirement and release handoff
 
-The manifest **requires released `pyezvizapi>=1.0.5.0`**, as required by current
-hassfest for packages also supplied by HA core. The legacy CI job pins the actual
-minimum release to qualify the fallback. Feature detection retains
-camera polling and the old constructor on that release. New inventory and push
-features require a future SDK release containing
-[pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), or an explicit
-source installation. No nonexistent version or direct-Git manifest dependency is
-introduced. The dedicated CI job installs an immutable SDK candidate SHA separately
-from the manifest and qualifies this checkout against actual HA 2026.10.4.
+This integration requires the SDK API containing
+[pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427). It directly
+uses `poll_devices()`, typed snapshots, `enable_channel99()`, the durable callback,
+and push health diagnostics. There is no old-SDK loader, credential-login or
+constructor fallback. Existing config-entry/registry migration and web-profile
+reauthentication remain: those migrate user data, not obsolete SDK versions.
 
-Release sequence: merge/release the SDK through the normal owner-approved process;
-update the HA manifest to that real release; rerun both legacy/real-HA controls;
-then release the integration. Merging source alone does not upgrade production.
-Neither release nor deployment is part of this change.
+Both CI jobs install the same immutable new-SDK source revision. The Python3.12
+job covers standalone lint/types/lifecycle tests, while the separate Python3.14
+job qualifies actual HA2026.10.4 and disk storage.
+
+The owner plans to release pyezvizapi before finishing this integration. Until
+that real release exists, the manifest's existing minimum **>=1.0.5.0 is not the
+final dependency declaration** for this PR: it must be raised to the actual new
+release before HA merge/release. No speculative version or direct-Git manifest
+requirement is introduced. Do not install this branch with the old PyPI SDK;
+use the exact CI-pinned candidate for development.
+
+Release order: merge/release the SDK through the owner-approved process; update
+this manifest to that real release; rerun integration checks; then finish/merge
+and release HA. SDK release and the final manifest bump remain explicit handoff
+gates, not an excuse to maintain compatibility fallbacks. Neither publication
+nor production deployment is part of the current implementation task.
+
+## Firmware status and plug channels
+
+Plug status selects the explicit device channel0 rather than a later unrelated
+outlet. Missing channelNo uses the SDK's documented unscoped fallback. Firmware
+availability accepts positive codes; progress remains active through upgrading,
+rebooting, waiting and downloading. Existing camera update IDs stay unchanged;
+update entities expose `upgrade_status` and `upgrade_phase` as state attributes.
+No firmware upgrades are performed by the acceptance tests.
 
 ## Reproduce offline acceptance
 
@@ -88,4 +106,5 @@ python3.14 -m venv .venv-ha
 
 Tests use actual HA classes and disk storage in temporary config directories,
 synthetic account/device data, and mocked outbound account/command boundaries.
-The normal Python 3.12 CI also checks the released SDK fallback separately.
+The normal Python3.12 CI uses that same new SDK revision; older SDK versions are
+not supported by this integration branch.

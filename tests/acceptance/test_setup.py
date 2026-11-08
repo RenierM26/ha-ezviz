@@ -2,12 +2,13 @@
 
 import asyncio
 from copy import deepcopy
+from datetime import UTC, datetime
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from pyezvizapi import EzvizClient
+from pyezvizapi import DeviceSnapshot, EzvizClient
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -134,10 +135,10 @@ async def test_poll_timeout_and_close_keep_single_worker_and_reject_late_publish
         if len(calls) == 1:
             entered.set()
             await release.wait()
-            return {"known": {"status": 1}}
+            return DeviceSnapshot(1, datetime.now(UTC), {}, {})
         return func(*args)
 
-    api = SimpleNamespace(load_cameras=lambda: None, close_session=MagicMock())
+    api = SimpleNamespace(poll_devices=lambda options: None, close_session=MagicMock())
     entry = MockConfigEntry(domain=DOMAIN)
     entry.add_to_hass(hass)
     context = current_entry.set(entry)

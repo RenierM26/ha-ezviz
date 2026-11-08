@@ -2,7 +2,6 @@
 
 from copy import deepcopy
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from pyezvizapi import (
@@ -14,7 +13,15 @@ from pyezvizapi.models import EzvizDeviceRecord
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ezviz_cloud import binary_sensor, camera, coordinator, light, sensor, switch
+from custom_components.ezviz_cloud import (
+    binary_sensor,
+    camera,
+    coordinator,
+    light,
+    sensor,
+    switch,
+    update,
+)
 from custom_components.ezviz_cloud.availability import device_available
 from custom_components.ezviz_cloud.const import DATA_COORDINATOR, DOMAIN
 from custom_components.ezviz_cloud.inventory_binary_sensor import EzvizDetectorBinarySensor
@@ -205,9 +212,46 @@ async def test_push_copy_does_not_make_stale_poll_available_or_change_detectors(
     assert not data.last_update_success
 
 
-async def test_legacy_sdk_fallback_and_no_extra_family_reads(hass):
-    api = SimpleNamespace(load_cameras=MagicMock(return_value={"old": {"status": 1}}))
+async def test_plug_status_uses_device_channel_not_last_outlet(hass, client):
+    api, records, _ = client
+    rows = [
+        {"type": DeviceSwitchType.PLUG.value, "channelNo": 0, "enable": False},
+        {"type": DeviceSwitchType.PLUG.value, "channelNo": 1, "enable": True},
+    ]
+    records["PLUG01"]["SWITCH"] = rows
     data = await make(hass, api)
-    assert data.data == {"old": {"status": 1}}
-    assert data.inventory_snapshot is None and data.devices_of_kind("detector") == {}
-    api.load_cameras.assert_called_once_with()
+    plug = EzvizInventoryPlug(data, "PLUG01")
+    assert plug.is_on is False and plug.available
+    records["PLUG01"]["SWITCH"] = list(reversed(rows))
+    data.async_set_updated_data(await data._async_update_data())
+    assert plug.is_on is False and plug.unique_id == "PLUG01_power"
+
+
+@pytest.mark.parametrize(
+    "code,phase,active,needed",
+    [
+        (1, "rebooting", True, 1),
+        (14, "waiting", True, 2),
+        (15, "downloading", True, 1),
+        (2, "current", False, 0),
+        (999, None, False, 0),
+    ],
+)
+async def test_sdk_firmware_status_reaches_real_ha_update_entity(
+    hass, client, code, phase, active, needed
+):
+    api, records, _ = client
+    for raw in records.values():
+        raw["STATUS"].update(upgradeStatus=code, upgradeProcess=25)
+        raw["UPGRADE"] = {"isNeedUpgrade": needed, "upgradePackageInfo": {"version": "V2"}}
+    data = await make(hass, api)
+    for state in data.inventory_data.values():
+        assert state["upgrade_phase"] == phase
+        assert state["upgrade_in_progress"] is active
+        assert state["upgrade_available"] is (needed > 0)
+    entity = update.EzvizUpdateEntity(data, "CAM001", update.UPDATE_ENTITY_DESCRIPTIONS[0])
+    assert entity.unique_id == "CAM001_version"
+    assert entity.in_progress is active
+    assert entity.update_percentage == (25 if active else None)
+    assert entity.latest_version == ("V2" if needed else "V1")
+    assert entity.extra_state_attributes == {"upgrade_status": code, "upgrade_phase": phase}

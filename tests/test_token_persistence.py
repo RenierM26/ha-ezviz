@@ -1,4 +1,4 @@
-"""Durable token acknowledgements, reauth invalidation and SDK feature gating."""
+"""Durable token acknowledgements, reauth invalidation and channel-99 credential login."""
 import asyncio
 from copy import deepcopy
 import importlib.util
@@ -88,20 +88,15 @@ def test_reauth_anchor_rejects_old_store_and_uses_new_full_entry_token(tokens):
     asyncio.run(scenario())
 
 
-def test_fresh_login_uses_explicit_migration_but_old_sdk_keeps_polling(tokens):
+def test_fresh_login_requires_channel99_and_closes_the_credential_client(tokens):
     calls = []
-    class Old:
+    class Client:
         def login(self, *args):
-            calls.append(("old", args))
-            return {}
-    class New(Old):
-        def __init__(self, *, on_token_updated=None):
-            pass
+            pytest.fail("Credential login must use channel99")
         def enable_channel99(self, *args):
-            calls.append(("new", args))
-            return {}
-    assert not tokens.supports_durable_callback(Old)
-    assert tokens.supports_durable_callback(New)
-    tokens.credential_login(Old())
-    tokens.credential_login(New(), "123456")
-    assert calls == [("old", ()), ("new", ("123456",))]
+            calls.append(("channel99", args))
+            return {"session_id": "synthetic"}
+        def close_session(self):
+            calls.append(("close", ()))
+    assert tokens.credential_login(Client(), "123456") == {"session_id": "synthetic"}
+    assert calls == [("channel99", ("123456",)), ("close", ())]
