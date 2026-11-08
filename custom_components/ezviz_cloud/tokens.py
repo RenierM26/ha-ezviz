@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from concurrent.futures import Future
 from copy import deepcopy
 import hashlib
 from inspect import signature
 import json
+from threading import RLock
 from typing import Any
 
 from homeassistant.helpers.storage import Store
@@ -62,12 +64,18 @@ class TokenPersistence:
     def __init__(self, hass: Any, entry: Any) -> None:
         self._hass = hass
         self._entry = entry
-        anchor = {key: entry.data.get(key) for key in ("session_id", "user_id", "url")}
+        anchor = {
+            key: entry.data.get(key)
+            for key in ("session_id", "rf_session_id", "user_id", "url", CONF_SDK_TOKEN)
+        }
         self._anchor = hashlib.sha256(json.dumps(anchor, sort_keys=True).encode()).hexdigest()
         self._store = AcknowledgedStore(
             hass, 1, f"{DOMAIN}.token.{entry.entry_id}", private=True, atomic_writes=True
         )
         self._lock = asyncio.Lock()
+        self._pending_lock = RLock()
+        self._pending: set[Future] = set()
+        self._removed = False
 
     async def async_load(self) -> dict | None:
         """Ignore a pre-reauth store, never roll a new credential login backwards."""
@@ -82,12 +90,33 @@ class TokenPersistence:
     async def async_save(self, token: dict) -> None:
         """Completion means the private atomic write (including fsync) finished."""
         async with self._lock:
+            if self._removed:
+                raise OSError("EZVIZ token owner has been removed")
             await self._store.async_save({"anchor": self._anchor, "token": deepcopy(token)})
 
     async def async_remove(self) -> None:
         """Remove credentials through the public HA storage lifecycle."""
+        with self._pending_lock:
+            self._removed = True
+        await self.async_drain()
         async with self._lock:
             await self._store.async_remove()
+
+    async def async_drain(self) -> None:
+        """Timeout is not cancellation: retain late disk writes until cleanup."""
+        while True:
+            with self._pending_lock:
+                pending = tuple(self._pending)
+            if not pending:
+                return
+            await asyncio.gather(
+                *(asyncio.shield(asyncio.wrap_future(future)) for future in pending),
+                return_exceptions=True,
+            )
+
+    def _save_finished(self, future: Future) -> None:
+        with self._pending_lock:
+            self._pending.discard(future)
 
     def save_from_worker(self, token: dict) -> None:
         """Never acknowledge a queued/delayed HA config-entry update as durable."""
@@ -97,7 +126,14 @@ class TokenPersistence:
             loop = None
         if loop is self._hass.loop:
             raise RuntimeError("EZVIZ persistence must run in an executor, not the HA loop")
-        future = asyncio.run_coroutine_threadsafe(self.async_save(deepcopy(token)), self._hass.loop)
+        with self._pending_lock:
+            if self._removed:
+                raise OSError("EZVIZ token owner has been removed")
+            future = asyncio.run_coroutine_threadsafe(
+                self.async_save(deepcopy(token)), self._hass.loop
+            )
+            self._pending.add(future)
+            future.add_done_callback(self._save_finished)
         # A timeout is a persistence failure; it must propagate before SDK ACK.
         # Do not cancel a write whose OS operation may already be running.
         future.result(timeout=PERSIST_TIMEOUT)

@@ -137,11 +137,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api_url": entry.data[CONF_URL],
         "username": entry.data[CONF_USER_ID],
     }
-    callback_options: dict[str, Any] = {"on_token_updated": persistence.save_from_worker} if persistence else {}
+    callback_options: dict[str, Any] = (
+        {"on_token_updated": persistence.save_from_worker} if persistence else {}
+    )
     client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
 
     coordinator = EzvizDataUpdateCoordinator(hass, api=client, api_timeout=timeout)
-    runtime = RuntimeCleanup(hass, coordinator)
+    runtime = RuntimeCleanup(hass, coordinator, persistence=persistence)
     runtimes[entry.entry_id] = runtime
 
     await _async_validate_login(hass, entry, client, persistence, runtime)
@@ -212,7 +214,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             await runtime.async_stop()
             if runtime.task is not None:
                 await runtime.task
-        await TokenPersistence(hass, entry).async_remove()
+        persistence = runtime.persistence if runtime is not None else None
+        await (persistence or TokenPersistence(hass, entry)).async_remove()
 
     hass.async_create_background_task(remove(), "EZVIZ credential removal")
 

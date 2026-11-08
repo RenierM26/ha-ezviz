@@ -13,7 +13,8 @@ from pyezvizapi.exceptions import EzvizAuthTokenExpired, PyEzvizError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ezviz_cloud import diagnostics, mqtt, runtime
+from custom_components import ezviz_cloud
+from custom_components.ezviz_cloud import diagnostics, mqtt, runtime, tokens
 from custom_components.ezviz_cloud.const import DATA_COORDINATOR, DOMAIN, MQTT_HANDLER
 from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant.core import CoreState
@@ -189,3 +190,52 @@ async def test_diagnostics_are_cached_and_allowlisted(hass):
     assert "PRIVATE_" not in json.dumps(value)
     assert value["push"] == {"state": "online"}
     client.get_device_infos.assert_not_called()
+
+
+async def test_reauth_with_same_session_replaces_old_push_state(hass):
+    entry = entry_for(hass)
+    first = TokenPersistence(hass, entry)
+    await hass.async_add_executor_job(
+        first.save_from_worker, {"session_id": "synthetic", "push_state": {"counter": 9}}
+    )
+    fresh = {"session_id": "synthetic", "push_state": {"counter": 0, "new_secret": "synthetic"}}
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "sdk_token": fresh})
+    assert await TokenPersistence(hass, entry).async_load() == fresh
+    await first.async_remove()
+
+
+async def test_timed_out_disk_write_cannot_recreate_removed_credentials(hass, monkeypatch):
+    entry = entry_for(hass)
+    persistence = TokenPersistence(hass, entry)
+    entered, release = Event(), Event()
+    original = atomicwrites._proper_fsync
+
+    def slow(fd):
+        entered.set()
+        assert release.wait(5)
+        original(fd)
+
+    monkeypatch.setattr(atomicwrites, "_proper_fsync", slow)
+    monkeypatch.setattr(tokens, "PERSIST_TIMEOUT", 0.01)
+    owner = runtime.RuntimeCleanup(
+        hass,
+        SimpleNamespace(begin_shutdown=MagicMock(), async_close=AsyncMock()),
+        persistence=persistence,
+    )
+    hass.data[DOMAIN] = {"_runtimes": {entry.entry_id: owner}}
+    try:
+        with pytest.raises(TimeoutError):
+            await hass.async_add_executor_job(
+                persistence.save_from_worker, {"session_id": "synthetic"}
+            )
+        assert entered.is_set() and persistence._pending
+        await ezviz_cloud.async_remove_entry(hass, entry)
+        await asyncio.sleep(0.02)
+        assert owner.task is not None and not owner.task.done()
+    finally:
+        release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert not Path(persistence._store.path).exists()
+    assert not persistence._pending
+    with pytest.raises(OSError, match="removed"):
+        await hass.async_add_executor_job(persistence.save_from_worker, {"session_id": "late"})

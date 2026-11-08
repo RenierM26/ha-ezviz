@@ -51,7 +51,7 @@ jobs:
       - name: Install tooling + deps
         run: |
           pip install ruff mypy pytest types-requests
-          pip install pyezvizapi  # your runtime dep
+          pip install pyezvizapi==1.0.5.0  # minimum released-SDK compatibility
 
       - name: Ruff
         run: ruff check .
@@ -84,7 +84,7 @@ jobs:
         with:
           repository: RenierM26/pyEzvizApi
           # Source qualification, not a fictional PyPI release/manifest bump.
-          ref: 5ed017902a1751a7a5fcfe54f3bf7410cb2d25e7
+          ref: 3888af35ea16a5db146c025c1a893159b6855a6b
           path: .sdk
       - name: Install isolated real-HA runtime and candidate SDK
         run: python -m pip install -r tests/acceptance/requirements.txt -e .sdk

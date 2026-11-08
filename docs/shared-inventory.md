@@ -63,7 +63,9 @@ image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
 ## Release / compatibility handoff
 
-The manifest **still pins released `pyezvizapi==1.0.5.0`**. Feature detection retains
+The manifest **requires released `pyezvizapi>=1.0.5.0`**, as required by current
+hassfest for packages also supplied by HA core. The legacy CI job pins the actual
+minimum release to qualify the fallback. Feature detection retains
 camera polling and the old constructor on that release. New inventory and push
 features require a future SDK release containing
 [pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), or an explicit

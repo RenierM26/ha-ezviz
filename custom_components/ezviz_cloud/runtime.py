@@ -13,11 +13,14 @@ SHUTDOWN_TIMEOUT = 5
 class RuntimeCleanup:
     """A single retained task closes HTTP only after push and polling finish."""
 
-    def __init__(self, hass: Any, coordinator: Any, push: Any = None) -> None:
+    def __init__(
+        self, hass: Any, coordinator: Any, push: Any = None, persistence: Any = None
+    ) -> None:
         self.hass = hass
         self.coordinator = coordinator
         coordinator.worker_owner = self
         self.push = push
+        self.persistence = persistence
         self.task: asyncio.Task | None = None
         self._workers: set[asyncio.Future] = set()
         self._stopping = False
@@ -54,3 +57,5 @@ class RuntimeCleanup:
         if self.push is not None:
             await self.push.async_wait_stopped()
         await self.coordinator.async_close()
+        if self.persistence is not None:
+            await self.persistence.async_drain()
