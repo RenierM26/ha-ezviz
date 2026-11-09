@@ -218,6 +218,7 @@ async def migrate_unique_ids_with_coordinator(
 
     if not _has_legacy_ids(entity_registry, platform_domain):
         _LOGGER.debug("[%s] UID migration: no legacy IDs found", platform_domain)
+        _create_or_clear_issue(hass, entry, platform_domain, stats, [])
         return stats
 
     legacy_to_target = _build_legacy_map(

@@ -214,61 +214,82 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old config entry to the current version."""
-    if entry.version >= TARGET_VERSION:
+    """Consolidate historical camera settings, preserving retryability and identity."""
+    if entry.version > TARGET_VERSION:
+        _LOGGER.error("Cannot migrate EZVIZ entry from future version %s", entry.version)
+        return False
+    if entry.version == TARGET_VERSION:
         return True
 
-    _LOGGER.debug("Migrating entry %s from v%s", entry.entry_id, entry.version)
-    etype = entry.data.get(CONF_TYPE)
-    if etype == ATTR_TYPE_CAMERA:
-        # Per-camera placeholders will be removed by the cloud migration
-        return True
-    if etype != ATTR_TYPE_CLOUD:
+    # Old camera entries are placeholders; only their cloud account owns migration.
+    if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
         return True
 
-    # Consolidate legacy camera entries into cloud options
-    prev_opts = dict(entry.options or {})
-    cameras_map = dict(prev_opts.get(OPTIONS_KEY_CAMERAS, {}))
-    timeout_val = prev_opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
-
+    entries = hass.config_entries.async_entries(DOMAIN)
     legacy_cams = [
-        e
-        for e in hass.config_entries.async_entries(DOMAIN)
-        if e.entry_id != entry.entry_id and e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
+        candidate
+        for candidate in entries
+        if candidate.entry_id != entry.entry_id
+        and candidate.version < TARGET_VERSION
+        and candidate.source != SOURCE_IGNORE
+        and candidate.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
     ]
+    # Historical flows allowed only one cloud account. Never guess ownership if
+    # manually restored entries violate that invariant.
+    if legacy_cams and sum(e.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD for e in entries) != 1:
+        _LOGGER.error("Cannot assign legacy EZVIZ cameras to multiple cloud accounts")
+        return False
+    if any(not isinstance(cam.unique_id, str) or not cam.unique_id for cam in legacy_cams):
+        _LOGGER.error("Cannot migrate legacy EZVIZ camera without a serial unique ID")
+        return False
+
+    options = dict(entry.options)
+    cameras_map = dict(options.get(OPTIONS_KEY_CAMERAS, {}))
     for cam in legacy_cams:
-        serial = cam.unique_id  # strict
+        serial = cam.unique_id
         if serial in cameras_map:
-            _LOGGER.warning("Skipping duplicate camera serial during migration: %s", serial)
+            # A previous partial pass or user choice must win over old credentials.
             continue
+        password = cam.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY)
+        enc_key = cam.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY)
+        if cam.version == 1:
+            # v1 -> v2 (#153) copied the RTSP password into the encryption key.
+            enc_key = password
+        if cam.version <= 2:
+            # v2 -> v3 (#180) retained verification-code RTSP authentication.
+            enc_key = enc_key or password
         cameras_map[serial] = {
             CONF_USERNAME: cam.data.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
-            CONF_PASSWORD: cam.data.get(CONF_PASSWORD, DEFAULT_FETCH_MY_KEY),
-            CONF_ENC_KEY: cam.data.get(CONF_ENC_KEY, DEFAULT_FETCH_MY_KEY),
-            CONF_RTSP_USES_VERIFICATION_CODE: cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
+            CONF_PASSWORD: password,
+            CONF_ENC_KEY: enc_key,
+            CONF_RTSP_USES_VERIFICATION_CODE: (
+                True if cam.version <= 2 else cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
+            ),
             CONF_FFMPEG_ARGUMENTS: cam.options.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
         }
 
-    hass.config_entries.async_update_entry(
-        entry,
-        options={CONF_TIMEOUT: timeout_val, OPTIONS_KEY_CAMERAS: cameras_map},
-        version=TARGET_VERSION,
-        minor_version=entry.minor_version,
-    )
-
-    # Strict purge: only entries with explicit version < 4
+    options.setdefault(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+    options[OPTIONS_KEY_CAMERAS] = cameras_map
+    # Save transferred settings BEFORE removal. Keep the old version until every
+    # removal completes, so interruptions are retried without losing credentials.
+    hass.config_entries.async_update_entry(entry, options=options)
     victims = [
-        e
-        for e in hass.config_entries.async_entries(DOMAIN)
-        if e.entry_id != entry.entry_id
-        and e.version < TARGET_VERSION
-        and (e.source == SOURCE_IGNORE or e.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA)
+        candidate
+        for candidate in entries
+        if candidate.entry_id != entry.entry_id
+        and candidate.version < TARGET_VERSION
+        and (candidate.source == SOURCE_IGNORE or candidate in legacy_cams)
     ]
-    for v in victims:
+    for victim in victims:
         try:
-            await hass.config_entries.async_remove(v.entry_id)
+            await hass.config_entries.async_remove(victim.entry_id)
         except Exception:
-            _LOGGER.exception("Failed to remove legacy entry %s during migration", v.entry_id)
+            _LOGGER.exception("Failed to remove legacy entry %s during migration", victim.entry_id)
+            return False
+        if hass.config_entries.async_get_entry(victim.entry_id) is not None:
+            _LOGGER.error("Legacy EZVIZ entry %s was not removed", victim.entry_id)
+            return False
 
+    hass.config_entries.async_update_entry(entry, version=TARGET_VERSION)
     _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True
