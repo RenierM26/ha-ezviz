@@ -45,3 +45,8 @@ rename tests, write-only credential state checks, and real Repairs manager/retry
 It uses the published SDK boundary and the same network-denied native HA environments.
 `test_config_flow.py` also checks strict hosts/timeouts and unloaded/stopping/removed
 camera options. See [the six-item tracker](../../docs/ha-best-practices-tracker.md).
+
+`test_reliability.py` checks cancellation-safe key changes/fetches, per-camera ordering,
+concurrent options conflicts/merges, retryable cleanup outcomes, actual HA stop/restart
+persistence and entry removal during an in-flight change. `test_media_source.py` exercises
+malformed/stale identifiers, validated limits/URLs, legacy resolution and vendor errors.

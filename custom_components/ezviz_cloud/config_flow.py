@@ -69,6 +69,7 @@ from .const import (
     REGION_URLS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
+from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .runtime import EzvizConfigEntry
 from .tokens import credential_login
 from .workers import create_executor_task
@@ -452,6 +453,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     def __init__(self, config_entry: EzvizConfigEntry) -> None:
         """Initialize options flow."""
         self._cam_serial: str
+        self._camera_baseline: dict[str, Any] = {}
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = None  # one-shot defaults when returning from 2FA fallback
 
@@ -504,6 +506,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         if user_input is not None:
             self._cam_serial = user_input["serial"]
+            self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
             return await self.async_step_camera_edit()
 
         return self.async_show_form(
@@ -576,27 +579,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             try:
                 resolved = await self._test_rtsp_credentials(payload)
 
-                # Success → write fresh options dict
-                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
-                cams_new = dict(cams_old)
-                cams_new[self._cam_serial] = {
-                    CONF_USERNAME: resolved[CONF_USERNAME],
-                    CONF_PASSWORD: resolved[CONF_PASSWORD],
-                    CONF_ENC_KEY: resolved[CONF_ENC_KEY],
-                    CONF_RTSP_USES_VERIFICATION_CODE: resolved[CONF_RTSP_USES_VERIFICATION_CODE],
-                    CONF_FFMPEG_ARGUMENTS: resolved.get(
-                        CONF_FFMPEG_ARGUMENTS,
-                        cams_old.get(self._cam_serial, {}).get(
-                            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                        ),
-                    ),
-                }
-                new_opts = dict(base_opts)
-                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
+                return self._camera_options_result(resolved)
 
+            except CameraOptionsConflict:
+                self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
                 self._pending = None
                 self._prefill = None
-                return self.async_create_entry(title="", data=new_opts)
+                return await self.async_step_camera_edit(errors={"base": "options_changed"})
 
             except EzvizAuthVerificationCode:
                 self._pending = payload
@@ -654,9 +643,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         if not self._pending:
             return await self.async_step_camera_edit()
 
-        opts = dict(self.config_entry.options or {})
-        per_cam = (opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(self._cam_serial, {})
-
         cam_info = (self.coordinator.data or {}).get(self._cam_serial, {}) or {}
         inferred_ip = cam_info.get("local_ip") or ""
 
@@ -672,29 +658,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             try:
                 resolved = await self._test_rtsp_credentials(data)
 
-                base_opts = dict(self.config_entry.options or {})
-                cams_old = base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}
-                cams_new = dict(cams_old)
+                return self._camera_options_result(resolved)
 
-                cams_new[self._cam_serial] = {
-                    CONF_USERNAME: resolved[CONF_USERNAME],
-                    CONF_PASSWORD: resolved[CONF_PASSWORD],
-                    CONF_ENC_KEY: resolved[CONF_ENC_KEY],
-                    CONF_RTSP_USES_VERIFICATION_CODE: resolved[CONF_RTSP_USES_VERIFICATION_CODE],
-                    CONF_FFMPEG_ARGUMENTS: resolved.get(
-                        CONF_FFMPEG_ARGUMENTS,
-                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
-                    ),
-                }
-
-                new_opts = dict(base_opts)
-                new_opts[OPTIONS_KEY_CAMERAS] = cams_new
-
-                # Clear ephemerals
+            except CameraOptionsConflict:
+                self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
                 self._pending = None
                 self._prefill = None
-
-                return self.async_create_entry(title="", data=new_opts)
+                return await self.async_step_camera_edit(errors={"base": "options_changed"})
 
             except EzvizAuthVerificationCode:
                 # Still needs a code
@@ -735,6 +705,21 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 "ip_address": inferred_ip or "",
             },
         )
+
+    @callback
+    def _camera_options_result(self, resolved: dict[str, Any]) -> ConfigFlowResult:
+        """One fresh-read patch/compare path for normal and MFA completion."""
+        patch = {
+            CONF_USERNAME: resolved[CONF_USERNAME],
+            CONF_PASSWORD: resolved[CONF_PASSWORD],
+            CONF_ENC_KEY: resolved[CONF_ENC_KEY],
+            CONF_RTSP_USES_VERIFICATION_CODE: resolved[CONF_RTSP_USES_VERIFICATION_CODE],
+            CONF_FFMPEG_ARGUMENTS: resolved.get(CONF_FFMPEG_ARGUMENTS, self._camera_baseline.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS)),
+        }
+        options = build_camera_options(self.config_entry, self._cam_serial, patch, expected=self._camera_baseline)
+        self._pending = None
+        self._prefill = None
+        return self.async_create_entry(title="", data=options)
 
     # --------------------------
     # Shared validator for both camera steps

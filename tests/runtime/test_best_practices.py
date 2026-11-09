@@ -71,6 +71,13 @@ async def test_key_is_write_only_and_images_use_options_not_state(hass):
     assert not hasattr(key, "async_get_last_state")
     assert not hasattr(alarm, "cam_key_entity_id")
     assert entry.options["cameras"]["CAM001"]["enc_key"] == "PRIVATE_NEW"
+    api.get_cam_key = MagicMock(return_value="PRIVATE_FETCHED")
+    data.data["CAM001"]["encrypted_pwd_hash"] = "changed-device-hash"
+    await key.async_update()
+    assert key.state == ""
+    assert entry.options["cameras"]["CAM001"]["enc_key"] == "PRIVATE_FETCHED"
+    alarm._sync_encryption_key()
+    assert alarm.alarm_image_password == "PRIVATE_FETCHED"
     await platform.async_reset()
     await data.async_close()
 

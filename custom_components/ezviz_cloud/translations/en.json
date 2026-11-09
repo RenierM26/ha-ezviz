@@ -110,7 +110,8 @@
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "Unknown error",
       "rtsp_auth_failed": "Invalid authentication",
-      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds."
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+      "options_changed": "Camera settings changed while this form was open. Review the current values and submit again."
     },
     "abort": {
       "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from functools import partial
 import logging
 
 from pyezvizapi.exceptions import (
@@ -20,7 +19,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity, EzvizEntity
 from .runtime import EzvizConfigEntry
@@ -74,25 +72,14 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_{ENC_KEY_TEXT.key}"
         self.entity_description = ENC_KEY_TEXT
-        self._encryption_key: str | None = (
-            (entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(serial, {}).get(CONF_ENC_KEY)
-        )
-        self.current_enc_key_hash: str | None = (
-            return_password_hash(self._encryption_key) if self._encryption_key else None
-        )
         self.mfa_enabled: bool = True
         self._entry = entry
 
-    def _persist_key_to_options(self, key: str) -> None:
-        """Persist the encryption key to the config entry options for this camera."""
-        options = dict(self._entry.options or {})
-        cameras: dict[str, dict] = dict(options.get(OPTIONS_KEY_CAMERAS, {}))
-        cam_opts = dict(cameras.get(self._serial, {}))
-        cam_opts[CONF_ENC_KEY] = key
-        cameras[self._serial] = cam_opts
-        options[OPTIONS_KEY_CAMERAS] = cameras
-        self.hass.config_entries.async_update_entry(self._entry, options=options)
-        self.coordinator.async_update_listeners()
+    @property
+    def current_enc_key_hash(self) -> str | None:
+        """Derive from the committed key, including late/cancelled operation results."""
+        key = self.coordinator.credentials.key(self._serial)
+        return return_password_hash(key) if key else None
 
     @property
     def native_value(self) -> str:
@@ -102,23 +89,11 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
     async def async_set_value(self, value: str) -> None:
         """Set camera encryption key."""
         try:
-            await self.coordinator.async_execute(
-                partial(
-                    self.coordinator.ezviz_client.set_video_enc,
-                    serial=self._serial,
-                    enable=2,
-                    new_password=value,
-                    old_password=self._encryption_key,
-                )
-            )
+            await self.coordinator.credentials.async_change(self._serial, value)
 
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot set camera encryption key for {self.name}") from err
 
-        self._encryption_key = value
-        self.current_enc_key_hash = return_password_hash(value)
-        # Store updated key in entry options for reuse by media proxy, etc.
-        self._persist_key_to_options(value)
 
     @property
     def available(self) -> bool:
@@ -151,9 +126,7 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
             )
 
             try:
-                new_encryption_key = await self.coordinator.async_execute(
-                    self.coordinator.ezviz_client.get_cam_key, self._serial
-                )
+                await self.coordinator.credentials.async_fetch(self._serial)
 
             except EzvizAuthVerificationCode as error:
                 self.mfa_enabled = False
@@ -167,10 +140,6 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
             ) as error:
                 raise HomeAssistantError(f"Invalid response from API: {error}") from error
 
-            self._encryption_key = new_encryption_key
-            self.current_enc_key_hash = return_password_hash(new_encryption_key)
-            # Store fetched key in entry options
-            self._persist_key_to_options(new_encryption_key)
 
 
 class EzvizCameraNameText(EzvizEntity, TextEntity):

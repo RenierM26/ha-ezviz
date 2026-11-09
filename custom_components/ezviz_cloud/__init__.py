@@ -117,8 +117,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
     # Platforms and request handlers use entry.runtime_data, never this registry.
     runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})
     previous = runtimes.get(entry.entry_id)
-    if previous is not None and previous.task is not None and not previous.task.done():
-        raise ConfigEntryNotReady("Previous EZVIZ workers are still shutting down")
+    if previous is not None and not previous.cleanup_complete:
+        # A done task may have failed before releasing its resources. Retry the
+        # same owner; never replace it with a new client while cleanup is uncertain.
+        if previous.task is not None and previous.task.done():
+            try:
+                await previous.async_stop()
+            except Exception as err:
+                raise ConfigEntryNotReady(f"Previous EZVIZ cleanup failed ({type(err).__name__})") from err
+        if not previous.cleanup_complete:
+            raise ConfigEntryNotReady("Previous EZVIZ workers are still shutting down")
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
     persistence = TokenPersistence(hass, entry)
@@ -194,16 +202,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bo
 
 async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> None:
     """Remove private credentials after any late token-producing worker exits."""
-    runtime = hass.data.get(DOMAIN, {}).get("_runtimes", {}).pop(entry.entry_id, None)
+    owners = hass.data.get(DOMAIN, {}).get("_runtimes", {})
+    runtime = owners.get(entry.entry_id)
     runtime = getattr(entry, "runtime_data", runtime)
 
     async def remove() -> None:
         if runtime is not None:
-            await runtime.async_stop()
-            if runtime.task is not None:
-                await runtime.task
+            await runtime.async_wait_stopped()
         persistence = runtime.persistence if runtime is not None else None
         await (persistence or TokenPersistence(hass, entry)).async_remove()
+        if owners.get(entry.entry_id) is runtime:
+            owners.pop(entry.entry_id, None)
 
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 

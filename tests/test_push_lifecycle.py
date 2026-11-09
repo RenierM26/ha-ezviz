@@ -319,7 +319,9 @@ def test_shutdown_is_bounded_and_worker_eventually_cleans_up(
             else:
                 assert await asyncio.to_thread(entered.wait, 1)
             assert await asyncio.wait_for(integration.setup.async_unload_entry(hass, entry), 1)
-            assert entered.is_set()
+            # Unload is bounded independently of when the executor starts the
+            # blocked worker; wait for that boundary before testing late cleanup.
+            assert await asyncio.to_thread(entered.wait, 1)
             assert not cleaned.is_set()
             assert not handler._stop_task.done()
             hass.config_entries.async_unload_platforms.assert_awaited_once()

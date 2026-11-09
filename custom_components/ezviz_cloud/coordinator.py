@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from datetime import timedelta
 import logging
@@ -24,6 +25,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
+from .credentials import CameraCredentials
 from .workers import create_critical_task, create_executor_task
 
 if TYPE_CHECKING:
@@ -40,12 +42,14 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize global EZVIZ data updater."""
         self.ezviz_client = api
         self._api_timeout = api_timeout
+        self.credentials = CameraCredentials(hass, config_entry, self)
         self._poll_future: asyncio.Future | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict = {}
         self._closing = False
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
+        self._close_succeeded = False
         update_interval = timedelta(seconds=30)
 
         super().__init__(hass, _LOGGER, config_entry=config_entry, name=DOMAIN, update_interval=update_interval)
@@ -106,6 +110,16 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             raise HomeAssistantError("EZVIZ coordinator is shutting down")
         return result
 
+    async def async_execute_owned(self, operation: Callable[[], Coroutine[Any, Any, Any]]) -> Any:
+        """Own a complete side-effect/commit operation, not only its SDK worker."""
+        if self._closing:
+            raise HomeAssistantError("EZVIZ coordinator is shutting down")
+        task = create_critical_task(self.hass, operation(), "EZVIZ credential operation")
+        self._action_futures.add(task)
+        task.add_done_callback(self._action_futures.discard)
+        task.add_done_callback(_retrieve_worker_error)
+        return await asyncio.shield(task)
+
     @property
     def shutting_down(self) -> bool:
         """Expose the owned-worker shutdown boundary to image/action adapters."""
@@ -118,7 +132,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_close(self) -> None:
         """Keep HTTP session ownership until the last polling worker has finished."""
         self.begin_shutdown()
-        if self._close_task is None:
+        if self._close_task is None or (self._close_task.done() and not self._close_succeeded):
             self._close_task = create_critical_task(self.hass, self._async_finish_close(), "EZVIZ HTTP cleanup")
         await asyncio.shield(self._close_task)
 
@@ -131,6 +145,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
                 *(asyncio.shield(future) for future in pending), return_exceptions=True
             )
         await self.hass.async_add_executor_job(self.ezviz_client.close_session)
+        self._close_succeeded = True
 
     def merge_mqtt_update(self, serial: str, mqtt_data: dict) -> None:
         """Merge MQTT update data into the coordinator."""
