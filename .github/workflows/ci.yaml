@@ -119,4 +119,6 @@ jobs:
           assert find_spec("pytest_homeassistant_custom_component") is None
           PYVERSIONS
       - name: Real shutdown, worker ownership, image CPU and durable storage
-        run: python -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
+        run: |
+          python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
+          python -m coverage report --show-missing --fail-under=100

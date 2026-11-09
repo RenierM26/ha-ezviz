@@ -204,7 +204,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                         timeout=timeout,
                     )
                     # First attempt without SMS -> returns a token dict on success
-                    token = await asyncio.shield(create_executor_task(self.hass, credential_login, client))
+                    token = await asyncio.shield(
+                        create_executor_task(self.hass, credential_login, client)
+                    )
 
                 except EzvizAuthVerificationCode:
                     # Stash pending values; request SMS code
@@ -217,7 +219,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 except (InvalidURL, HTTPError, PyEzvizError):
                     errors["base"] = "cannot_connect"
 
-                except Exception:  # pragma: no cover - defensive
+                except Exception:
                     _LOGGER.exception("Unexpected error during EZVIZ login")
                     errors["base"] = "unknown"
 
@@ -270,7 +272,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._pending_user_url,
                     timeout=self._pending_user_timeout,
                 )
-                token = await asyncio.shield(create_executor_task(self.hass, credential_login, client, sms_code))
+                token = await asyncio.shield(
+                    create_executor_task(self.hass, credential_login, client, sms_code)
+                )
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"
@@ -305,15 +309,11 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Start reauthentication for the EZVIZ account."""
-        entry: ConfigEntry | None = None
-
-        for item in self._async_current_entries():
-            if item.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
-                entry = await self.async_set_unique_id(item.unique_id)
-
-        if entry is None:
+        entry = self._get_reauth_entry()
+        if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
             return self.async_abort(reason="unknown")
 
+        await self.async_set_unique_id(entry.unique_id)
         self._reauth_entry = entry
         return await self.async_step_reauth_confirm()
 
@@ -327,7 +327,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             self._reauth_username = user_input[CONF_USERNAME]
             self._reauth_password = user_input[CONF_PASSWORD]
             self._reauth_url = self._reauth_entry.data[CONF_URL]
-            self._reauth_timeout = self._reauth_entry.options[CONF_TIMEOUT]
+            self._reauth_timeout = self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
             try:
                 client = EzvizClient(
@@ -336,23 +336,26 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
                 )
-                token = await asyncio.shield(create_executor_task(self.hass, credential_login, client))
+                token = await asyncio.shield(
+                    create_executor_task(self.hass, credential_login, client)
+                )
 
             except EzvizAuthVerificationCode:
                 return await self.async_step_reauth_mfa()
 
             except (InvalidURL, HTTPError, PyEzvizError):
                 errors["base"] = "cannot_connect"
-            except Exception:  # pragma: no cover
+            except Exception:
                 _LOGGER.exception("Unexpected error during reauth")
                 errors["base"] = "unknown"
             else:
-                # Update only the rotating token fields; URL & user id are stable.
+                # Refresh tokens and restore the internal user id missing from legacy entries.
                 new_data = {
                     **self._reauth_entry.data,
                     CONF_SESSION_ID: token[CONF_SESSION_ID],
                     CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
                     CONF_SDK_TOKEN: token,
+                    CONF_USER_ID: token["username"],
                 }
                 return self.async_update_reload_and_abort(self._reauth_entry, data=new_data)
 
@@ -380,15 +383,17 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
                 )
-                token = await asyncio.shield(create_executor_task(
-                    self.hass, credential_login, client, user_input["sms_code"]
-                ))
+                token = await asyncio.shield(
+                    create_executor_task(
+                        self.hass, credential_login, client, user_input["sms_code"]
+                    )
+                )
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"
             except (InvalidURL, HTTPError, PyEzvizError):
                 errors["base"] = "cannot_connect"
-            except Exception:  # pragma: no cover
+            except Exception:
                 _LOGGER.exception("Unexpected error during reauth MFA")
                 errors["base"] = "unknown"
             else:
@@ -397,6 +402,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     CONF_SESSION_ID: token[CONF_SESSION_ID],
                     CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
                     CONF_SDK_TOKEN: token,
+                    CONF_USER_ID: token["username"],
                 }
                 return self.async_update_reload_and_abort(self._reauth_entry, data=new_data)
 
@@ -464,7 +470,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     # ----- Camera edit (may require 2FA) -----
 
     async def async_step_camera_edit(
-        self, user_input: dict[str, Any] | None = None
+        self, user_input: dict[str, Any] | None = None, *, errors: dict[str, str] | None = None
     ) -> ConfigFlowResult:
         """Edit per-camera credentials; branch to 2FA if EZVIZ requires it."""
         base_opts = dict(self.config_entry.options or {})
@@ -474,7 +480,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         inferred_ip = cam_info["local_ip"]
         test_rtsp_default = _infer_supports_rtsp_from_category(cam_info)
 
-        errors: dict[str, str] = {}
+        errors = errors or {}
 
         def _make_prefill(src: dict[str, Any] | None, ui: dict[str, Any] | None) -> dict[str, Any]:
             src = src or {}
@@ -641,18 +647,18 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             except AuthTestResultFailed as err:
                 errors["base"] = "rtsp_auth_failed"
                 self._prefill = getattr(err, "data", None)
-                return await self.async_step_camera_edit()
+                return await self.async_step_camera_edit(errors=errors)
 
             except DeviceException as err:
                 # If VC path failed but ENC exists, bounce back to edit with ENC preselected
                 errors["base"] = "device_exception"
                 self._prefill = getattr(err, "data", None)
-                return await self.async_step_camera_edit()
+                return await self.async_step_camera_edit(errors=errors)
 
             except (InvalidURL, HTTPError, PyEzvizError) as err:
                 errors["base"] = "cannot_connect"
                 self._prefill = getattr(err, "data", None)
-                return await self.async_step_camera_edit()
+                return await self.async_step_camera_edit(errors=errors)
 
             except Exception:
                 _LOGGER.exception("Unexpected error in camera_edit_2fa")
