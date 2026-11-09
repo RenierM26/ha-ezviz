@@ -44,7 +44,8 @@
       "mfa_required": "Multi-factor authentication required, please enter the code",
       "device_exception": "Device exception, couldn't fetch key",
       "verification_required": "Verification code required or invalid. Please try again.",
-      "unknown": "Unknown error"
+      "unknown": "Unknown error",
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds."
     },
     "abort": {
       "already_configured_account": "Account already configured",
@@ -108,7 +109,11 @@
       "device_exception": "Device exception, couldn't fetch key",
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "Unknown error",
-      "rtsp_auth_failed": "Invalid authentication"
+      "rtsp_auth_failed": "Invalid authentication",
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds."
+    },
+    "abort": {
+      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
     }
   },
   "entity": {
@@ -548,6 +553,80 @@
     "uid_migration_review": {
       "title": "Review skipped {platform} unique_id migrations",
       "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}"
+    },
+    "migration_future_version": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "This entry was created by a newer integration version. Install a version that supports it, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_ambiguous_accounts": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_missing_serial": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_cleanup_failed": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "migration_future_version": {
+      "message": "This entry was created by a newer integration version. Install a version that supports it, then retry."
+    },
+    "migration_ambiguous_accounts": {
+      "message": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry."
+    },
+    "migration_missing_serial": {
+      "message": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry."
+    },
+    "migration_cleanup_failed": {
+      "message": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained."
     }
   }
 }

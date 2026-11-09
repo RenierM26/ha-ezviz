@@ -14,7 +14,7 @@ from pyezvizapi.exceptions import (
     PyEzvizError,
 )
 
-from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
+from homeassistant.config_entries import SOURCE_IGNORE
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
@@ -25,7 +25,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 
 from .const import (
     ATTR_TYPE_CAMERA,
@@ -36,18 +36,17 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     CONF_SESSION_ID,
     CONF_USER_ID,
-    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
-    MQTT_HANDLER,
     OPTIONS_KEY_CAMERAS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
-from .runtime import RuntimeCleanup
+from .repairs import clear_migration_issue, create_migration_issue
+from .runtime import EzvizConfigEntry, RuntimeCleanup
 from .tokens import TokenPersistence
 from .views import ImageProxyView
 from .workers import create_critical_task
@@ -75,7 +74,7 @@ TARGET_VERSION = 4
 
 async def _async_validate_login(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     client: EzvizClient,
     persistence: TokenPersistence,
     runtime: RuntimeCleanup,
@@ -101,7 +100,7 @@ async def _async_validate_login(
         raise
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -114,6 +113,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not all(k in entry.data for k in required):
         raise ConfigEntryAuthFailed("Missing EZVIZ token fields; reauthenticate required")
 
+    # Cleanup ownership must outlive HA clearing runtime_data after unload/failure.
+    # Platforms and request handlers use entry.runtime_data, never this registry.
     runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})
     previous = runtimes.get(entry.entry_id)
     if previous is not None and previous.task is not None and not previous.task.done():
@@ -133,9 +134,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
 
-    coordinator = EzvizDataUpdateCoordinator(hass, config_entry=entry, api=client, api_timeout=timeout)
+    coordinator = EzvizDataUpdateCoordinator(
+        hass, config_entry=entry, api=client, api_timeout=timeout
+    )
     runtime = RuntimeCleanup(hass, coordinator, persistence=persistence)
     runtimes[entry.entry_id] = runtime
+    entry.runtime_data = runtime
 
     # Clean shutdown on HA stop (stop MQTT first)
     async def _shutdown(_event: Any) -> None:
@@ -156,11 +160,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
     runtime.push = mqtt_handler
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        DATA_COORDINATOR: coordinator,
-        MQTT_HANDLER: mqtt_handler,
-    }
-
     # Register HTTP view for image proxy/decryption once per instance
     domain_data = hass.data.setdefault(DOMAIN, {})
     if not domain_data.get("_http_view_registered"):
@@ -173,7 +172,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryNotReady("EZVIZ setup stopped during shutdown")
     except BaseException:
         await runtime.async_stop()
-        hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
 
     mqtt_handler.async_start()
@@ -181,26 +179,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Unload platforms; on success stop owned workers before closing HTTP."""
-    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        runtime = hass.data.get(DOMAIN, {}).get("_runtimes", {}).get(entry.entry_id)
+        runtime = getattr(entry, "runtime_data", None)
         if runtime is not None:
             await runtime.async_stop()
-        elif data and (mqtt := data.get(MQTT_HANDLER)):
-            await mqtt.async_stop()
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
     return unload_ok
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> None:
     """Remove private credentials after any late token-producing worker exits."""
     runtime = hass.data.get(DOMAIN, {}).get("_runtimes", {}).pop(entry.entry_id, None)
+    runtime = getattr(entry, "runtime_data", runtime)
 
     async def remove() -> None:
         if runtime is not None:
@@ -213,12 +208,15 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:  # noqa: PLR0912 - explicit historical migration/recovery gates
     """Consolidate historical camera settings, preserving retryability and identity."""
     if entry.version > TARGET_VERSION:
-        _LOGGER.error("Cannot migrate EZVIZ entry from future version %s", entry.version)
-        return False
+        create_migration_issue(hass, entry, "migration_future_version")
+        raise ConfigEntryError(
+            translation_domain=DOMAIN, translation_key="migration_future_version"
+        )
     if entry.version == TARGET_VERSION:
+        clear_migration_issue(hass, entry)
         return True
 
     # Old camera entries are placeholders; only their cloud account owns migration.
@@ -237,11 +235,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Historical flows allowed only one cloud account. Never guess ownership if
     # manually restored entries violate that invariant.
     if legacy_cams and sum(e.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD for e in entries) != 1:
-        _LOGGER.error("Cannot assign legacy EZVIZ cameras to multiple cloud accounts")
-        return False
+        create_migration_issue(hass, entry, "migration_ambiguous_accounts")
+        raise ConfigEntryError(
+            translation_domain=DOMAIN, translation_key="migration_ambiguous_accounts"
+        )
     if any(not isinstance(cam.unique_id, str) or not cam.unique_id for cam in legacy_cams):
-        _LOGGER.error("Cannot migrate legacy EZVIZ camera without a serial unique ID")
-        return False
+        create_migration_issue(hass, entry, "migration_missing_serial")
+        raise ConfigEntryError(
+            translation_domain=DOMAIN, translation_key="migration_missing_serial"
+        )
 
     options = dict(entry.options)
     cameras_map = dict(options.get(OPTIONS_KEY_CAMERAS, {}))
@@ -283,13 +285,22 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for victim in victims:
         try:
             await hass.config_entries.async_remove(victim.entry_id)
-        except Exception:
-            _LOGGER.exception("Failed to remove legacy entry %s during migration", victim.entry_id)
-            return False
+        except (OSError, TimeoutError) as err:
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN, translation_key="migration_cleanup_failed"
+            ) from err
+        except Exception as err:
+            create_migration_issue(hass, entry, "migration_cleanup_failed")
+            raise ConfigEntryError(
+                translation_domain=DOMAIN, translation_key="migration_cleanup_failed"
+            ) from err
         if hass.config_entries.async_get_entry(victim.entry_id) is not None:
-            _LOGGER.error("Legacy EZVIZ entry %s was not removed", victim.entry_id)
-            return False
+            create_migration_issue(hass, entry, "migration_cleanup_failed")
+            raise ConfigEntryError(
+                translation_domain=DOMAIN, translation_key="migration_cleanup_failed"
+            )
 
+    clear_migration_issue(hass, entry)
     hass.config_entries.async_update_entry(entry, version=TARGET_VERSION)
     _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True

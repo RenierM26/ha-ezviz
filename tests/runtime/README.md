@@ -37,3 +37,11 @@ Guidance checked against current Home Assistant developer documentation:
 - https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/config-flow-test-coverage/
 
 Migration fixture provenance is documented in `fixtures/migration/README.md`.
+
+## Best-practices regression controls
+
+`test_best_practices.py` adds real entity-platform/state-machine and entity-registry
+rename tests, write-only credential state checks, and real Repairs manager/retry tests.
+It uses the published SDK boundary and the same network-denied native HA environments.
+`test_config_flow.py` also checks strict hosts/timeouts and unloaded/stopping/removed
+camera options. See [the six-item tracker](../../docs/ha-best-practices-tracker.md).

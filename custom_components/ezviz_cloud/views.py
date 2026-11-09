@@ -13,15 +13,12 @@ from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.components.text import DOMAIN as TEXT_DOMAIN
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_ENC_KEY, DATA_COORDINATOR, DOMAIN, OPTIONS_KEY_CAMERAS
+from .const import CONF_ENC_KEY, DOMAIN, OPTIONS_KEY_CAMERAS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,13 +36,6 @@ def async_generate_image_proxy_url(config_entry_id: str, serial: str, url: str) 
 @callback
 def _encryption_key(hass: HomeAssistant, entry: ConfigEntry, serial: str) -> str | None:
     """Prefer a usable runtime key, otherwise the private camera options."""
-    entity_reg = er.async_get(hass)
-    entity_id = entity_reg.async_get_entity_id(TEXT_DOMAIN, DOMAIN, f"{serial}_camera_enc_key")
-    if (
-        entity_id and (state := hass.states.get(entity_id))
-        and state.state and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN)
-    ):
-        return state.state
     return (entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(serial, {}).get(CONF_ENC_KEY)
 
 
@@ -80,11 +70,12 @@ class ImageProxyView(HomeAssistantView):
                 status=HTTPStatus.BAD_REQUEST,
             )
 
-        coordinator = (
-            self.hass.data.get(DOMAIN, {}).get(config_entry_id, {}).get(DATA_COORDINATOR)
-        )
+        runtime = getattr(entry, "runtime_data", None)
+        coordinator = runtime.coordinator if runtime is not None else None
         if coordinator is None or coordinator.shutting_down:
-            return web.Response(text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE)
+            return web.Response(
+                text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE
+            )
 
         enc_key = _encryption_key(self.hass, entry, serial)
 
@@ -118,7 +109,9 @@ class ImageProxyView(HomeAssistantView):
             try:
                 body = await coordinator.async_execute(decrypt_image, body, enc_key)
             except HomeAssistantError:
-                return web.Response(text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE)
+                return web.Response(
+                    text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE
+                )
             except PyEzvizError as err:
                 _LOGGER.debug("Image decryption failed (%s)", type(err).__name__)
                 return web.Response(text="Unable to decrypt image", status=HTTPStatus.BAD_REQUEST)

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_COORDINATOR, DOMAIN, MQTT_HANDLER
+from .runtime import EzvizConfigEntry
 
 # Names, serial keys, URLs, network addresses and complete vendor mappings are
 # intentionally excluded, rather than relying on an expanding credential denylist.
@@ -15,11 +14,11 @@ SAFE_FIELDS = {"device_category", "device_sub_category", "version", "status", "b
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: EzvizConfigEntry
 ) -> dict[str, Any]:
     """Do not expose full SDK tokens, push counters/keys, or camera image URLs."""
-    runtime = hass.data[DOMAIN][entry.entry_id]
-    coordinator = runtime[DATA_COORDINATOR]
+    runtime = entry.runtime_data
+    coordinator = runtime.coordinator
     snapshot = coordinator.inventory_snapshot
     devices = coordinator.inventory_data if snapshot is not None else (coordinator.data or {})
     result: dict[str, Any] = {
@@ -44,7 +43,7 @@ async def async_get_config_entry_diagnostics(
             }
             for health in snapshot.health.values()
         ]
-    push = runtime.get(MQTT_HANDLER)
+    push = runtime.push
     if push is not None:
         result["push"] = push.get_diagnostics()
     return result

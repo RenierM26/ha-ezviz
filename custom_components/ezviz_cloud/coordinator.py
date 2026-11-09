@@ -27,8 +27,7 @@ from .const import DOMAIN
 from .workers import create_critical_task, create_executor_task
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-
+    from .runtime import EzvizConfigEntry
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -37,7 +36,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
 
     data: dict[str, Any]
 
-    def __init__(self, hass: HomeAssistant, *, config_entry: ConfigEntry | None, api: EzvizClient, api_timeout: int) -> None:
+    def __init__(self, hass: HomeAssistant, *, config_entry: EzvizConfigEntry | None, api: EzvizClient, api_timeout: int) -> None:
         """Initialize global EZVIZ data updater."""
         self.ezviz_client = api
         self._api_timeout = api_timeout

@@ -17,7 +17,7 @@ from custom_components.ezviz_cloud.migration import migrate_unique_ids_with_coor
 from homeassistant import loader
 from homeassistant.config_entries import ConfigEntries, ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er, issue_registry as ir
 
 FIXTURES = Path(__file__).parent / "fixtures" / "migration"
@@ -95,7 +95,8 @@ async def test_historical_upgrade_preserves_identity_and_credentials(hass, histo
 async def test_future_major_is_rejected_unchanged(hass, version):
     entry = add_entry(hass, version=version, data={"type": "EZVIZ_CLOUD_ACCOUNT"})
     before = entry.as_dict()
-    assert not await ezviz_cloud.async_migrate_entry(hass, entry)
+    with pytest.raises(ConfigEntryError):
+        await ezviz_cloud.async_migrate_entry(hass, entry)
     assert entry.as_dict() == before
 
 
@@ -138,7 +139,8 @@ async def test_removal_failure_is_retryable_without_losing_options(hass, monkeyp
         return_value=False, side_effect=OSError("synthetic") if failure == "exception" else None
     )
     monkeypatch.setattr(hass.config_entries, "async_remove", remove)
-    assert not await ezviz_cloud.async_migrate_entry(hass, cloud)
+    with pytest.raises(ConfigEntryNotReady if failure == "exception" else ConfigEntryError):
+        await ezviz_cloud.async_migrate_entry(hass, cloud)
     assert cloud.version == 3
     assert hass.config_entries.async_get_entry(camera.entry_id) is camera
     assert cloud.options["cameras"]["SERIAL001"]["username"] == "admin"
@@ -153,7 +155,8 @@ async def test_missing_camera_serial_fails_without_changes(hass, serial):
     cloud = add_entry(hass, data={"type": "EZVIZ_CLOUD_ACCOUNT"})
     camera = add_entry(hass, data={"type": "CAMERA_ACCOUNT"}, unique_id=serial)
     before = [e.as_dict() for e in (cloud, camera)]
-    assert not await ezviz_cloud.async_migrate_entry(hass, cloud)
+    with pytest.raises(ConfigEntryError):
+        await ezviz_cloud.async_migrate_entry(hass, cloud)
     assert [e.as_dict() for e in (cloud, camera)] == before
 
 
@@ -162,7 +165,8 @@ async def test_ambiguous_accounts_do_not_claim_camera_credentials(hass):
     second = add_entry(hass, data={"type": "EZVIZ_CLOUD_ACCOUNT"})
     camera = add_entry(hass, data={"type": "CAMERA_ACCOUNT"}, unique_id="SERIAL001")
     before = [e.as_dict() for e in (first, second, camera)]
-    assert not await ezviz_cloud.async_migrate_entry(hass, first)
+    with pytest.raises(ConfigEntryError):
+        await ezviz_cloud.async_migrate_entry(hass, first)
     assert [e.as_dict() for e in (first, second, camera)] == before
 
 

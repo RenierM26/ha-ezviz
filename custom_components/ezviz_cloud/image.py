@@ -13,25 +13,20 @@ from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
-from homeassistant.components.text import DOMAIN as TEXT_DOMAIN
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ENC_KEY,
-    DATA_COORDINATOR,
-    DOMAIN,
     OPTIONS_KEY_CAMERAS,
     SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -51,13 +46,11 @@ MAX_MULTI_LENS_IMAGES = 4
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up EZVIZ image entities based on a config entry."""
 
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     cams_options: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 
@@ -68,7 +61,13 @@ async def async_setup_entry(
             camera,
             cams_options.get(camera, {}),
             lens_index=lens_index,
-            lens_total=max(1, min(int(coordinator.data[camera].get("supported_channels") or 1), MAX_MULTI_LENS_IMAGES)),
+            lens_total=max(
+                1,
+                min(
+                    int(coordinator.data[camera].get("supported_channels") or 1),
+                    MAX_MULTI_LENS_IMAGES,
+                ),
+            ),
         )
         for camera in coordinator.data
         for lens_index in range(
@@ -111,29 +110,15 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         self._lens_index = max(1, lens_index)
         self._lens_total = max(1, lens_total)
         unique_suffix = (
-            IMAGE_TYPE.key
-            if self._lens_index == 1
-            else f"{IMAGE_TYPE.key}_{self._lens_index}"
+            IMAGE_TYPE.key if self._lens_index == 1 else f"{IMAGE_TYPE.key}_{self._lens_index}"
         )
         self._attr_unique_id = f"{serial}_{unique_suffix}"
         self.entity_description = IMAGE_TYPE
         self._attr_image_url = self.data["last_alarm_pic"]
-        self._attr_image_last_updated = dt_util.parse_datetime(
-            str(self.data["last_alarm_time"])
-        )
+        self._attr_image_last_updated = dt_util.parse_datetime(str(self.data["last_alarm_time"]))
         self.alarm_image_password: str | None = credentials.get(CONF_ENC_KEY)
-        self.cam_key_entity_id: str | None = None
         if self._lens_index > 1:
             self._attr_name = f"Lens {self._lens_index} Last Motion"
-
-    async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added."""
-        await super().async_added_to_hass()
-
-        entity_registry = er.async_get(self.hass)
-        self.cam_key_entity_id = entity_registry.async_get_entity_id(
-            TEXT_DOMAIN, DOMAIN, f"{self._serial}_camera_enc_key"
-        )
 
     @cached_property
     def available(self) -> bool:
@@ -147,8 +132,11 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         if response := await self._fetch_url(url):
             try:
                 image_data = await self.coordinator.async_execute(
-                    _process_image_bytes, response.content, self.alarm_image_password,
-                    self._lens_index, self._lens_total,
+                    _process_image_bytes,
+                    response.content,
+                    self.alarm_image_password,
+                    self._lens_index,
+                    self._lens_total,
                 )
             except HomeAssistantError:
                 if self.coordinator.shutting_down:
@@ -166,6 +154,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         """Reject downloads superseded by a capture, alarm URL or key update."""
         if self.coordinator.shutting_down:
             return None
+        self._sync_encryption_key()
         if self._cached_image is not None:
             return self._cached_image.content
         url = self.image_url
@@ -173,6 +162,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             return None
         generation = self._image_generation
         image = await self._async_load_image_from_url(url)
+        self._sync_encryption_key()
         if self.coordinator.shutting_down or generation != self._image_generation or image is None:
             return None
         self._cached_image = image
@@ -189,26 +179,26 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
 
-        # Fetch enc key from text entity if available.
-        if (
-            self.cam_key_entity_id
-            and (
-                cam_enc_key_entity_state := self.hass.states.get(self.cam_key_entity_id)
-            )
-            and cam_enc_key_entity_state.state
-            not in (STATE_UNAVAILABLE, self.alarm_image_password)
-        ):
-            self.alarm_image_password = cam_enc_key_entity_state.state
-            self._invalidate_image()
-            _LOGGER.debug(
-                "Camera encryption key updated for %s, encryption entity id is: %s",
-                self.entity_id,
-                self.cam_key_entity_id,
-            )
+        self._sync_encryption_key()
 
         self._sync_image_url()
 
         super()._handle_coordinator_update()
+
+    @callback
+    def _sync_encryption_key(self) -> None:
+        """Read credentials from the config entry, never another entity's state."""
+        entry = self.coordinator.config_entry
+        if entry is None:
+            return
+        key = (
+            (entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {})
+            .get(self._serial, {})
+            .get(CONF_ENC_KEY)
+        )
+        if key != self.alarm_image_password:
+            self.alarm_image_password = key
+            self._invalidate_image()
 
     def _sync_image_url(self) -> None:
         """Follow the last alarm picture reported by the cloud."""
@@ -249,6 +239,11 @@ class EzvizSnapshot(EzvizLastMotion):
                 self._handle_picture_captured,
             )
         )
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """The capture subscription uses serial, not the entity ID."""
+        super().async_entity_id_changed(old_entity_id)
 
     @callback
     def _handle_picture_captured(self, pic_url: str) -> None:

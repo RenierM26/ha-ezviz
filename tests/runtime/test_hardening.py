@@ -31,7 +31,6 @@ from custom_components.ezviz_cloud import (
 from custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
     CONF_SDK_TOKEN,
-    DATA_COORDINATOR,
     DOMAIN,
     REGION_EU,
 )
@@ -123,7 +122,9 @@ def entities(hass, *, lens_total=1):
 
 async def test_real_decryption_and_pil_crop_run_off_the_event_loop(hass, monkeypatch):
     _, _, data, _, _, alarm = entities(hass, lens_total=2)
-    alarm.alarm_image_password = "SYNTHETIC"
+    hass.config_entries.async_update_entry(
+        data.config_entry, options={"cameras": {alarm._serial: {"enc_key": "SYNTHETIC"}}}
+    )
     buf = BytesIO()
     PILImage.new("RGB", (16, 32), (20, 80, 40)).save(buf, format="JPEG")
     monkeypatch.setattr(
@@ -325,7 +326,9 @@ async def test_actual_ha_stop_awaits_registered_integration_cleanup(hass, monkey
         assert await ezviz_cloud.async_setup_entry(hass, entry)
     finally:
         current_entry.reset(context)
-    owner = hass.data[DOMAIN]["_runtimes"][entry.entry_id]
+    owner = entry.runtime_data
+    assert isinstance(owner, runtime.RuntimeCleanup)
+    assert entry.entry_id not in hass.data[DOMAIN]
     entered, release = Event(), Event()
     order = []
 
@@ -352,7 +355,11 @@ async def test_actual_ha_stop_awaits_registered_integration_cleanup(hass, monkey
 async def test_key_update_retires_inflight_processing_with_immutable_inputs(hass, monkeypatch):
     _, _, data, _, _, alarm = entities(hass)
     alarm.alarm_image_password = "OLD"
-    alarm.cam_key_entity_id = "text.synthetic_key"
+    key_entry = entry_for(hass)
+    data.config_entry = key_entry
+    hass.config_entries.async_update_entry(
+        key_entry, options={"cameras": {"CAM001": {"enc_key": "OLD"}}}
+    )
     entered, release = Event(), Event()
     passwords = []
 
@@ -371,7 +378,9 @@ async def test_key_update_retires_inflight_processing_with_immutable_inputs(hass
     task = asyncio.create_task(alarm.async_image())
     try:
         assert await asyncio.to_thread(entered.wait, 2)
-        hass.states.async_set("text.synthetic_key", "NEW")
+        hass.config_entries.async_update_entry(
+            key_entry, options={"cameras": {alarm._serial: {"enc_key": "NEW"}}}
+        )
         alarm._handle_coordinator_update()
     finally:
         release.set()
@@ -387,7 +396,7 @@ async def test_proxy_decryption_runs_off_loop_and_never_forwards_ha_auth(hass, m
     hass.config_entries.async_update_entry(
         entry, options={"cameras": {"CAM001": {"enc_key": "SYNTHETIC"}}}
     )
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: data}}
+    entry.runtime_data = SimpleNamespace(coordinator=data)
     response = SimpleNamespace(
         status=200,
         content_type="image/jpeg",
@@ -419,7 +428,7 @@ async def test_proxy_decryption_runs_off_loop_and_never_forwards_ha_auth(hass, m
 @pytest.mark.parametrize("phase", ["connect", "health"])
 async def test_ha_stop_drains_cancelled_push_monitor_workers(hass, monkeypatch, phase):
     entry, api, data, _, _, _ = entities(hass)
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: data}}
+    entry.runtime_data = SimpleNamespace(coordinator=data)
     entered, release = Event(), Event()
     order = []
 

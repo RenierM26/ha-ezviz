@@ -21,7 +21,6 @@ from custom_components.ezviz_cloud import config_flow as flow
 from custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
     CONF_SDK_TOKEN,
-    DATA_COORDINATOR,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
@@ -248,8 +247,9 @@ async def start_camera(hass, monkeypatch, *, cameras=True, battery=False):
         else {},
         ezviz_client=client,
         async_execute=execute,
+        shutting_down=False,
     )
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: coordinator}}
+    entry.runtime_data = SimpleNamespace(coordinator=coordinator)
     rtsp = MagicMock()
     monkeypatch.setattr(flow, "TestRTSPAuth", rtsp)
     manager = hass.config_entries.options
@@ -314,7 +314,7 @@ async def test_no_cameras(hass, monkeypatch):
 )
 async def test_cloud_options(hass, options):
     entry = add_entry(hass, options=options)
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: SimpleNamespace(data={})}}
+    entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(data={}))
     manager = hass.config_entries.options
     result = await manager.async_init(entry.entry_id)
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "cloud"})
@@ -499,3 +499,120 @@ async def test_reauth_cannot_change_account(hass, sdk):
         )
     sdk.assert_not_called()
     assert entry.as_dict() == before
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "ftp://example.invalid",
+        "https://user:pass@example.invalid",
+        "https://example.invalid/path",
+        "example.invalid?token=secret",
+        "example.invalid#fragment",
+        "example.invalid:443",
+        "example.invalid:bad",
+        "bad host.invalid",
+        "-bad.invalid",
+        "bad_.invalid",
+        "example..invalid",
+        "a" * 254,
+        "[broken",
+        "example.invalid//",
+    ],
+)
+async def test_strict_custom_host_recovery(hass, sdk, host):
+    result = await start_user(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**USER, "region": "custom", "url": host}
+    )
+    assert result["errors"] == {"base": "invalid_url"}
+    sdk.assert_not_called()
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == USER["username"]
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("192.0.2.1", "192.0.2.1"),
+        ("https://[2001:db8::1]/", "[2001:db8::1]"),
+        ("https://API.Example.Invalid/", "api.example.invalid"),
+        ("https://bücher.example/", "xn--bcher-kva.example"),
+    ],
+)
+async def test_valid_custom_host_forms(hass, sdk, host, expected):
+    result = await start_user(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**USER, "region": "custom", "url": host}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["url"] == expected
+    assert result["result"].unique_id == USER["username"]
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 301, 1.5, "invalid", True, False])
+@pytest.mark.parametrize("options", [False, True])
+async def test_timeout_validation_and_recovery(hass, sdk, options, timeout):
+    if options:
+        entry = add_entry(hass)
+        manager = hass.config_entries.options
+        result = await manager.async_init(entry.entry_id)
+        result = await manager.async_configure(result["flow_id"], {"next_step_id": "cloud"})
+    else:
+        manager = hass.config_entries.flow
+        result = await start_user(hass)
+    with pytest.raises(InvalidData):
+        await manager.async_configure(
+            result["flow_id"], {"timeout": timeout} if options else {**USER, "timeout": timeout}
+        )
+    sdk.assert_not_called()
+    result = await manager.async_configure(
+        result["flow_id"], {"timeout": 300} if options else {**USER, "timeout": 1}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    if not options:
+        assert result["result"].unique_id == USER["username"]
+
+
+@pytest.mark.parametrize("phase", ["select", "edit", "mfa"])
+@pytest.mark.parametrize("reason", ["unloaded", "closing", "removed"])
+async def test_camera_options_runtime_changes(hass, monkeypatch, phase, reason):
+    entry, client, _, result = await start_camera(hass, monkeypatch)
+    manager = hass.config_entries.options
+    if phase == "mfa":
+        client.get_cam_key.side_effect = EzvizAuthVerificationCode()
+        result = await manager.async_configure(
+            result["flow_id"], {**CAMERA, "enc_key": DEFAULT_FETCH_MY_KEY}
+        )
+        assert result["step_id"] == "camera_edit_2fa"
+    if reason == "unloaded":
+        del entry.runtime_data
+    elif reason == "closing":
+        entry.runtime_data.coordinator.shutting_down = True
+    else:
+        entry.runtime_data.coordinator.data = {}
+    if phase == "select":
+        manager.async_abort(result["flow_id"])
+        result = await manager.async_init(entry.entry_id)
+        result = await manager.async_configure(result["flow_id"], {"next_step_id": "camera_select"})
+    else:
+        result = await manager.async_configure(result["flow_id"], {} if phase == "mfa" else CAMERA)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == ("no_cameras" if reason == "removed" else "integration_unavailable")
+    # Cloud options remain editable even when the integration failed setup.
+    result = await manager.async_init(entry.entry_id)
+    result = await manager.async_configure(result["flow_id"], {"next_step_id": "cloud"})
+    result = await manager.async_configure(result["flow_id"], {"timeout": 23})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["timeout"] == 23
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 301, None, True, "invalid"])
+async def test_reauth_ignores_invalid_legacy_timeout(hass, sdk, timeout):
+    entry = add_entry(hass, options={"timeout": timeout})
+    manager = hass.config_entries.flow
+    result = await manager.async_init(DOMAIN, context={"source": "reauth", "entry_id": entry.entry_id}, data=dict(entry.data))
+    result = await manager.async_configure(result["flow_id"], {"username": entry.unique_id, "password": "new"})
+    assert result["reason"] == "reauth_successful"
+    sdk.assert_called_once_with(account=entry.unique_id, password="new", url=entry.data["url"], timeout=DEFAULT_TIMEOUT)

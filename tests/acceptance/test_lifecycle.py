@@ -15,7 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import diagnostics, mqtt, runtime, tokens
-from custom_components.ezviz_cloud.const import DATA_COORDINATOR, DOMAIN, MQTT_HANDLER
+from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant.core import CoreState
 
@@ -89,7 +89,7 @@ async def test_shutdown_deferred_store_write_is_not_acknowledged(hass):
 
 async def test_failed_worker_monitor_recovers_and_shutdown_owns_cleanup(hass, monkeypatch):
     entry = entry_for(hass)
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: MagicMock()}}
+    entry.runtime_data = SimpleNamespace(coordinator=MagicMock())
     sdk = MagicMock()
     sdk.raise_if_failed.side_effect = [PyEzvizError("PRIVATE_CANARY"), None]
     client = SimpleNamespace(get_mqtt_client=MagicMock(return_value=sdk))
@@ -108,7 +108,7 @@ async def test_failed_worker_monitor_recovers_and_shutdown_owns_cleanup(hass, mo
 async def test_legacy_auth_requests_one_reauth_without_disabling_polling(hass, monkeypatch):
     entry = entry_for(hass)
     data = SimpleNamespace(data={"known": {"status": 1}}, last_update_success=True)
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: data}}
+    entry.runtime_data = SimpleNamespace(coordinator=data)
     client = SimpleNamespace(
         get_mqtt_client=MagicMock(side_effect=EzvizAuthTokenExpired("enable_channel99"))
     )
@@ -185,7 +185,7 @@ async def test_diagnostics_are_cached_and_allowlisted(hass):
     )
     handler = mqtt.EzvizMqttHandler(hass, client, entry.entry_id)
     handler._mqtt = sdk
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: data, MQTT_HANDLER: handler}}
+    entry.runtime_data = SimpleNamespace(coordinator=data, push=handler)
     value = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
     assert "PRIVATE_" not in json.dumps(value)
     assert value["push"] == {"state": "online"}

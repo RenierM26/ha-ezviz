@@ -12,7 +12,7 @@ from pyezvizapi.mqtt import MQTTClient
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from .const import DATA_COORDINATOR, DOMAIN
+from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .workers import create_critical_task, create_executor_task
 
@@ -45,7 +45,11 @@ class EzvizMqttHandler:
         """Start optional push in the background without delaying entity setup."""
         if self._task is not None or self._stopping.is_set():
             return
-        self._coordinator = self._hass.data[DOMAIN][self._entry][DATA_COORDINATOR]
+        entry = self._hass.config_entries.async_get_entry(self._entry)
+        runtime = getattr(entry, "runtime_data", None)
+        if runtime is None:
+            return
+        self._coordinator = runtime.coordinator
         self._task = self._hass.async_create_background_task(
             self._async_connect(), "EZVIZ push startup"
         )
@@ -116,7 +120,9 @@ class EzvizMqttHandler:
         """Stop retries and bound the caller's wait for SDK cleanup."""
         self._stopping.set()
         if self._stop_task is None:
-            self._stop_task = create_critical_task(self._hass, self._async_finish_stop(), "EZVIZ push cleanup")
+            self._stop_task = create_critical_task(
+                self._hass, self._async_finish_stop(), "EZVIZ push cleanup"
+            )
         try:
             await asyncio.wait_for(asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS)
         except TimeoutError:
@@ -132,7 +138,9 @@ class EzvizMqttHandler:
         """Serialize cleanup after startup without blocking the unload caller."""
         monitors = tuple(task for task in (self._health_task, self._task) if task is not None)
         if monitors:
-            await asyncio.gather(*(asyncio.shield(task) for task in monitors), return_exceptions=True)
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in monitors), return_exceptions=True
+            )
         # HA may cancel the monitors first; their executor work still has owners.
         if self._worker_futures:
             await asyncio.gather(

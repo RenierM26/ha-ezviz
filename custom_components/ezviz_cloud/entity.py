@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import re
 from typing import Any
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import (
     CONNECTION_NETWORK_MAC,
     DeviceInfo,
@@ -70,7 +71,17 @@ def _build_device_info(device: Mapping[str, Any], serial: str) -> DeviceInfo:
     )
 
 
-class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
+class EzvizEntityIdMixin:
+    """Subscriptions are keyed by serial, so renames need no resubscription."""
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Opt into HA 2026.11 in-place renaming, preserving base bookkeeping."""
+        if parent_hook := getattr(super(), "async_entity_id_changed", None):
+            parent_hook(old_entity_id)
+
+
+class EzvizEntity(EzvizEntityIdMixin, CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
     """Generic entity encapsulating common features of EZVIZ device."""
 
     _attr_has_entity_name = True
@@ -98,7 +109,7 @@ class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
         return device_available(self.coordinator, self._serial)
 
 
-class EzvizBaseEntity(Entity):
+class EzvizBaseEntity(EzvizEntityIdMixin, Entity):
     """Generic entity for EZVIZ individual poll entities."""
 
     _attr_has_entity_name = True

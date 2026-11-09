@@ -4,6 +4,7 @@ import asyncio
 from copy import deepcopy
 import json
 from threading import Event
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from pyezvizapi import (
@@ -28,7 +29,7 @@ from custom_components.ezviz_cloud import (
     update,
 )
 from custom_components.ezviz_cloud.availability import device_available
-from custom_components.ezviz_cloud.const import DATA_COORDINATOR, DOMAIN
+from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.inventory_binary_sensor import EzvizDetectorBinarySensor
 from custom_components.ezviz_cloud.inventory_power import EzvizInventoryLight, EzvizInventoryPlug
 from custom_components.ezviz_cloud.inventory_sensor import EzvizDetectorSensor
@@ -101,7 +102,9 @@ async def make(hass, api):
     entry.add_to_hass(hass)
     token = current_entry.set(entry)
     try:
-        result = coordinator.EzvizDataUpdateCoordinator(hass, config_entry=entry, api=api, api_timeout=2)
+        result = coordinator.EzvizDataUpdateCoordinator(
+            hass, config_entry=entry, api=api, api_timeout=2
+        )
     finally:
         current_entry.reset(token)
     result.async_set_updated_data(await result._async_update_data())
@@ -113,8 +116,11 @@ async def test_mixed_inventory_all_platforms_and_stable_camera_identity(hass, cl
     data = await make(hass, api)
     assert set(data.data) == {"CAM001"}
     assert set(data.inventory_data) == {"CAM001", "DET001", "LIGHT1", "PLUG01"}
-    hass.data[DOMAIN] = {"entry": {DATA_COORDINATOR: data}}
-    entry = MagicMock(entry_id="entry", options={"cameras": {"CAM001": {"enc_key": "synthetic"}}})
+    entry = MagicMock(
+        runtime_data=SimpleNamespace(coordinator=data),
+        entry_id="entry",
+        options={"cameras": {"CAM001": {"enc_key": "synthetic"}}},
+    )
     monkeypatch.setattr(camera, "get_ffmpeg_manager", lambda hass: MagicMock())
     monkeypatch.setattr(camera, "async_get_current_platform", MagicMock())
     for mod in (sensor, binary_sensor, switch):
@@ -141,10 +147,9 @@ async def test_mixed_inventory_all_platforms_and_stable_camera_identity(hass, cl
 async def test_poll_health_missing_device_recovery_and_additions(hass, client, monkeypatch):
     api, records, _ = client
     data = await make(hass, api)
-    hass.data[DOMAIN] = {"entry": {DATA_COORDINATOR: data}}
     monkeypatch.setattr(sensor, "migrate_unique_ids_with_coordinator", AsyncMock())
     entities = []
-    entry = MagicMock(entry_id="entry")
+    entry = MagicMock(runtime_data=SimpleNamespace(coordinator=data), entry_id="entry")
     await sensor.async_setup_entry(hass, entry, entities.extend)
     battery = next(e for e in entities if e.unique_id == "DET001_battery_level")
     first = data.inventory_snapshot

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.config_entries import ConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+    from .coordinator import EzvizDataUpdateCoordinator
+    from .mqtt import EzvizMqttHandler
+    from .tokens import TokenPersistence
 
 from .workers import create_critical_task, create_executor_task
 
@@ -16,7 +25,11 @@ class RuntimeCleanup:
     """A single retained task closes HTTP only after push and polling finish."""
 
     def __init__(
-        self, hass: Any, coordinator: Any, push: Any = None, persistence: Any = None
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        push: EzvizMqttHandler | None = None,
+        persistence: TokenPersistence | None = None,
     ) -> None:
         self.hass = hass
         self.coordinator = coordinator
@@ -64,3 +77,6 @@ class RuntimeCleanup:
         await self.coordinator.async_close()
         if self.persistence is not None:
             await self.persistence.async_drain()
+
+
+type EzvizConfigEntry = ConfigEntry[RuntimeCleanup]

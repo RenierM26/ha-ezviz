@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+import ipaddress
 import logging
+import re
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import DeviceCatagories
@@ -54,7 +57,6 @@ from .const import (
     CONF_SDK_TOKEN,
     CONF_SESSION_ID,
     CONF_USER_ID,
-    DATA_COORDINATOR,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -67,6 +69,7 @@ from .const import (
     REGION_URLS,
 )
 from .coordinator import EzvizDataUpdateCoordinator
+from .runtime import EzvizConfigEntry
 from .tokens import credential_login
 from .workers import create_executor_task
 
@@ -80,23 +83,53 @@ VERSION = 4  # keep in sync with __init__.py TARGET_VERSION
 # -----------------------------------------------------------------------------
 
 
+def _validate_timeout(value: Any) -> int:
+    """Accept bounded integer seconds, never bools/floats or coerced strings."""
+    if type(value) is not int or not 1 <= value <= 300:
+        raise vol.Invalid("invalid_timeout")
+    return value
+
+
 def _normalize_api_host(value: str) -> str:
     """Normalize an API host string (no scheme, no trailing slash/space)."""
-    v = (value or "").strip()
-    if v.startswith("http://"):
-        v = v[7:]
-    elif v.startswith("https://"):
-        v = v[8:]
-    return v.strip().strip("/")
+    value = (value or "").strip()
+    try:
+        parsed = urlsplit(value if "://" in value else f"//{value}")
+        if (
+            parsed.scheme not in ("", "http", "https")
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError
+        if (
+            parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.port is not None
+        ):
+            raise ValueError
+        host = parsed.hostname
+        if not host or any(char.isspace() for char in value):
+            raise ValueError
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            host = host.encode("idna").decode("ascii").lower()
+            if len(host) > 253 or not all(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                for label in host.split(".")
+            ):
+                raise ValueError from None
+        # The SDK interpolates this directly after https://; retain IPv6 brackets.
+        return f"[{host}]" if ":" in host else host
+    except (ValueError, UnicodeError) as err:
+        raise vol.Invalid("invalid_url") from err
 
 
 def _resolve_api_host(region: str, custom_url: str | None) -> str:
     """Resolve concrete API host from region/custom selection."""
     if region == REGION_CUSTOM:
-        host = _normalize_api_host(custom_url or "")
-        if not host:
-            raise vol.Invalid("invalid_url")
-        return host
+        return _normalize_api_host(custom_url or "")
     return REGION_URLS[region]
 
 
@@ -169,7 +202,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
+    def async_get_options_flow(config_entry: EzvizConfigEntry) -> EzvizOptionsFlowHandler:
         """Get the options flow handler."""
         return EzvizOptionsFlowHandler(config_entry)
 
@@ -251,7 +284,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     [REGION_EU, REGION_RU, REGION_CUSTOM]
                 ),
                 vol.Optional(CONF_URL): str,  # required only when region == custom
-                vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): int,
+                vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): _validate_timeout,
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
@@ -327,7 +360,10 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             self._reauth_username = user_input[CONF_USERNAME]
             self._reauth_password = user_input[CONF_PASSWORD]
             self._reauth_url = self._reauth_entry.data[CONF_URL]
-            self._reauth_timeout = self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+            try:
+                self._reauth_timeout = _validate_timeout(self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+            except vol.Invalid:
+                self._reauth_timeout = DEFAULT_TIMEOUT
 
             try:
                 client = EzvizClient(
@@ -413,17 +449,20 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     """Options flow to edit cloud and per-camera settings."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self, config_entry: EzvizConfigEntry) -> None:
         """Initialize options flow."""
-        self.coordinator: EzvizDataUpdateCoordinator
         self._cam_serial: str
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = None  # one-shot defaults when returning from 2FA fallback
 
     async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Entry menu (bootstrap coordinator)."""
-        self.coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id][DATA_COORDINATOR]
         return self.async_show_menu(step_id="init", menu_options=["cloud", "camera_select"])
+
+    @property
+    def coordinator(self) -> EzvizDataUpdateCoordinator:
+        """Resolve the live owner for each step, not a stale captured coordinator."""
+        return self.config_entry.runtime_data.coordinator
 
     # ----- Cloud-level options -----
 
@@ -438,7 +477,9 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_TIMEOUT, default=opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)): int,
+                vol.Required(
+                    CONF_TIMEOUT, default=opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+                ): _validate_timeout,
             }
         )
         return self.async_show_form(step_id="cloud", data_schema=schema)
@@ -450,6 +491,9 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         coordinator.data is a mapping: serial -> { name, ip, device_category, ... }
         """
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None or runtime.coordinator.shutting_down:
+            return self.async_abort(reason="integration_unavailable")
         cameras = self.coordinator.data
         if not cameras:
             return self.async_abort(reason="no_cameras")
@@ -473,6 +517,12 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None, *, errors: dict[str, str] | None = None
     ) -> ConfigFlowResult:
         """Edit per-camera credentials; branch to 2FA if EZVIZ requires it."""
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None or runtime.coordinator.shutting_down:
+            return self.async_abort(reason="integration_unavailable")
+        if self._cam_serial not in (self.coordinator.data or {}):
+            return self.async_abort(reason="no_cameras")
+
         base_opts = dict(self.config_entry.options or {})
         per_cam = (base_opts.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(self._cam_serial, {})
 
@@ -595,6 +645,12 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
     async def async_step_camera_edit_2fa(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Collect one-time 2FA codes; if VC fails but ENC works, return to camera_edit prefilled."""
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None or runtime.coordinator.shutting_down:
+            return self.async_abort(reason="integration_unavailable")
+        if self._cam_serial not in (self.coordinator.data or {}):
+            return self.async_abort(reason="no_cameras")
+
         if not self._pending:
             return await self.async_step_camera_edit()
 
