@@ -628,6 +628,9 @@
     },
     "migration_cleanup_failed": {
       "message": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained."
+    },
+    "saved_login_invalid": {
+      "message": "The saved EZVIZ login is no longer valid for this host. Reauthenticate to create a fresh login."
     }
   }
 }

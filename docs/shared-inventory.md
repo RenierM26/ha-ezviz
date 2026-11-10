@@ -167,3 +167,20 @@ Tests use actual HA classes and disk storage in temporary config directories,
 synthetic account/device data, and mocked outbound account/command boundaries.
 The normal Python 3.12 CI uses that same published minimum; older SDK versions are
 not supported by this integration branch.
+
+### Host-bound token rejection during startup
+
+The published SDK derives a feature code from its host MAC identity. A channel-99
+snapshot with a missing or different feature code is rejected by `EzvizClient`
+**during construction**, before `login()` and before its HTTP session is allocated.
+Setup classifies this as `ConfigEntryAuthFailed`, so HA opens the normal reauth flow
+instead of reporting an unexpected setup exception. Constructor connectivity errors
+remain retryable. Neither path rewrites the stored feature code, drops push state,
+or silently rolls back to the config-entry token when a newer private snapshot fails.
+
+Tests reproduce the original traceback using the real SDK constructor and HA's real
+entry setup handler. They cover config-entry/private snapshots, fresh reauthentication,
+real Store stop/restart, and independent Python processes with synthetic host MACs.
+A stable host resumes the unchanged snapshot; changing the simulated host rejects it
+until a fresh login is created. These tests do not establish why a particular dev
+container's identity changed, and no production identity override is introduced.

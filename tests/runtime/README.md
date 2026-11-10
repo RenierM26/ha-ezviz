@@ -50,3 +50,8 @@ camera options. See [the six-item tracker](../../docs/ha-best-practices-tracker.
 concurrent options conflicts/merges, retryable cleanup outcomes, actual HA stop/restart
 persistence and entry removal during an in-flight change. `test_media_source.py` exercises
 malformed/stale identifiers, validated limits/URLs, legacy resolution and vendor errors.
+
+`test_token_identity.py` exercises the actual SDK host-feature-code rejection through
+HA's entry setup/re-authentication handler, real storage restart, and fresh subprocesses
+with synthetic NIC identities. Constructor authentication errors trigger reauth;
+connectivity errors retry without discarding or rewriting saved tokens.

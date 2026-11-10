@@ -100,6 +100,24 @@ async def _async_validate_login(
         raise
 
 
+def _create_token_client(token: dict[str, Any], timeout: int, persistence: TokenPersistence) -> EzvizClient:
+    """Classify SDK construction failures before a runtime/session owner exists."""
+    try:
+        return EzvizClient(token=token, timeout=timeout, on_token_updated=persistence.save_from_worker)
+    except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
+        # The SDK validates host-bound tokens before allocating its HTTP session.
+        # This boundary must request reauth too, not escape as an unexpected setup
+        # error. Never rewrite a feature code or discard saved push state to bypass it.
+        raise ConfigEntryAuthFailed(
+            translation_domain=DOMAIN, translation_key="saved_login_invalid"
+        ) from err
+    except (InvalidURL, HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+        raise ConfigEntryNotReady(
+            f"Unable to initialize the EZVIZ client ({type(err).__name__})"
+        ) from err
+
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -137,10 +155,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
         "api_url": entry.data[CONF_URL],
         "username": entry.data[CONF_USER_ID],
     }
-    callback_options: dict[str, Any] = (
-        {"on_token_updated": persistence.save_from_worker} if persistence else {}
-    )
-    client = EzvizClient(token=token_input, timeout=timeout, **callback_options)
+    client = _create_token_client(token_input, timeout, persistence)
 
     coordinator = EzvizDataUpdateCoordinator(
         hass, config_entry=entry, api=client, api_timeout=timeout

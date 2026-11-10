@@ -19,7 +19,7 @@ versions; purging existing user history is deliberately not part of this code up
 
 ## Verification
 
-- 269 native tests pass on **each** HA 2026.10.4 and 2026.11.0.
+- 282 native tests pass on **each** HA 2026.10.4 and 2026.11.0.
 - Config flow: **341/341 statements, 54/54 branch outcomes** (100%); CI retains its gate.
 - 52 acceptance tests and 44 standalone tests pass; Ruff and mypy pass.
 - Local hassfest: zero invalid integrations, retaining only the existing explicitly
@@ -58,3 +58,13 @@ queued rotations, removal during an in-flight change without resurrecting creden
 cleanup failure/retry and media error/recovery controls. The standalone shutdown test
 now waits for the executor-start boundary after checking bounded unload, avoiding a
 scheduler-dependent assertion without weakening the unload bound.
+
+## Startup token-identity regression
+
+- [x] SDK constructor auth failures now request translated HA reauthentication before
+  any client runtime is allocated, rather than escaping as unexpected setup errors.
+- [x] Real SDK/HA tests cover changed/missing identity in entry/private tokens,
+  fresh reauth replacing stale state, real storage restart and independent processes.
+  The SDK host binding is preserved, not bypassed. Constructor connectivity errors retry.
+- [ ] Verify the reported dev environment's host-identity stability when its VS Code
+  node is available; the recovery fix does not claim that an unstable host is repaired.
