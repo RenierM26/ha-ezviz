@@ -20,13 +20,13 @@ from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import config_flow as flow
 from custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
-    CONF_SDK_TOKEN,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
     REGION_URLS,
 )
+from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant import loader
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
@@ -122,14 +122,9 @@ async def test_user_success(hass, sdk, region, url, host):
     entry = result["result"]
     assert entry.unique_id == USER["username"]
     assert entry.version == ezviz_cloud.TARGET_VERSION
-    assert entry.data == {
-        "type": ATTR_TYPE_CLOUD,
-        "session_id": TOKEN["session_id"],
-        "rf_session_id": TOKEN["rf_session_id"],
-        "sdk_token": TOKEN,
-        "url": host,
-        "user_id": "internal",
-    }
+    assert entry.data == {"type": ATTR_TYPE_CLOUD, "url": host}
+    assert result["data"] == dict(entry.data)
+    assert await TokenPersistence(hass, entry).async_load() == TOKEN
     assert entry.options == {"timeout": 54, "cameras": {}}
     sdk.assert_called_once_with(
         account=USER["username"], password=USER["password"], url=host, timeout=54
@@ -208,17 +203,14 @@ async def test_login_errors_retry(hass, sdk, reauth, mfa, error, expected):
     )
     if reauth:
         assert result["reason"] == "reauth_successful"
-        assert entry.data == {
-            **before["data"],
-            "session_id": TOKEN["session_id"],
-            "rf_session_id": TOKEN["rf_session_id"],
-            CONF_SDK_TOKEN: TOKEN,
-        }
+        assert entry.data == {"type": ATTR_TYPE_CLOUD, "url": before["data"]["url"]}
+        assert await TokenPersistence(hass, entry).async_load() == TOKEN
         assert entry.options == before["options"]
         hass.config_entries.async_reload.assert_awaited_once_with(entry.entry_id)
     else:
         assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_SDK_TOKEN] == TOKEN
+        assert result["data"] == {"type": ATTR_TYPE_CLOUD, "url": REGION_URLS["eu"]}
+        assert await TokenPersistence(hass, result["result"]).async_load() == TOKEN
         assert result["result"].unique_id == USER["username"]
         assert "password" not in result["data"]
     assert sdk.return_value.close_session.call_count == sdk.return_value.enable_channel99.call_count
@@ -459,8 +451,8 @@ async def test_reauth_targets_context_entry_and_repairs_legacy_id(hass, sdk, mfa
         sdk.return_value.enable_channel99.side_effect = None
         result = await manager.async_configure(result["flow_id"], {"sms_code": "123456"})
     assert result["reason"] == "reauth_successful"
-    assert target.data["user_id"] == "internal"
-    assert target.data[CONF_SDK_TOKEN] == TOKEN
+    assert await TokenPersistence(hass, target).async_load() == TOKEN
+    assert target.data == {"type": ATTR_TYPE_CLOUD, "url": REGION_URLS["eu"]}
     if other:
         assert other.as_dict() == before_other
     sdk.assert_called_with(

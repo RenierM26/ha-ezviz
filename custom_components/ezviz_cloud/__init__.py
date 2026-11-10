@@ -19,7 +19,6 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_TYPE,
-    CONF_URL,
     CONF_USERNAME,
     EVENT_HOMEASSISTANT_STOP,
     Platform,
@@ -32,10 +31,7 @@ from .const import (
     ATTR_TYPE_CLOUD,
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,
-    CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
-    CONF_SESSION_ID,
-    CONF_USER_ID,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -69,7 +65,7 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
 ]
 
-TARGET_VERSION = 4
+TARGET_VERSION = 5
 
 
 async def _async_validate_login(
@@ -126,11 +122,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
     if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
         return True
 
-    # Require all token fields
-    required = (CONF_SESSION_ID, CONF_RF_SESSION_ID, CONF_URL, CONF_USER_ID)
-    if not all(k in entry.data for k in required):
-        raise ConfigEntryAuthFailed("Missing EZVIZ token fields; reauthenticate required")
-
     # Cleanup ownership must outlive HA clearing runtime_data after unload/failure.
     # Platforms and request handlers use entry.runtime_data, never this registry.
     runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})
@@ -148,13 +139,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
     persistence = TokenPersistence(hass, entry)
-    saved = await persistence.async_load()
-    token_input = saved or {
-        CONF_SESSION_ID: entry.data[CONF_SESSION_ID],
-        CONF_RF_SESSION_ID: entry.data[CONF_RF_SESSION_ID],
-        "api_url": entry.data[CONF_URL],
-        "username": entry.data[CONF_USER_ID],
-    }
+    try:
+        token_input = await persistence.async_load()
+    except OSError as err:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN, translation_key="credential_storage_failed"
+        ) from err
+    if not token_input or not all(
+        token_input.get(key) for key in ("session_id", "rf_session_id", "api_url", "username")
+    ):
+        raise ConfigEntryAuthFailed("Missing EZVIZ token fields; reauthenticate required")
     client = _create_token_client(token_input, timeout, persistence)
 
     coordinator = EzvizDataUpdateCoordinator(
@@ -232,7 +226,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> No
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:  # noqa: PLR0912 - explicit historical migration/recovery gates
+async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:  # noqa: PLR0912, PLR0915 - explicit historical migration/recovery gates
     """Consolidate historical camera settings, preserving retryability and identity."""
     if entry.version > TARGET_VERSION:
         create_migration_issue(hass, entry, "migration_future_version")
@@ -246,13 +240,22 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
     # Old camera entries are placeholders; only their cloud account owns migration.
     if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
         return True
+    if entry.version == 4:
+        try:
+            await TokenPersistence(hass, entry).async_promote(version=TARGET_VERSION)
+        except OSError as err:
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN, translation_key="credential_storage_failed"
+            ) from err
+        clear_migration_issue(hass, entry)
+        return True
 
     entries = hass.config_entries.async_entries(DOMAIN)
     legacy_cams = [
         candidate
         for candidate in entries
         if candidate.entry_id != entry.entry_id
-        and candidate.version < TARGET_VERSION
+        and candidate.version < 4
         and candidate.source != SOURCE_IGNORE
         and candidate.data.get(CONF_TYPE) == ATTR_TYPE_CAMERA
     ]
@@ -303,7 +306,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
         candidate
         for candidate in entries
         if candidate.entry_id != entry.entry_id
-        and candidate.version < TARGET_VERSION
+        and candidate.version < 4
         and (candidate.source == SOURCE_IGNORE or candidate in legacy_cams)
     ]
     for victim in victims:
@@ -325,6 +328,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
             )
 
     clear_migration_issue(hass, entry)
-    hass.config_entries.async_update_entry(entry, version=TARGET_VERSION)
+    try:
+        await TokenPersistence(hass, entry).async_promote(version=TARGET_VERSION)
+    except OSError as err:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN, translation_key="credential_storage_failed"
+        ) from err
     _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True

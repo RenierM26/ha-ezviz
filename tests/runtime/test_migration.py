@@ -14,6 +14,7 @@ from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud.config_flow import EzvizConfigFlow
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.migration import migrate_unique_ids_with_coordinator
+from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant import loader
 from homeassistant.config_entries import ConfigEntries, ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -80,7 +81,13 @@ async def test_historical_upgrade_preserves_identity_and_credentials(hass, histo
     )
     assert await ezviz_cloud.async_migrate_entry(hass, cloud)
     assert cloud.version == EzvizConfigFlow.VERSION == ezviz_cloud.TARGET_VERSION
-    assert dict(cloud.data) == original_data
+    assert dict(cloud.data) == {
+        key: value
+        for key, value in original_data.items()
+        if key in ("type", "url") or (key == "username" and not cloud.unique_id)
+    }
+    saved = await TokenPersistence(hass, cloud).async_load()
+    assert saved["session_id"] == original_data["session_id"]
     assert cloud.options == {"timeout": 41, "cameras": expected}
     assert (cloud.entry_id, cloud.unique_id, cloud.title, cloud.minor_version) == identity
     assert registry.async_get(entity.entity_id) == entity
@@ -91,7 +98,7 @@ async def test_historical_upgrade_preserves_identity_and_credentials(hass, histo
     assert cloud.as_dict() == before
 
 
-@pytest.mark.parametrize("version", [5, 99])
+@pytest.mark.parametrize("version", [6, 99])
 async def test_future_major_is_rejected_unchanged(hass, version):
     entry = add_entry(hass, version=version, data={"type": "EZVIZ_CLOUD_ACCOUNT"})
     before = entry.as_dict()
@@ -146,7 +153,7 @@ async def test_removal_failure_is_retryable_without_losing_options(hass, monkeyp
     assert cloud.options["cameras"]["SERIAL001"]["username"] == "admin"
     monkeypatch.setattr(hass.config_entries, "async_remove", original_remove)
     assert await ezviz_cloud.async_migrate_entry(hass, cloud)
-    assert cloud.version == 4
+    assert cloud.version == 5
     assert hass.config_entries.async_get_entry(camera.entry_id) is None
 
 
@@ -394,14 +401,17 @@ async def test_placeholder_migration_is_non_destructive_before_account(hass, sou
 async def test_latest_minor_and_full_token_are_untouched(hass):
     entry = add_entry(
         hass,
-        version=4,
+        version=5,
         minor_version=9,
-        data={"type": "EZVIZ_CLOUD_ACCOUNT", "sdk_token": {"push_state": {"counter": 7}}},
+        data={"type": "EZVIZ_CLOUD_ACCOUNT", "url": "api.example.invalid"},
         options={"cameras": {}, "timeout": 61},
     )
+    token = {"push_state": {"counter": 7}}
+    await TokenPersistence(hass, entry).async_save(token)
     before = entry.as_dict()
     assert await ezviz_cloud.async_migrate_entry(hass, entry)
     assert entry.as_dict() == before
+    assert await TokenPersistence(hass, entry).async_load() == token
 
 
 async def test_presence_check_and_unsupported_rename_remain_unmapped(hass):
@@ -465,7 +475,7 @@ async def test_consolidation_survives_actual_ha_storage_restart(hass, historical
         await restored.config_entries.async_initialize()
         saved = restored.config_entries.async_get_entry(cloud.entry_id)
         assert saved is not None
-        assert saved.version == 4
+        assert saved.version == 5
         assert saved.options == {"timeout": 41, "cameras": expected}
         assert saved.data == cloud.data
         assert len(restored.config_entries.async_entries(DOMAIN)) == 1

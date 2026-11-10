@@ -71,7 +71,9 @@ async def test_constructor_auth_failure_starts_one_reauth_without_modifying_toke
     assert progress[0]["context"]["entry_id"] == entry.entry_id
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert entry.error_reason_translation_key == "saved_login_invalid"
-    assert entry.as_dict() == before
+    assert entry.data == {"type": controls.ATTR_TYPE_CLOUD, "url": full["api_url"]}
+    assert entry.entry_id == before["entry_id"]
+    assert entry.version == 5
     assert await TokenPersistence(hass, entry).async_load() == bad
     assert not hasattr(entry, "runtime_data")
     assert not hass.data[DOMAIN]["_runtimes"]
@@ -108,7 +110,7 @@ async def test_native_reauth_replaces_old_identity_and_stale_private_store(hass,
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
-    assert entry.data[CONF_SDK_TOKEN] == fresh
+    assert entry.data == {"type": controls.ATTR_TYPE_CLOUD, "url": fresh["api_url"]}
     assert await TokenPersistence(hass, entry).async_load() == fresh
     # The actual published SDK constructor accepts the replacement; no validation bypass.
     resumed = EzvizClient(token=deepcopy(await TokenPersistence(hass, entry).async_load()))
@@ -134,6 +136,7 @@ async def test_matching_host_full_token_survives_real_setup_and_storage_restart(
     )
     hass.config_entries.async_update_entry(entry, title="Persisted identity")
     await TokenPersistence(hass, entry).async_save(rotated)
+    await ezviz_cloud.async_migrate_entry(hass, entry)
     observed = []
     clients = []
 
@@ -165,7 +168,7 @@ async def test_matching_host_full_token_survives_real_setup_and_storage_restart(
         saved = restored.config_entries.async_get_entry(entry.entry_id)
         assert saved is not None
         assert await TokenPersistence(restored, saved).async_load() == rotated
-        assert saved.data[CONF_SDK_TOKEN] == full
+        assert saved.data == {"type": controls.ATTR_TYPE_CLOUD, "url": full["api_url"]}
         resumed = EzvizClient(token=await TokenPersistence(restored, saved).async_load())
         assert resumed.export_token() == rotated
         resumed.close_session()

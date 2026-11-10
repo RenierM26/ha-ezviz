@@ -55,3 +55,10 @@ malformed/stale identifiers, validated limits/URLs, legacy resolution and vendor
 HA's entry setup/re-authentication handler, real storage restart, and fresh subprocesses
 with synthetic NIC identities. Constructor authentication errors trigger reauth;
 connectivity errors retry without discarding or rewriting saved tokens.
+
+`test_token_layout.py` qualifies version-5 minimal config data and the single canonical
+private SDK snapshot: legacy import precedence, fsync failures, post-write metadata
+interruption, real disk restart, private staging cleanup/retry, reauth cancellation,
+stale-writer ordering, foreign-account rejection and legacy login-name preservation.
+All initial/reauth direct/MFA storage-error forms are exercised. Exact opaque snapshots
+are compared, including synthetic future SDK fields and push replay state.

@@ -19,8 +19,8 @@ versions; purging existing user history is deliberately not part of this code up
 
 ## Verification
 
-- 282 native tests pass on **each** HA 2026.10.4 and 2026.11.0.
-- Config flow: **341/341 statements, 54/54 branch outcomes** (100%); CI retains its gate.
+- 305 native tests pass on **each** HA 2026.10.4 and 2026.11.0.
+- Config flow: **367/367 statements, 54/54 branch outcomes** (100%); CI retains its gate.
 - 52 acceptance tests and 44 standalone tests pass; Ruff and mypy pass.
 - Local hassfest: zero invalid integrations, retaining only the existing explicitly
   documented custom-only SDK dependency exception.
@@ -68,3 +68,25 @@ scheduler-dependent assertion without weakening the unload bound.
   The SDK host binding is preserved, not bypassed. Constructor connectivity errors retry.
 - [ ] Verify the reported dev environment's host-identity stability when its VS Code
   node is available; the recovery fix does not claim that an unstable host is repaired.
+
+## Minimal config-entry layout
+
+- [x] Version 5 normally retains only `type` and `url` in data. Existing HA unique IDs
+  carry login names; legacy entries without one retain only the needed `username`.
+  No sessions, SDK snapshots, internal user IDs or repeated account payloads remain.
+- [x] One private atomic Store owns the full SDK snapshot, retaining required host
+  binding, hardware/push/replay metadata and opaque future SDK fields. This is a
+  storage-layout improvement, not a claim of encryption at rest.
+- [x] Migration fsyncs before stripping credentials; v4 does not rerun camera migration.
+  Latest matching private state wins over embedded legacy snapshots. Failed writes or
+  metadata updates retain retryability without rolling back replay counters.
+- [x] Initial creation privately stages credentials until HA supplies the entry ID;
+  promotion/removal/reauth clean up staging. Failed cleanup keeps its retry reference.
+- [x] Shared locking and private login revisions serialize saves/replacements and reject
+  superseded clients. Cancellation cannot abandon an acknowledged replacement or reload.
+- [x] Real HA stop/restart, storage failure/retry, old-writer races, missing/foreign
+  credentials, legacy login-name recovery and all direct/MFA storage-error forms are tested.
+
+The dev report was an HA-only restart, not a container recreation. Diagnosing its actual
+host-identity instability remains blocked on the disconnected/pending-approval VS Code node;
+neither the recovery fix nor the compact layout bypasses the SDK's host binding.

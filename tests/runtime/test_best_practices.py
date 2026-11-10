@@ -183,7 +183,7 @@ async def test_repairs_manager_retries_target_after_user_correction(hass, monkey
     assert result["type"] is FlowResultType.FORM
     result = await manager.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.version == 4
+    assert entry.version == 5
     assert "CAM001" in entry.options["cameras"]
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"migration_{entry.entry_id}") is None
 

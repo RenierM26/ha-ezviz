@@ -63,10 +63,10 @@ def integration(monkeypatch):
         """Storage is mocked here; actual disk contracts live in real-HA tests."""
 
         def __init__(self, *args):
-            pass
+            self.entry = args[1]
 
         async def async_load(self):
-            return None
+            return {"session_id": "synthetic", "rf_session_id": "refresh", "api_url": "api.test", "username": "user"}
 
         def save_from_worker(self, token):
             pass

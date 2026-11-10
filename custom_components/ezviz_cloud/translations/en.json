@@ -45,7 +45,8 @@
       "device_exception": "Device exception, couldn't fetch key",
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "Unknown error",
-      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds."
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+      "cannot_save_credentials": "The login could not be saved safely. Check storage and try again."
     },
     "abort": {
       "already_configured_account": "Account already configured",
@@ -631,6 +632,9 @@
     },
     "saved_login_invalid": {
       "message": "The saved EZVIZ login is no longer valid for this host. Reauthenticate to create a fresh login."
+    },
+    "credential_storage_failed": {
+      "message": "EZVIZ credentials could not be read or saved safely. Check storage; setup or migration will retry."
     }
   }
 }

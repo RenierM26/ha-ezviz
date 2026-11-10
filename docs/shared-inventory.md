@@ -47,8 +47,30 @@ a return without a completed write. This hook is qualified against HA 2026.10.4;
 the dedicated real-HA CI must be updated when moving that baseline. A queued
 config-entry update is never treated as durable acknowledgement.
 
-Saved snapshots are anchored to the entry's credential identity so reauth does not
-restore an old token. Token Store removal waits for late token-producing workers.
+Version-5 config-entry data contains only cloud `type` and the chosen API `url`.
+The login name already lives in HA's unique ID; only legacy entries without one
+retain a separate `username` for reauthentication. Camera settings stay in options.
+Session IDs, internal SDK user IDs, push state and discovery payloads are not copied
+into the config entry. The complete opaque SDK snapshot lives exactly once in the
+private, atomic `ezviz_cloud.token.<entry_id>` Store, including SDK-required host
+binding, replay state and future fields. Private storage is not encryption at rest.
+
+Migration imports the latest matching old private snapshot before the embedded or
+flattened legacy snapshot, then strips the public credentials only after fsync.
+V4 entries get this auth-only migration; earlier entries retain their camera and
+registry migration. Entry/device/entity IDs and existing options remain unchanged.
+New login temporarily uses a private staged Store because HA allocates the entry ID
+after the flow returns. Setup (or the flow's post-create hook when setup is skipped)
+promotes it before deleting staging and its public reference. Failed writes retain
+the legacy data/reference for retry; cancelled abandoned staging is cleaned up.
+
+All token owners share one per-entry Store and lock. A fresh login writes a new
+private revision; old clients cannot overwrite it or load it as their own session.
+Account binding uses HA's unique ID, or the immutable entry ID when absent, not
+rotating tokens or a newly entered legacy login name. Reauth explicitly reloads HA
+even when the public metadata did not change. A missing private snapshot requests
+reauthentication; there is no duplicate config-entry fallback. Token Store removal
+waits for late token-producing workers and also deletes unpromoted staging.
 The push monitor checks fatal background worker failures, stops the old worker
 before recovery, and preserves polling during outages. Runtime cleanup retains
 ownership after the five-second foreground unload wait; HTTP closes only after
@@ -114,7 +136,7 @@ ContextVar fallback. HACS declares HA 2026.10.4 as the supported minimum.
 ## Latest-stable runtime qualification
 
 The full 52-control acceptance suite remains on the matching HA 2026.10.4 test
-plugin. A separate 19-control native suite runs on actual HA 2026.10.4 and
+plugin. The 305-test native suite runs on actual HA 2026.10.4 and
 2026.11.0, with neither the HA test plugin nor inconsistent dependency overrides.
 It covers real atomic/fsynced storage, failures/deferred writes, cancelled token
 producers, actual core shutdown, cancelled push/credential workers, late capture
@@ -176,7 +198,7 @@ snapshot with a missing or different feature code is rejected by `EzvizClient`
 Setup classifies this as `ConfigEntryAuthFailed`, so HA opens the normal reauth flow
 instead of reporting an unexpected setup exception. Constructor connectivity errors
 remain retryable. Neither path rewrites the stored feature code, drops push state,
-or silently rolls back to the config-entry token when a newer private snapshot fails.
+or silently rolls back to an embedded legacy token when a newer private snapshot fails.
 
 Tests reproduce the original traceback using the real SDK constructor and HA's real
 entry setup handler. They cover config-entry/private snapshots, fresh reauthentication,

@@ -21,7 +21,7 @@ from custom_components.ezviz_cloud.const import (
     DOMAIN,
     REGION_EU,
 )
-from custom_components.ezviz_cloud.tokens import TokenPersistence
+from custom_components.ezviz_cloud.tokens import TokenPersistence, _pending_store
 from homeassistant.config_entries import ConfigEntryState, current_entry
 from homeassistant.const import CONF_PASSWORD, CONF_TIMEOUT, CONF_TYPE, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
@@ -54,9 +54,12 @@ async def test_actual_config_flow_uses_credential_profile_and_full_token(hass, m
         }
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_SDK_TOKEN] == token
+    assert set(result["data"]) == {"type", "url", "auth_ref"}
+    staged = await _pending_store(hass, result["data"]["auth_ref"]).async_load()
+    assert staged["token"] == token
+    assert staged["token"] is not token
     assert CONF_PASSWORD not in result["data"]
-    assert result["data"][CONF_SDK_TOKEN] is not token
+    await _pending_store(hass, result["data"]["auth_ref"]).async_remove()
     api.enable_channel99.assert_called_once_with()
     api.login.assert_not_called()
     api.close_session.assert_called_once_with()
@@ -120,9 +123,7 @@ async def test_setup_restores_full_token_installs_callback_and_closes_after_unlo
     observed["close"].assert_called_once_with()
     await ezviz_cloud.async_remove_entry(hass, entry)
     await hass.async_block_till_done(wait_background_tasks=True)
-    assert (
-        await TokenPersistence(hass, entry).async_load() == full
-    )  # no store, fallback to removed entry data only
+    assert await TokenPersistence(hass, entry).async_load() is None
     assert not Path(TokenPersistence(hass, entry)._store.path).exists()
 
 

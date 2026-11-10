@@ -45,6 +45,7 @@ from .const import (
     ATTR_SERIAL,
     # Cloud entry
     ATTR_TYPE_CLOUD,
+    CONF_AUTH_REF,
     CONF_CAM_ENC_2FA_CODE,
     # One-time (never persisted) 2FA codes for device-level fetches
     CONF_CAM_VERIFICATION_2FA_CODE,
@@ -52,11 +53,7 @@ from .const import (
     CONF_FFMPEG_ARGUMENTS,  # per-camera: RTSP path (legacy name)
     # Region support
     CONF_REGION,
-    CONF_RF_SESSION_ID,
     CONF_RTSP_USES_VERIFICATION_CODE,
-    CONF_SDK_TOKEN,
-    CONF_SESSION_ID,
-    CONF_USER_ID,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_FFMPEG_ARGUMENTS,
@@ -71,12 +68,12 @@ from .const import (
 from .coordinator import EzvizDataUpdateCoordinator
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .runtime import EzvizConfigEntry
-from .tokens import credential_login
-from .workers import create_executor_task
+from .tokens import TokenPersistence, credential_login, stage_login
+from .workers import create_critical_task, create_executor_task
 
 _LOGGER = logging.getLogger(__name__)
 
-VERSION = 4  # keep in sync with __init__.py TARGET_VERSION
+VERSION = 5  # keep in sync with __init__.py TARGET_VERSION
 
 
 # -----------------------------------------------------------------------------
@@ -258,22 +255,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     errors["base"] = "unknown"
 
                 else:
-                    # Persist token fields, not the raw password.
-                    # Store the chosen API HOST (normalized), not whatever the token echoes.
-                    return self.async_create_entry(
-                        title=username,
-                        data={
-                            CONF_TYPE: ATTR_TYPE_CLOUD,
-                            CONF_SESSION_ID: token[CONF_SESSION_ID],
-                            CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                            CONF_SDK_TOKEN: token,
-                            CONF_URL: api_url,  # host only, normalized
-                            CONF_USER_ID: token["username"],  # ezviz internal user id (MQTT)
-                        },
-                        options={
-                            CONF_TIMEOUT: timeout,
-                            OPTIONS_KEY_CAMERAS: {},  # per-camera settings only
-                        },
+                    return await self._async_create_cloud_entry(
+                        token, username, api_url, timeout, "user"
                     )
 
         # Show form
@@ -318,20 +301,12 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 _LOGGER.exception("Unexpected error during initial MFA")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(
-                    title=self._pending_user_username,
-                    data={
-                        CONF_TYPE: ATTR_TYPE_CLOUD,
-                        CONF_SESSION_ID: token[CONF_SESSION_ID],
-                        CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                        CONF_SDK_TOKEN: token,
-                        CONF_URL: self._pending_user_url,  # keep the chosen/normalized host
-                        CONF_USER_ID: token["username"],
-                    },
-                    options={
-                        CONF_TIMEOUT: self._pending_user_timeout,
-                        OPTIONS_KEY_CAMERAS: {},
-                    },
+                return await self._async_create_cloud_entry(
+                    token,
+                    self._pending_user_username,
+                    self._pending_user_url,
+                    self._pending_user_timeout,
+                    "user_mfa_confirm",
                 )
 
         schema = vol.Schema({vol.Required("sms_code"): str})
@@ -360,9 +335,11 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         if user_input is not None:
             self._reauth_username = user_input[CONF_USERNAME]
             self._reauth_password = user_input[CONF_PASSWORD]
-            self._reauth_url = self._reauth_entry.data[CONF_URL]
+            self._reauth_url = self._reauth_entry.data.get(CONF_URL, REGION_URLS[REGION_EU])
             try:
-                self._reauth_timeout = _validate_timeout(self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+                self._reauth_timeout = _validate_timeout(
+                    self._reauth_entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+                )
             except vol.Invalid:
                 self._reauth_timeout = DEFAULT_TIMEOUT
 
@@ -387,19 +364,18 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 errors["base"] = "unknown"
             else:
                 # Refresh tokens and restore the internal user id missing from legacy entries.
-                new_data = {
-                    **self._reauth_entry.data,
-                    CONF_SESSION_ID: token[CONF_SESSION_ID],
-                    CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                    CONF_SDK_TOKEN: token,
-                    CONF_USER_ID: token["username"],
-                }
-                return self.async_update_reload_and_abort(self._reauth_entry, data=new_data)
+                return await self._async_finish_reauth(token, "reauth_confirm")
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_USERNAME, default=self._reauth_entry.unique_id): vol.In(
-                    [self._reauth_entry.unique_id]
+                vol.Required(
+                    CONF_USERNAME,
+                    default=self._reauth_entry.unique_id
+                    or self._reauth_entry.data.get(CONF_USERNAME, ""),
+                ): (
+                    vol.In([self._reauth_entry.unique_id or self._reauth_entry.data[CONF_USERNAME]])
+                    if self._reauth_entry.unique_id or self._reauth_entry.data.get(CONF_USERNAME)
+                    else str
                 ),
                 vol.Required(CONF_PASSWORD): str,
             }
@@ -434,17 +410,56 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 _LOGGER.exception("Unexpected error during reauth MFA")
                 errors["base"] = "unknown"
             else:
-                new_data = {
-                    **self._reauth_entry.data,
-                    CONF_SESSION_ID: token[CONF_SESSION_ID],
-                    CONF_RF_SESSION_ID: token[CONF_RF_SESSION_ID],
-                    CONF_SDK_TOKEN: token,
-                    CONF_USER_ID: token["username"],
-                }
-                return self.async_update_reload_and_abort(self._reauth_entry, data=new_data)
+                return await self._async_finish_reauth(token, "reauth_mfa")
 
         schema = vol.Schema({vol.Required("sms_code"): str})
         return self.async_show_form(step_id="reauth_mfa", data_schema=schema, errors=errors)
+
+    async def _async_storage_error(self, step: str) -> ConfigFlowResult:
+        result = await getattr(self, f"async_step_{step}")()
+        result["errors"] = {"base": "cannot_save_credentials"}
+        return result
+
+    async def _async_create_cloud_entry(
+        self, token: dict, username: str, api_url: str, timeout: int, step: str
+    ) -> ConfigFlowResult:
+        try:
+            reference = await stage_login(self.hass, username, token)
+        except OSError:
+            return await self._async_storage_error(step)
+        return self.async_create_entry(
+            title=username,
+            data={CONF_TYPE: ATTR_TYPE_CLOUD, CONF_URL: api_url, CONF_AUTH_REF: reference},
+            options={CONF_TIMEOUT: timeout, OPTIONS_KEY_CAMERAS: {}},
+        )
+
+    async def async_on_create_entry(self, result: ConfigFlowResult) -> ConfigFlowResult:
+        entry = result["result"]
+        assert entry is not None
+        # async_add performs setup before this hook. Ensure promotion also happened
+        # when setup was skipped/disabled, without exposing a token in entry data.
+        try:
+            await TokenPersistence(self.hass, entry).async_load()
+        except OSError:
+            # Keep only the private staging reference so HA setup can retry.
+            _LOGGER.warning("EZVIZ credential promotion is pending; setup must retry")
+        result["data"] = dict(entry.data)
+        return result
+
+    async def _async_finish_reauth(self, token: dict, step: str) -> ConfigFlowResult:
+        async def finish() -> ConfigFlowResult:
+            try:
+                await TokenPersistence(self.hass, self._reauth_entry).async_replace(
+                    token, api_url=self._reauth_url, login_name=self._reauth_username
+                )
+            except OSError:
+                return await self._async_storage_error(step)
+            return self.async_update_reload_and_abort(
+                self._reauth_entry, reload_even_if_entry_is_unchanged=True
+            )
+
+        task = create_critical_task(self.hass, finish(), "EZVIZ reauthentication commit")
+        return await asyncio.shield(task)
 
 
 class EzvizOptionsFlowHandler(OptionsFlowWithReload):
@@ -714,9 +729,14 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             CONF_PASSWORD: resolved[CONF_PASSWORD],
             CONF_ENC_KEY: resolved[CONF_ENC_KEY],
             CONF_RTSP_USES_VERIFICATION_CODE: resolved[CONF_RTSP_USES_VERIFICATION_CODE],
-            CONF_FFMPEG_ARGUMENTS: resolved.get(CONF_FFMPEG_ARGUMENTS, self._camera_baseline.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS)),
+            CONF_FFMPEG_ARGUMENTS: resolved.get(
+                CONF_FFMPEG_ARGUMENTS,
+                self._camera_baseline.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+            ),
         }
-        options = build_camera_options(self.config_entry, self._cam_serial, patch, expected=self._camera_baseline)
+        options = build_camera_options(
+            self.config_entry, self._cam_serial, patch, expected=self._camera_baseline
+        )
         self._pending = None
         self._prefill = None
         return self.async_create_entry(title="", data=options)

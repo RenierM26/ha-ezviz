@@ -20,7 +20,8 @@ ATTR_SERIAL: Final = "serial"
 CONF_SESSION_ID: Final = "session_id"
 CONF_RF_SESSION_ID: Final = "rf_session_id"
 CONF_USER_ID: Final = "user_id"
-CONF_SDK_TOKEN: Final = "sdk_token"
+CONF_SDK_TOKEN: Final = "sdk_token"  # legacy v4 import only
+CONF_AUTH_REF: Final = "auth_ref"  # transient new-entry credential staging reference
 CONF_EZVIZ_ACCOUNT: Final = "ezviz_account"
 
 CONF_ENC_KEY: Final = "enc_key"

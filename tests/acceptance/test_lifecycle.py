@@ -199,7 +199,7 @@ async def test_reauth_with_same_session_replaces_old_push_state(hass):
         first.save_from_worker, {"session_id": "synthetic", "push_state": {"counter": 9}}
     )
     fresh = {"session_id": "synthetic", "push_state": {"counter": 0, "new_secret": "synthetic"}}
-    hass.config_entries.async_update_entry(entry, data={**entry.data, "sdk_token": fresh})
+    await TokenPersistence(hass, entry).async_replace(fresh)
     assert await TokenPersistence(hass, entry).async_load() == fresh
     await first.async_remove()
 

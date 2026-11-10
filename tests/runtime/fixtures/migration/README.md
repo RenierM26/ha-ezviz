@@ -8,7 +8,7 @@ are schema fixtures, not exports from a user's `.storage` directory.
 | `v1.json` | Parent of `74f44d5` (#153), `config_flow.py` VERSION 1 | Per-camera password; no independent encryption key or RTSP selector. Cloud token lacks internal `user_id`. |
 | `v2.json` | `74f44d5` (#153), VERSION 2 | Independent `enc_key`; no RTSP selector. |
 | `v3.json` | Parent of `8e78d6d` (#188), VERSION 3 | Explicit encryption/verification-code RTSP choice, per-camera stream path and separate cloud account. Post-#183 cloud has `user_id`. |
-| `v4.json` | `8e78d6d` (#188), VERSION 4 | Camera credentials consolidated under cloud `options.cameras`; current account is unchanged. |
+| `v4.json` | `8e78d6d` (#188), VERSION 4 | Camera credentials consolidated under cloud `options.cameras`; version-5 migration changes authentication storage only. |
 
 Expected credential transformations come from the *historical migration code*,
 not today's constants: #153 copied v1 password to encryption key; #180
@@ -37,6 +37,11 @@ defaults, missing serials, ignored/current/foreign entries, ambiguous accounts,
 removal failure/cancellation and retry, real storage restart, unchanged user
 entity IDs/settings, exact-match UID upgrades, case/rename/presence filtering,
 collisions, unavailable/renamed cameras and bounded/cleared Repairs issues.
+The target schema is now version 5: minimal cloud routing data and one private SDK
+snapshot. `test_token_layout.py` additionally covers the later v4 embedded-SDK/anchor
+envelope, latest-token precedence, failed fsync/metadata commits, stale-owner rejection
+and initial-flow private staging. These use synthetic API-shaped snapshots, not a
+historical user export. Legacy accounts missing internal SDK IDs still require reauth.
 
 This follows HA's [config-entry lifecycle](https://developers.home-assistant.io/docs/config_entries_index/)
 and [entity-registry migration API](https://developers.home-assistant.io/docs/entity_registry_index/):
