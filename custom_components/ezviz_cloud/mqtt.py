@@ -6,8 +6,14 @@ from copy import deepcopy
 import logging
 
 from pyezvizapi.client import EzvizClient
-from pyezvizapi.exceptions import EzvizAuthTokenExpired, EzvizAuthVerificationCode
+from pyezvizapi.exceptions import (
+    EzvizAuthTokenExpired,
+    EzvizAuthVerificationCode,
+    EzvizPushFatalError,
+    EzvizTokenPersistenceError,
+)
 from pyezvizapi.mqtt import MQTTClient
+from pyezvizapi.push.longlink.codec import AuthenticationRejected
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -21,6 +27,12 @@ _LOGGER = logging.getLogger(__name__)
 PUSH_RETRY_SECONDS = 300
 PUSH_STOP_TIMEOUT_SECONDS = 5
 PUSH_HEALTH_SECONDS = 5
+# SDK 2.0.0 has no typed auth-fatal subtype and sometimes omits a cause.
+# Match only its two explicit auth markers, never arbitrary fatal error text.
+_AUTH_FATAL_MESSAGES = {
+    "Channel-99 session expired; reauthentication required",
+    "Channel-99 refresh rejected; reauthentication required",
+}
 
 
 class EzvizMqttHandler:
@@ -39,6 +51,7 @@ class EzvizMqttHandler:
         self._health_task: asyncio.Task | None = None
         self._worker_futures: set[asyncio.Future] = set()
         self._reauth_requested = False
+        self._fatal_error_type: str | None = None
         self._stopping = asyncio.Event()
 
     def async_start(self) -> None:
@@ -61,14 +74,8 @@ class EzvizMqttHandler:
             try:
                 await self._async_run_worker(self.start)
             except Exception as err:  # Push is optional, including SDK failures.
-                if (
-                    isinstance(err, (EzvizAuthTokenExpired, EzvizAuthVerificationCode))
-                    and not self._reauth_requested
-                ):
-                    self._reauth_requested = True
-                    entry = self._hass.config_entries.async_get_entry(self._entry)
-                    if entry is not None:
-                        entry.async_start_reauth(self._hass)
+                if await self._async_handle_terminal_failure(err):
+                    return
                 if not failed:
                     _LOGGER.warning(
                         "EZVIZ push unavailable (%s); continuing with polling. "
@@ -110,11 +117,49 @@ class EzvizMqttHandler:
                 _LOGGER.warning(
                     "EZVIZ push worker failed (%s); polling remains active", type(err).__name__
                 )
+                if await self._async_handle_terminal_failure(err):
+                    return
                 if not self._stopping.is_set():
                     self._task = self._hass.async_create_background_task(
                         self._async_connect(), "EZVIZ push recovery"
                     )
                 return
+
+    async def _async_handle_terminal_failure(self, err: Exception) -> bool:
+        """Do not reconnect a cached SDK worker retaining a fatal exception."""
+        # Persistence failures are fatal too, but a login cannot fix failed writes.
+        persistence_failed = isinstance(err, EzvizTokenPersistenceError)
+        cause: BaseException | None = err
+        seen: set[int] = set()
+        auth_failed = isinstance(err, EzvizPushFatalError) and str(err) in _AUTH_FATAL_MESSAGES
+        while cause is not None and id(cause) not in seen:
+            seen.add(id(cause))
+            persistence_failed |= isinstance(cause, EzvizTokenPersistenceError)
+            auth_failed |= isinstance(cause, (EzvizAuthTokenExpired, EzvizAuthVerificationCode, AuthenticationRejected))
+            cause = cause.__cause__
+        auth_failed &= not persistence_failed
+        if not isinstance(err, EzvizPushFatalError) and not auth_failed:
+            return False
+        self._fatal_error_type = type(err).__name__
+        if auth_failed:
+            if not self._reauth_requested:
+                self._reauth_requested = True
+                entry = self._hass.config_entries.async_get_entry(self._entry)
+                if entry is not None:
+                    entry.async_start_reauth(self._hass)
+            recovery = "Reauthenticate the integration to restore push"
+        elif persistence_failed:
+            recovery = "Check Home Assistant storage permissions and free space, then reload the integration"
+        else:
+            recovery = "Inspect the SDK push failure, then reload the integration after correcting its cause"
+        _LOGGER.error(
+            "EZVIZ push stopped (%s); polling remains active. %s. Automatic push retries paused",
+            self._fatal_error_type,
+            recovery,
+        )
+        # A failed stop retains ownership for normal unload/shutdown cleanup.
+        await self._async_run_worker(self.stop)
+        return True
 
     async def async_stop(self) -> None:
         """Stop retries and bound the caller's wait for SDK cleanup."""
@@ -191,8 +236,13 @@ class EzvizMqttHandler:
 
     def get_diagnostics(self) -> dict:
         """Only credential-free worker fields; no full tokens or session payload."""
-        if self._mqtt is None:
-            return {"state": "unavailable", "reauth_requested": self._reauth_requested}
+        mqtt = self._mqtt
+        if mqtt is None:
+            return {
+                "state": "fatal" if self._fatal_error_type else "unavailable",
+                "reauth_requested": self._reauth_requested,
+                "fatal_error_type": self._fatal_error_type,
+            }
         allowed = {
             "state",
             "worker_alive",
@@ -202,7 +252,7 @@ class EzvizMqttHandler:
             "last_error_type",
             "fatal_error_type",
         }
-        return {k: v for k, v in self._mqtt.get_push_diagnostics().items() if k in allowed}
+        return {k: v for k, v in mqtt.get_push_diagnostics().items() if k in allowed}
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""

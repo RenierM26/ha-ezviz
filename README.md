@@ -5,6 +5,16 @@ Updated Ezviz HA component making use of latest version of pyEzviz (API behind t
 https://www.home-assistant.io/integrations/ezviz/
 
 
+## Breaking change
+
+**Encryption-key text entities are now write-only** (unique-ID suffix
+`_camera_enc_key`). Their existing entity IDs and the `text.set_value` action are
+preserved, but their state is always empty and is no longer restored. Replace
+any automation, template or script that reads the old text state; do not use it
+as an RTSP password or image-decryption key. Configure the key in the camera's
+integration Options instead. Integrations reading keys internally now use those
+options directly. Existing recorder/history copies are not purged by this update.
+
 # EZVIZ account setup (doesn't require IE):
 ---
 
@@ -35,6 +45,12 @@ This integration logs into **EZVIZ Cloud**, subscribes to **MQTT** events, and l
 MQTT push starts in the background after entities load. If push registration or
 connection fails (for example, EZVIZ returns HTTP 503), the integration continues
 its normal 30-second cloud polling and retries push startup every five minutes.
+Fatal push failures do not retry the SDK's cached failed worker. Authentication
+failures open one HA reauthentication flow. Credential-save failures require
+checking storage permissions/free space and then reloading the integration;
+other fatal errors require correcting their cause and reloading. Polling remains
+active in these cases. Diagnostics retain the fatal error type without secrets.
+
 Real-time `ezviz_push_event` events are unavailable until push recovers; polling
 does not replace every push-only event. Cloud login and the initial camera fetch
 must still succeed. Push shutdown errors do not prevent unloading the integration.

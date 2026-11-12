@@ -45,5 +45,5 @@ async def async_get_config_entry_diagnostics(
         ]
     push = runtime.push
     if push is not None:
-        result["push"] = push.get_diagnostics()
+        result["push"] = await hass.async_add_executor_job(push.get_diagnostics)
     return result

@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 import logging
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,7 +12,11 @@ from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import image, repairs, text, views
 from custom_components.ezviz_cloud.const import DOMAIN, SIGNAL_PICTURE_CAPTURED
 from homeassistant import loader
-from homeassistant.components.repairs.issue_handler import RepairsFlowManager
+from homeassistant.components.repairs import (
+    async_setup as async_setup_repairs,
+    repairs_flow_manager,
+    websocket_api as repairs_websocket,
+)
 from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
@@ -32,6 +35,19 @@ def integration(hass):
     integration = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
     assert integration is not None
     hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = integration
+
+
+@pytest.fixture
+async def repair_manager(hass, monkeypatch):
+    """Let HA initialize its own Repairs domain data across supported/dev layouts."""
+    # HTTP view registration is outside these repair-flow tests. Keep real
+    # platform loading, manager, issue registry and config-entry retry behavior.
+    monkeypatch.setattr(repairs_websocket, "async_setup", MagicMock())
+    hass.config.components.add(DOMAIN)
+    assert await async_setup_repairs(hass, {})
+    manager = repairs_flow_manager(hass)
+    assert manager is not None
+    return manager
 
 
 async def test_key_is_write_only_and_images_use_options_not_state(hass):
@@ -157,7 +173,7 @@ async def test_cleanup_failure_exception_types_preserve_migration_progress(
         assert issue.is_fixable and issue.data == {"entry_id": entry.entry_id}
 
 
-async def test_repairs_manager_retries_target_after_user_correction(hass, monkeypatch):
+async def test_repairs_manager_retries_target_after_user_correction(hass, monkeypatch, repair_manager):
     entry = entry_for(hass, state=ConfigEntryState.MIGRATION_ERROR)
     hass.config_entries.async_update_entry(entry, version=3)
     victim = entry_for(hass)
@@ -167,10 +183,7 @@ async def test_repairs_manager_retries_target_after_user_correction(hass, monkey
     # The user corrects the serial using HA configuration APIs; no guessing.
     hass.config_entries.async_update_entry(victim, unique_id="CAM001")
     # Use real repair manager and retry API; setup is the isolated external boundary.
-    hass.data["repairs"] = {
-        "platforms": SimpleNamespace(async_get_platform=AsyncMock(return_value=repairs))
-    }
-    manager = RepairsFlowManager(hass)
+    manager = repair_manager
 
     async def setup(entry_id):
         assert entry_id == entry.entry_id
@@ -189,16 +202,17 @@ async def test_repairs_manager_retries_target_after_user_correction(hass, monkey
 
 
 @pytest.mark.parametrize("outcome", ["blocked", "setup_retry_after_migration", "removed", "not_failed", "disabled"])
-async def test_repair_outcomes_do_not_silently_dismiss_blocked_entries(hass, monkeypatch, outcome):
+async def test_repair_outcomes_do_not_silently_dismiss_blocked_entries(hass, monkeypatch, outcome, repair_manager):
     entry = entry_for(hass, state=ConfigEntryState.MIGRATION_ERROR if outcome != "not_failed" else ConfigEntryState.NOT_LOADED)
     repairs.create_migration_issue(hass, entry, "migration_missing_serial")
     issue_id = f"migration_{entry.entry_id}"
-    hass.data["repairs"] = {"platforms": SimpleNamespace(async_get_platform=AsyncMock(return_value=repairs))}
-    manager = RepairsFlowManager(hass)
+    manager = repair_manager
     result = await manager.async_init(DOMAIN, context={"issue_id": issue_id})
     if outcome == "removed":
         del hass.config_entries._entries[entry.entry_id]
     elif outcome == "disabled":
+        # Reload is a separate boundary; a MIGRATION_ERROR entry cannot unload.
+        monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
         await hass.config_entries.async_set_disabled_by(entry.entry_id, ConfigEntryDisabler.USER)
 
     async def setup(_entry_id):

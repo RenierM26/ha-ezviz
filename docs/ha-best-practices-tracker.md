@@ -90,3 +90,45 @@ scheduler-dependent assertion without weakening the unload bound.
 The dev report was an HA-only restart, not a container recreation. Diagnosing its actual
 host-identity instability remains blocked on the disconnected/pending-approval VS Code node;
 neither the recovery fix nor the compact layout bypasses the SDK's host binding.
+
+
+## VS Code review follow-up (2026-11-12)
+
+- [x] Run synchronous SDK push diagnostics in HA's executor, avoiding a lock-held
+  token-save/event-loop cycle. Regression uses the real SDK worker lock and
+  actual private Store callback/fsync, with a bounded persistence deadline.
+- [x] Detect sticky SDK fatal workers in startup and health checks. Authentication
+  requests reauth once; persistence and unknown fatal errors pause retries and
+  log distinct corrective/reload guidance. Polling remains independent. SDK 2.0.0
+  uses two untyped HTTP-auth markers; match those exactly, plus typed auth causes
+  (including long-link AuthenticationRejected). Never treat persistence as auth.
+- [x] Exercise real SDK get_mqtt_client caching and PushWorker fatal retention,
+  real SDK HTTP registration/refresh and long-link auth errors, storage errors,
+  unknown fatal errors, repeated detection, redaction and shutdown.
+- [x] Prominent README Breaking change section and PR title/body marking for the
+  write-only encryption-key text state, including affected unique-ID suffix and
+  automation migration action. Keep security behavior and stable entity/action IDs.
+- [x] Repairs fixtures call HA's own domain setup/manager/platform loader instead
+  of constructing its private data layout. Only HTTP registration and the existing
+  setup/reload boundaries are synthetic. Both supported published runtimes pass;
+  the disconnected VS Code container itself has not been executed here.
+
+### Separate lifecycle follow-ups (not part of this patch)
+
+- [ ] Siren: retain restored/new timer cancellation handles, cancel on retrigger
+  and entity removal; prove an old timer cannot end a newer activation.
+- [ ] Camera: refresh selected RTSP credentials and existing stream source after
+  a committed key/options change; cover active-stream and unload ordering.
+- [ ] MQTT device lookup: replace deprecated global lookup with an entry-scoped
+  API before HA 2027.8, preserving HA 2026.10.4 support and event identity.
+
+### PR structure
+
+The recommendation to separate compatibility from unrelated features is valid.
+This patch adds only review-blocker recovery, regression coverage and documentation;
+it does not add those three pre-existing lifecycle fixes or rewrite published PR
+history. A future split should keep the SDK bump, channel-99 migration and durable
+callback ownership together; separate device-family features and independent
+credential/media hardening. PR236 has **not** been split; no repository-local
+split mandate was found in this checkout. The supplied review may refer to the
+VS Code core checkout's instructions, which were not attached.

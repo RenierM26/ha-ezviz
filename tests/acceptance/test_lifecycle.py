@@ -117,10 +117,9 @@ async def test_legacy_auth_requests_one_reauth_without_disabling_polling(hass, m
     monkeypatch.setattr(mqtt, "PUSH_RETRY_SECONDS", 0.001)
     handler = mqtt.EzvizMqttHandler(hass, client, entry.entry_id)
     handler.async_start()
-    deadline = asyncio.get_running_loop().time() + 2
-    while client.get_mqtt_client.call_count < 2 and asyncio.get_running_loop().time() < deadline:
-        await asyncio.sleep(0.005)
-    assert client.get_mqtt_client.call_count >= 2
+    await asyncio.wait_for(handler._task, 2)
+    await asyncio.sleep(0.025)  # Multiple retry intervals must not repeat fatal auth.
+    assert client.get_mqtt_client.call_count == 1
     assert request.call_count == 1 and data.last_update_success
     await handler.async_wait_stopped()
 
