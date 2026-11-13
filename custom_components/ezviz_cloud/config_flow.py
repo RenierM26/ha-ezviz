@@ -224,7 +224,10 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             except vol.Invalid:
                 errors["base"] = "invalid_url"
 
-            timeout = user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+            try:
+                timeout = _validate_timeout(user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+            except vol.Invalid:
+                errors[CONF_TIMEOUT] = "invalid_timeout"
 
             if not errors:
                 try:
@@ -268,7 +271,10 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     [REGION_EU, REGION_RU, REGION_CUSTOM]
                 ),
                 vol.Optional(CONF_URL): str,  # required only when region == custom
-                vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): _validate_timeout,
+                # Custom callable validators cannot be serialized into an HA form.
+                vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.All(
+                    int, vol.Range(min=1, max=300)
+                ),
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
@@ -486,20 +492,25 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     async def async_step_cloud(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Edit cloud account options (timeout only)."""
         opts = dict(self.config_entry.options)
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            opts[CONF_TIMEOUT] = user_input[CONF_TIMEOUT]
-            # No cloud-level CONF_FFMPEG_ARGUMENTS anymore (per-camera only)
-            return self.async_create_entry(title="", data=opts)
+            try:
+                opts[CONF_TIMEOUT] = _validate_timeout(user_input[CONF_TIMEOUT])
+            except vol.Invalid:
+                errors[CONF_TIMEOUT] = "invalid_timeout"
+            else:
+                # No cloud-level CONF_FFMPEG_ARGUMENTS anymore (per-camera only)
+                return self.async_create_entry(title="", data=opts)
 
         schema = vol.Schema(
             {
                 vol.Required(
                     CONF_TIMEOUT, default=opts.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
-                ): _validate_timeout,
+                ): vol.All(int, vol.Range(min=1, max=300)),
             }
         )
-        return self.async_show_form(step_id="cloud", data_schema=schema)
+        return self.async_show_form(step_id="cloud", data_schema=schema, errors=errors)
 
     # ----- Camera selection -----
 

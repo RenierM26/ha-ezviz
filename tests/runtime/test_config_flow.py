@@ -1,6 +1,7 @@
 """Config/options behavior through real HA flow managers; only SDK IO is fake."""
 
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -28,6 +29,10 @@ from custom_components.ezviz_cloud.const import (
 )
 from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant import loader
+from homeassistant.components.config.config_entries import (
+    ConfigManagerFlowIndexView,
+    OptionManagerFlowResourceView,
+)
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 
@@ -100,6 +105,30 @@ async def start_user(hass):
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     return result
+
+
+@pytest.mark.parametrize("options", [False, True])
+async def test_timeout_form_http_serialization(hass, sdk, options):
+    """The HTTP view must render timeout forms, not just validate submissions."""
+    if options:
+        entry = add_entry(hass)
+        manager = hass.config_entries.options
+        result = await manager.async_init(entry.entry_id)
+        result = await manager.async_configure(result["flow_id"], {"next_step_id": "cloud"})
+        view = OptionManagerFlowResourceView(manager)
+        response = view.json(view._prepare_result_json(result))
+    else:
+        view = ConfigManagerFlowIndexView(hass.config_entries.flow)
+        response = await view._post_impl(MagicMock(), {"handler": DOMAIN})
+    assert response.status == 200
+    result = json.loads(response.body)
+    assert result["step_id"] == ("cloud" if options else "user")
+    timeout = next(field for field in result["data_schema"] if field["name"] == "timeout")
+    assert timeout["type"] == "integer"
+    assert timeout["valueMin"] == 1
+    assert timeout["valueMax"] == 300
+    assert timeout["default"] == (41 if options else DEFAULT_TIMEOUT)
+    sdk.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -543,7 +572,7 @@ async def test_valid_custom_host_forms(hass, sdk, host, expected):
     assert result["result"].unique_id == USER["username"]
 
 
-@pytest.mark.parametrize("timeout", [0, -1, 301, 1.5, "invalid", True, False])
+@pytest.mark.parametrize("timeout", [0, -1, 301, 1.0, 1.5, "30", "invalid", True, False])
 @pytest.mark.parametrize("options", [False, True])
 async def test_timeout_validation_and_recovery(hass, sdk, options, timeout):
     if options:
@@ -554,10 +583,25 @@ async def test_timeout_validation_and_recovery(hass, sdk, options, timeout):
     else:
         manager = hass.config_entries.flow
         result = await start_user(hass)
-    with pytest.raises(InvalidData):
-        await manager.async_configure(
+    if timeout is True:
+        # Python's int schema also accepts bool; the step must reject it before IO.
+        rejected = await manager.async_configure(
             result["flow_id"], {"timeout": timeout} if options else {**USER, "timeout": timeout}
         )
+        assert rejected["errors"] == {"timeout": "invalid_timeout"}
+        view = (
+            OptionManagerFlowResourceView(manager)
+            if options
+            else ConfigManagerFlowIndexView(manager)
+        )
+        view.json(view._prepare_result_json(rejected))
+        if options:
+            assert entry.options["timeout"] == 41
+    else:
+        with pytest.raises(InvalidData):
+            await manager.async_configure(
+                result["flow_id"], {"timeout": timeout} if options else {**USER, "timeout": timeout}
+            )
     sdk.assert_not_called()
     result = await manager.async_configure(
         result["flow_id"], {"timeout": 300} if options else {**USER, "timeout": 1}

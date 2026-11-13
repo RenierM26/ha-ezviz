@@ -21,6 +21,14 @@ verification/encryption auth, failure recovery, and non-persistence of ephemeral
 codes/flags. One explicitly documented direct handler test checks the defensive
 no-pending-MFA guard, which cannot be reached through a normal menu.
 
+Setup and cloud-options timeout forms also pass through HA's actual HTTP-view
+serialization and JSON response generation. Flow-manager validation alone does not
+prove that the frontend can render a schema: an arbitrary callable such as
+`_validate_timeout` validates inputs but fails field serialization with HTTP 500.
+Keep form schemas serializable (integer plus range); perform additional strict
+checks in the step before SDK calls or option writes. Error forms are serialized
+too, and booleans must not become integer timeouts.
+
 CI requires **100% statement and branch coverage** of `config_flow.py` on both HA
 versions. Defensive exception handlers are included, not marked `no cover`.
 
