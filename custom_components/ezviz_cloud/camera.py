@@ -13,7 +13,7 @@ option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import Any, override
 from urllib.parse import urlsplit
 
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
@@ -23,13 +23,10 @@ from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.entity_platform import (
-    AddEntitiesCallback,
-    async_get_current_platform,
-)
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     CONF_ENC_KEY,
@@ -38,8 +35,6 @@ from .const import (
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
     OPTIONS_KEY_CAMERAS,
-    SERVICE_CAPTURE_PICTURE,
-    SERVICE_WAKE_DEVICE,
     SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
@@ -52,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ cameras for a cloud config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -97,16 +92,6 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    # Expose wake and capture actions on camera entities.
-    platform = async_get_current_platform()
-    platform.async_register_entity_service(
-        SERVICE_WAKE_DEVICE, None, "async_perform_wake_device"
-    )
-    platform.async_register_entity_service(
-        SERVICE_CAPTURE_PICTURE, None, "async_capture_picture",
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-
 
 class EzvizCamera(EzvizEntity, Camera):
     """EZVIZ security camera entity."""
@@ -149,15 +134,18 @@ class EzvizCamera(EzvizEntity, Camera):
         return f"rtsp://{self._username}:{self._password}@{ip}:{port}{path}"
 
     @property
+    @override
     def is_recording(self) -> bool:
         """Return True if the device is currently recording."""
         return bool(self.data["alarm_notify"])
 
     @property
+    @override
     def motion_detection_enabled(self) -> bool:
         """Return True if motion detection is enabled."""
         return bool(self.data["alarm_notify"])
 
+    @override
     async def async_enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
@@ -168,6 +156,7 @@ class EzvizCamera(EzvizEntity, Camera):
         except InvalidHost as err:
             raise InvalidHost("Error enabling motion detection") from err
 
+    @override
     async def async_disable_motion_detection(self) -> None:
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
@@ -178,6 +167,7 @@ class EzvizCamera(EzvizEntity, Camera):
         except InvalidHost as err:
             raise InvalidHost("Error disabling motion detection") from err
 
+    @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
@@ -186,6 +176,7 @@ class EzvizCamera(EzvizEntity, Camera):
             self.hass, self._build_rtsp(), width=width, height=height
         )
 
+    @override
     async def stream_source(self) -> str:
         """Return the RTSP stream source for HA's stream component."""
         _LOGGER.debug(
@@ -219,8 +210,12 @@ class EzvizCamera(EzvizEntity, Camera):
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot capture picture: {err}") from err
 
-        capture_info = result.get("captureInfo") if isinstance(result, Mapping) else None
-        pic_url = capture_info.get("picUrl") if isinstance(capture_info, Mapping) else None
+        capture_info = (
+            result.get("captureInfo") if isinstance(result, Mapping) else None
+        )
+        pic_url = (
+            capture_info.get("picUrl") if isinstance(capture_info, Mapping) else None
+        )
         if not isinstance(pic_url, str) or not pic_url:
             raise HomeAssistantError("EZVIZ returned no picture url")
         try:

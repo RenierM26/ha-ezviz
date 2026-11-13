@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi import HTTPError, PyEzvizError
 
@@ -14,7 +14,7 @@ from homeassistant.components.update import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -52,7 +52,9 @@ UPDATE_ENTITY_DESCRIPTIONS: tuple[EzvizUpdateEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ update entities based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -88,6 +90,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         self.entity_description = description
 
     @property
+    @override
     def installed_version(self) -> str | None:
         """Version installed and in use."""
         version = self.data.get("version")
@@ -96,11 +99,13 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         return None
 
     @property
+    @override
     def in_progress(self) -> bool:
         """Update installation progress."""
         return bool(self.data.get("upgrade_in_progress"))
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Keep the SDK's phase visible rather than hiding active reboot/download."""
         return {
@@ -109,6 +114,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         }
 
     @property
+    @override
     def latest_version(self) -> str | None:
         """Latest version available for install."""
         if self.data.get("upgrade_available"):
@@ -120,6 +126,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
 
         return self.installed_version
 
+    @override
     def release_notes(self) -> str | None:
         """Return full release notes."""
         latest_info = self.data.get("latest_firmware_info")
@@ -130,6 +137,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         return None
 
     @property
+    @override
     def update_percentage(self) -> int | None:
         """Update installation progress."""
         if self.data.get("upgrade_in_progress"):
@@ -140,7 +148,10 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
                 return int(percent)
         return None
 
-    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
+    @override
+    async def async_install(
+        self, version: str | None, backup: bool, **kwargs: Any
+    ) -> None:
         """Install an update."""
         try:
             await self.coordinator.async_execute(
@@ -148,4 +159,6 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Failed to update firmware on {self.name}") from err
+            raise HomeAssistantError(
+                f"Failed to update firmware on {self.name}"
+            ) from err

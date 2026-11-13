@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
@@ -15,7 +15,7 @@ from homeassistant.components.button import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -37,7 +37,9 @@ class EzvizButtonEntityHandler:
     """Class to handle multi actions for button."""
 
     @staticmethod
-    def press_ptz(pyezviz_client: EzvizClient, direction: PTZDirection, serial: str) -> None:
+    def press_ptz(
+        pyezviz_client: EzvizClient, direction: PTZDirection, serial: str
+    ) -> None:
         """Execute the button action for PTZ."""
         pyezviz_client.ptz_control(direction, serial, "START")
         pyezviz_client.ptz_control(direction, serial, "STOP")
@@ -63,7 +65,9 @@ class EzvizButtonEntityDescription(ButtonEntityDescription):
     is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
-def _is_desc_supported(camera_data: dict[str, Any], desc: EzvizButtonEntityDescription) -> bool:
+def _is_desc_supported(
+    camera_data: dict[str, Any], desc: EzvizButtonEntityDescription
+) -> bool:
     """Return True if this button description is supported by the camera."""
 
     return passes_description_gates(
@@ -105,7 +109,9 @@ BUTTON_ENTITIES: tuple[EzvizButtonEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ button based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -134,11 +140,14 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self.entity_description = description
 
+    @override
     async def async_press(self) -> None:
         """Execute the button action."""
         try:
             await self.coordinator.async_execute(
-                self.entity_description.method, self.coordinator.ezviz_client, self._serial
+                self.entity_description.method,
+                self.coordinator.ezviz_client,
+                self._serial,
             )
 
         except (HTTPError, PyEzvizError) as err:

@@ -29,10 +29,11 @@ from custom_components.ezviz_cloud import (
     update,
 )
 from custom_components.ezviz_cloud.availability import device_available
+from custom_components.ezviz_cloud.binary_sensor import EzvizDetectorBinarySensor
 from custom_components.ezviz_cloud.const import DOMAIN
-from custom_components.ezviz_cloud.inventory_binary_sensor import EzvizDetectorBinarySensor
-from custom_components.ezviz_cloud.inventory_power import EzvizInventoryLight, EzvizInventoryPlug
-from custom_components.ezviz_cloud.inventory_sensor import EzvizDetectorSensor
+from custom_components.ezviz_cloud.light import EzvizInventoryLight
+from custom_components.ezviz_cloud.sensor import EzvizDetectorSensor
+from custom_components.ezviz_cloud.switch import EzvizInventoryPlug
 from homeassistant.config_entries import current_entry
 from homeassistant.exceptions import HomeAssistantError
 
@@ -122,7 +123,6 @@ async def test_mixed_inventory_all_platforms_and_stable_camera_identity(hass, cl
         options={"cameras": {"CAM001": {"enc_key": "synthetic"}}},
     )
     monkeypatch.setattr(camera, "get_ffmpeg_manager", lambda hass: MagicMock())
-    monkeypatch.setattr(camera, "async_get_current_platform", MagicMock())
     for mod in (sensor, binary_sensor, switch):
         monkeypatch.setattr(mod, "migrate_unique_ids_with_coordinator", AsyncMock())
     entities = []

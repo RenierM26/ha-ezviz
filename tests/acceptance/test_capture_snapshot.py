@@ -14,7 +14,7 @@ from pyezvizapi.devices.snapshot import DeviceHealth
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ezviz_cloud import camera, coordinator, image
+from custom_components.ezviz_cloud import camera, coordinator, image, services
 from custom_components.ezviz_cloud.const import DOMAIN, SERVICE_CAPTURE_PICTURE
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import current_entry
@@ -212,7 +212,7 @@ async def test_fetch_failure_is_not_cached_and_does_not_retry(hass, monkeypatch)
     fetch.assert_awaited_once()
 
 
-async def test_registered_capture_entity_service_returns_optional_response(hass, monkeypatch):
+async def test_registered_capture_entity_service_returns_optional_response(hass):
     api, cam, _ = make(hass)
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     entry.runtime_data = SimpleNamespace(coordinator=cam.coordinator)
@@ -225,7 +225,7 @@ async def test_registered_capture_entity_service_returns_optional_response(hass,
         scan_interval=timedelta(seconds=30),
         entity_namespace=None,
     )
-    monkeypatch.setattr(camera, "async_get_current_platform", lambda: platform)
+    services.async_setup_services(hass)
     entities = []
     await camera.async_setup_entry(hass, entry, entities.extend)
     captured_cam = entities[0]

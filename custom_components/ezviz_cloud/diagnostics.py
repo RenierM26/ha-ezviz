@@ -21,7 +21,13 @@ from .const import (
 from .runtime import EzvizConfigEntry
 
 # Values are deliberately selected, never copied from entry.as_dict()/SDK payloads.
-SAFE_FIELDS = {"device_category", "device_sub_category", "version", "status", "battery_level"}
+SAFE_FIELDS = {
+    "device_category",
+    "device_sub_category",
+    "version",
+    "status",
+    "battery_level",
+}
 CAPABILITY_FIELDS = (
     "status",
     "battery_level",
@@ -79,14 +85,18 @@ def _device_record(
     state = snapshot.devices.get(serial) if snapshot else None
     health = snapshot.health.get(serial) if snapshot else None
     # Camera push updates live in data; other device families use inventory_data.
-    values = (coordinator.data or {}).get(serial, coordinator.inventory_data.get(serial, {}))
+    values = (coordinator.data or {}).get(
+        serial, coordinator.inventory_data.get(serial, {})
+    )
     capabilities = state.capabilities if state else None
     camera_options = options.get(OPTIONS_KEY_CAMERAS, {}).get(serial, {})
     status = values.get("status")
     return {
         "device": label,
         "kind": state.kind if state else None,
-        "details": {key: _scalar(values[key]) for key in sorted(SAFE_FIELDS) if key in values},
+        "details": {
+            key: _scalar(values[key]) for key in sorted(SAFE_FIELDS) if key in values
+        },
         "online": status in (1, "1")
         if type(status) in (int, str) and status in (1, "1", 2, "2")
         else None,
@@ -94,17 +104,21 @@ def _device_record(
         "health": {
             "present": health.present if health else None,
             "current": health.current if health else None,
-            "last_success_age_seconds": _age(now, health.last_success) if health else None,
+            "last_success_age_seconds": _age(now, health.last_success)
+            if health
+            else None,
             "error_type": health.error_type if health else None,
         },
         "capabilities": {
             # An absent observation is unknown, not unsupported.
             "observed": {
-                key: capabilities.has(key) if capabilities else None for key in CAPABILITY_FIELDS
+                key: capabilities.has(key) if capabilities else None
+                for key in CAPABILITY_FIELDS
             },
             "verified_binary_state_available": {
                 key: True
-                if capabilities and type(capabilities.verified_booleans.get(key)) is bool
+                if capabilities
+                and type(capabilities.verified_booleans.get(key)) is bool
                 else None
                 for key in ("door_open", "water_leak")
             },
@@ -128,7 +142,7 @@ def _device_record(
 async def _async_diagnostics(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
-    device: dr.DeviceEntry | None = None,
+    device: dr.AnyDeviceEntry | None = None,
 ) -> dict[str, Any]:
     """Detach the event-loop snapshot before awaiting any SDK locks."""
     runtime = getattr(entry, "runtime_data", None)
@@ -158,11 +172,13 @@ async def _async_diagnostics(
         if getattr(coordinator, "update_interval", None)
         else None,
         "timeout_seconds": _scalar(
-            getattr(coordinator, "_api_timeout", entry.options.get("timeout", DEFAULT_TIMEOUT))
+            getattr(
+                coordinator,
+                "_api_timeout",
+                entry.options.get("timeout", DEFAULT_TIMEOUT),
+            )
         ),
-        "in_flight": not coordinator._poll_future.done()
-        if getattr(coordinator, "_poll_future", None)
-        else False,
+        "in_flight": getattr(coordinator, "poll_in_flight", False),
     }
     result["lifecycle"] = {
         "shutting_down": getattr(coordinator, "shutting_down", None),
@@ -216,8 +232,11 @@ async def _async_diagnostics(
     else:
         try:
             result["push"] = await hass.async_add_executor_job(push.get_diagnostics)
-        except Exception as error:
-            result["push"] = {"state": "diagnostics_failed", "error_type": type(error).__name__}
+        except Exception as error:  # noqa: BLE001 - Report diagnostics failure without losing cached data.
+            result["push"] = {
+                "state": "diagnostics_failed",
+                "error_type": type(error).__name__,
+            }
     return result
 
 
@@ -232,7 +251,7 @@ async def async_get_config_entry_diagnostics(
 async def async_get_device_diagnostics(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
-    device: dr.DeviceEntry,
+    device: dr.AnyDeviceEntry,
 ) -> dict[str, Any]:
     """Return shared health context and only the selected device's record."""
     return await _async_diagnostics(hass, entry, device)

@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 import re
-from typing import Any
+from typing import Any, override
 
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import (
@@ -79,7 +79,9 @@ class EzvizEntityIdMixin:
             parent_hook(old_entity_id)
 
 
-class EzvizEntity(EzvizEntityIdMixin, CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
+class EzvizEntity(
+    EzvizEntityIdMixin, CoordinatorEntity[EzvizDataUpdateCoordinator], Entity
+):
     """Generic entity encapsulating common features of EZVIZ device."""
 
     _attr_has_entity_name = True
@@ -97,11 +99,17 @@ class EzvizEntity(EzvizEntityIdMixin, CoordinatorEntity[EzvizDataUpdateCoordinat
         self._attr_device_info = _build_device_info(device, serial)
 
     @property
+    def serial(self) -> str:
+        """Return the canonical identifier used for device commands."""
+        return self._serial
+
+    @property
     def data(self) -> Any:
         """Return coordinator data for this entity."""
         return (self.coordinator.data or {}).get(self._serial, {})
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return device_available(self.coordinator, self._serial)
@@ -130,6 +138,7 @@ class EzvizBaseEntity(EzvizEntityIdMixin, Entity):
         return (self.coordinator.data or {}).get(self._serial, {})
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
         return device_available(self.coordinator, self._serial)
@@ -139,10 +148,13 @@ class EzvizInventoryEntity(EzvizEntity):
     """Non-camera entities share the same poll and registry identity policy."""
 
     @property
+    @override
     def data(self) -> Any:
+        """Return this device cached coordinator projection."""
         return self.coordinator.device_data(self._serial)
 
     @property
     def device_state(self) -> Any:
+        """Return the typed device view from the accepted inventory."""
         snapshot = self.coordinator.inventory_snapshot
         return snapshot.devices.get(self._serial) if snapshot is not None else None

@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 import logging
+from typing import override
 
 from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
@@ -15,7 +16,7 @@ from homeassistant.components.text import TextEntity, TextEntityDescription, Tex
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity, EzvizEntity
@@ -43,7 +44,9 @@ CAMERA_NAME_TEXT = TextEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -80,20 +83,24 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
         return return_password_hash(key) if key else None
 
     @property
+    @override
     def native_value(self) -> str:
         """A write-only credential input; even API/history must never see the key."""
         return ""
 
+    @override
     async def async_set_value(self, value: str) -> None:
         """Set camera encryption key."""
         try:
             await self.coordinator.credentials.async_change(self._serial, value)
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot set camera encryption key for {self.name}") from err
-
+            raise HomeAssistantError(
+                f"Cannot set camera encryption key for {self.name}"
+            ) from err
 
     @property
+    @override
     def available(self) -> bool:
         """Entity should remain available even without a key set."""
         return super().available
@@ -136,8 +143,9 @@ class EzvizEncryptionKeyText(EzvizBaseEntity, TextEntity):
                 EzvizAuthTokenExpired,
                 PyEzvizError,
             ) as error:
-                raise HomeAssistantError(f"Invalid response from API: {error}") from error
-
+                raise HomeAssistantError(
+                    f"Invalid response from API: {error}"
+                ) from error
 
 
 class EzvizCameraNameText(EzvizEntity, TextEntity):
@@ -156,6 +164,7 @@ class EzvizCameraNameText(EzvizEntity, TextEntity):
         self.entity_description = CAMERA_NAME_TEXT
         self._attr_native_value = self._camera_name
 
+    @override
     async def async_set_value(self, value: str) -> None:
         """Rename the camera through the EZVIZ API."""
 

@@ -22,7 +22,13 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+)
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     ATTR_TYPE_CAMERA,
@@ -41,9 +47,12 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .mqtt import EzvizMqttHandler
 from .repairs import clear_migration_issue, create_migration_issue
 from .runtime import EzvizConfigEntry, RuntimeCleanup
+from .services import async_setup_services
 from .tokens import TokenPersistence
 from .views import ImageProxyView
 from .workers import create_critical_task
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,10 +103,14 @@ async def _async_validate_login(
         raise
 
 
-def _create_token_client(token: dict[str, Any], timeout: int, persistence: TokenPersistence) -> EzvizClient:
+def _create_token_client(
+    token: dict[str, Any], timeout: int, persistence: TokenPersistence
+) -> EzvizClient:
     """Classify SDK construction failures before a runtime/session owner exists."""
     try:
-        return EzvizClient(token=token, timeout=timeout, on_token_updated=persistence.save_from_worker)
+        return EzvizClient(
+            token=token, timeout=timeout, on_token_updated=persistence.save_from_worker
+        )
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
         # The SDK validates host-bound tokens before allocating its HTTP session.
         # This boundary must request reauth too, not escape as an unexpected setup
@@ -111,10 +124,17 @@ def _create_token_client(token: dict[str, Any], timeout: int, persistence: Token
         ) from err
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register actions independently of account setup or availability."""
+    async_setup_services(hass)
+    return True
 
+
+# HA 2026.10.4 requires boolean entry hooks.
+# pylint: disable-next=home-assistant-return-type
 async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Set up EZVIZ Cloud from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+    hass.data.setdefault(DOMAIN, {})  # pylint: disable=home-assistant-use-runtime-data
 
     # Only handle cloud entries here
     if entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD:
@@ -122,7 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
 
     # Cleanup ownership must outlive HA clearing runtime_data after unload/failure.
     # Platforms and request handlers use entry.runtime_data, never this registry.
-    runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})
+    runtimes = hass.data[DOMAIN].setdefault("_runtimes", {})  # pylint: disable=home-assistant-use-runtime-data
     previous = runtimes.get(entry.entry_id)
     if previous is not None and not previous.cleanup_complete:
         # A done task may have failed before releasing its resources. Retry the
@@ -131,7 +151,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
             try:
                 await previous.async_stop()
             except Exception as err:
-                raise ConfigEntryNotReady(f"Previous EZVIZ cleanup failed ({type(err).__name__})") from err
+                raise ConfigEntryNotReady(
+                    f"Previous EZVIZ cleanup failed ({type(err).__name__})"
+                ) from err
         if not previous.cleanup_complete:
             raise ConfigEntryNotReady("Previous EZVIZ workers are still shutting down")
     timeout = entry.options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
@@ -144,9 +166,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
             translation_domain=DOMAIN, translation_key="credential_storage_failed"
         ) from err
     if not token_input or not all(
-        token_input.get(key) for key in ("session_id", "rf_session_id", "api_url", "username")
+        token_input.get(key)
+        for key in ("session_id", "rf_session_id", "api_url", "username")
     ):
-        raise ConfigEntryAuthFailed("Missing EZVIZ token fields; reauthenticate required")
+        raise ConfigEntryAuthFailed(
+            "Missing EZVIZ token fields; reauthenticate required"
+        )
     client = _create_token_client(token_input, timeout, persistence)
 
     coordinator = EzvizDataUpdateCoordinator(
@@ -176,15 +201,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
     runtime.push = mqtt_handler
 
     # Register HTTP view for image proxy/decryption once per instance
-    domain_data = hass.data.setdefault(DOMAIN, {})
+    domain_data = hass.data.setdefault(DOMAIN, {})  # pylint: disable=home-assistant-use-runtime-data
     if not domain_data.get("_http_view_registered"):
         hass.http.register_view(ImageProxyView(hass))
         domain_data["_http_view_registered"] = True
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        if coordinator.shutting_down:
-            raise ConfigEntryNotReady("EZVIZ setup stopped during shutdown")
+        _ensure_setup_running(coordinator)
     except BaseException:
         await runtime.async_stop()
         raise
@@ -194,6 +218,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
     return True
 
 
+def _ensure_setup_running(coordinator: EzvizDataUpdateCoordinator) -> None:
+    """Reject a setup that raced integration shutdown."""
+    if coordinator.shutting_down:
+        raise ConfigEntryNotReady("EZVIZ setup stopped during shutdown")
+
+
+# HA 2026.10.4 requires boolean entry hooks.
+# pylint: disable-next=home-assistant-return-type
 async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Unload platforms; on success stop owned workers before closing HTTP."""
 
@@ -224,7 +256,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> No
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 
 
-async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:  # noqa: PLR0912, PLR0915 - explicit historical migration/recovery gates
+# HA 2026.10.4 requires boolean entry hooks.
+# pylint: disable-next=home-assistant-return-type
+async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
     """Consolidate historical camera settings, preserving retryability and identity."""
     if entry.version > TARGET_VERSION:
         create_migration_issue(hass, entry, "migration_future_version")
@@ -259,12 +293,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
     ]
     # Historical flows allowed only one cloud account. Never guess ownership if
     # manually restored entries violate that invariant.
-    if legacy_cams and sum(e.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD for e in entries) != 1:
+    if (
+        legacy_cams
+        and sum(e.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD for e in entries) != 1
+    ):
         create_migration_issue(hass, entry, "migration_ambiguous_accounts")
         raise ConfigEntryError(
             translation_domain=DOMAIN, translation_key="migration_ambiguous_accounts"
         )
-    if any(not isinstance(cam.unique_id, str) or not cam.unique_id for cam in legacy_cams):
+    if any(
+        not isinstance(cam.unique_id, str) or not cam.unique_id for cam in legacy_cams
+    ):
         create_migration_issue(hass, entry, "migration_missing_serial")
         raise ConfigEntryError(
             translation_domain=DOMAIN, translation_key="migration_missing_serial"
@@ -290,9 +329,13 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
             CONF_PASSWORD: password,
             CONF_ENC_KEY: enc_key,
             CONF_RTSP_USES_VERIFICATION_CODE: (
-                True if cam.version <= 2 else cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
+                True
+                if cam.version <= 2
+                else cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
             ),
-            CONF_FFMPEG_ARGUMENTS: cam.options.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
+            CONF_FFMPEG_ARGUMENTS: cam.options.get(
+                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            ),
         }
 
     options.setdefault(CONF_TIMEOUT, DEFAULT_TIMEOUT)

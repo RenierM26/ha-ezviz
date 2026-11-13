@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from threading import RLock
-from typing import Any
+from typing import Any, override
 from uuid import uuid4
 
 from homeassistant.const import CONF_TYPE, CONF_URL, CONF_USERNAME
@@ -28,12 +28,17 @@ class AcknowledgedStore(Store):
     No direct .storage editing or global Store monkeypatching is involved.
     """
 
+    _write_acknowledged: bool = False
+
+    @override
     async def async_save(self, data: Any) -> None:
+        """Persist a snapshot and require an acknowledged atomic write."""
         self._write_acknowledged = False
         await super().async_save(data)
         if not self._write_acknowledged:
             raise OSError("EZVIZ token persistence did not complete a durable write")
 
+    @override
     async def _async_write_data(self, data: dict) -> None:
         try:
             await super()._async_write_data(data)
@@ -66,7 +71,9 @@ def compact_entry_data(
         CONF_TYPE: ATTR_TYPE_CLOUD,
         CONF_URL: api_url or entry.data.get(CONF_URL, "apiieu.ezvizlife.com"),
     }
-    if not getattr(entry, "unique_id", None) and (login_name or entry.data.get(CONF_USERNAME)):
+    if not getattr(entry, "unique_id", None) and (
+        login_name or entry.data.get(CONF_USERNAME)
+    ):
         data[CONF_USERNAME] = login_name or entry.data[CONF_USERNAME]
     return data
 
@@ -96,7 +103,9 @@ async def stage_login(hass: Any, account: str, token: dict) -> str:
         "revision": reference,
         "token": deepcopy(token),
     }
-    task = create_critical_task(hass, store.async_save(record), "EZVIZ staged login save")
+    task = create_critical_task(
+        hass, store.async_save(record), "EZVIZ staged login save"
+    )
     try:
         await asyncio.shield(task)
     except BaseException:
@@ -118,19 +127,27 @@ class TokenPersistence:
     """One authoritative SDK snapshot, with shared locking and stale-owner rejection."""
 
     def __init__(self, hass: Any, entry: Any) -> None:
+        """Initialize the owner and its cached dependencies."""
         self._hass = hass
         self._entry = entry
         anchor = {
             key: entry.data.get(key)
             for key in ("session_id", "rf_session_id", "user_id", "url", CONF_SDK_TOKEN)
         }
-        self._anchor = hashlib.sha256(json.dumps(anchor, sort_keys=True).encode()).hexdigest()
+        self._anchor = hashlib.sha256(
+            json.dumps(anchor, sort_keys=True).encode()
+        ).hexdigest()
         self._account = _account(entry)
-        registry = hass.data.setdefault(DOMAIN, {}).setdefault("_token_stores", {})
+        # Share locks/revisions beyond runtime_data clearing during unload.
+        registry = hass.data.setdefault(DOMAIN, {}).setdefault("_token_stores", {})  # pylint: disable=home-assistant-use-runtime-data
         if entry.entry_id not in registry:
             registry[entry.entry_id] = _TokenState(
                 AcknowledgedStore(
-                    hass, 1, f"{DOMAIN}.token.{entry.entry_id}", private=True, atomic_writes=True
+                    hass,
+                    1,
+                    f"{DOMAIN}.token.{entry.entry_id}",
+                    private=True,
+                    atomic_writes=True,
                 )
             )
         self._state = registry[entry.entry_id]
@@ -161,13 +178,17 @@ class TokenPersistence:
                     return None
                 token = saved.get("token")
                 return deepcopy(dict(token)) if isinstance(token, Mapping) else None
-            if saved.get("anchor") == self._anchor and isinstance(saved.get("token"), Mapping):
+            if saved.get("anchor") == self._anchor and isinstance(
+                saved.get("token"), Mapping
+            ):
                 return deepcopy(dict(saved["token"]))
         token = self._entry.data.get(CONF_SDK_TOKEN)
         if isinstance(token, Mapping):
             return deepcopy(dict(token))
         data = self._entry.data
-        legacy = {key: data[key] for key in ("session_id", "rf_session_id") if key in data}
+        legacy = {
+            key: data[key] for key in ("session_id", "rf_session_id") if key in data
+        }
         if legacy:
             legacy["api_url"] = data.get(CONF_URL, "apiieu.ezvizlife.com")
             if data.get("user_id"):
@@ -176,6 +197,7 @@ class TokenPersistence:
         return None
 
     async def async_load(self) -> dict | None:
+        """Load or promote the private account snapshot."""
         if self._entry.data.get(CONF_AUTH_REF):
             await self.async_promote()
         async with self._lock:
@@ -187,7 +209,11 @@ class TokenPersistence:
             return self._token()
 
     async def _write(self, token: dict, revision: str) -> None:
-        record = {"account": self._account, "revision": revision, "token": deepcopy(token)}
+        record = {
+            "account": self._account,
+            "revision": revision,
+            "token": deepcopy(token),
+        }
         await self._store.async_save(record)
         self._state.record = record
         self._state.revision = revision
@@ -207,7 +233,10 @@ class TokenPersistence:
                 record = self._state.record or {}
                 if reference and record.get("revision") != reference:
                     staged = await _pending_store(self._hass, reference).async_load()
-                    if not isinstance(staged, Mapping) or staged.get("account") != self._account:
+                    if (
+                        not isinstance(staged, Mapping)
+                        or staged.get("account") != self._account
+                    ):
                         raise OSError("Staged EZVIZ credentials are unavailable")
                     token = staged.get("token")
                     if not isinstance(token, Mapping):
@@ -218,7 +247,9 @@ class TokenPersistence:
                 elif record.get("account") != self._account or not isinstance(
                     record.get("token"), Mapping
                 ):
-                    raise OSError("Saved EZVIZ credentials are invalid for this account")
+                    raise OSError(
+                        "Saved EZVIZ credentials are invalid for this account"
+                    )
                 else:
                     self._revision = self._state.revision
                 if reference:
@@ -254,13 +285,17 @@ class TokenPersistence:
                 if reference := self._entry.data.get(CONF_AUTH_REF):
                     await _pending_store(self._hass, reference).async_remove()
                 self._hass.config_entries.async_update_entry(
-                    self._entry, data=compact_entry_data(self._entry, api_url, login_name)
+                    self._entry,
+                    data=compact_entry_data(self._entry, api_url, login_name),
                 )
 
-        task = create_critical_task(self._hass, replace(), "EZVIZ replacement login save")
+        task = create_critical_task(
+            self._hass, replace(), "EZVIZ replacement login save"
+        )
         await asyncio.shield(task)
 
     async def async_save(self, token: dict) -> None:
+        """Persist a snapshot and require an acknowledged atomic write."""
         async with self._lock:
             await self._ensure_loaded()
             if self._removed or self._state.removed:
@@ -276,6 +311,7 @@ class TokenPersistence:
             await self._write(token, self._revision or uuid4().hex)
 
     async def async_remove(self) -> None:
+        """Remove the private snapshot after retained writers complete."""
         with self._pending_lock:
             self._removed = True
         async with self._lock:
@@ -288,6 +324,7 @@ class TokenPersistence:
             self._state.record = None
 
     async def async_drain(self) -> None:
+        """Join pending credential writes without discarding ownership."""
         while True:
             with self._pending_lock:
                 pending = tuple(self._pending)
@@ -304,7 +341,9 @@ class TokenPersistence:
 
     async def _async_owned_save(self, token: dict) -> None:
         """Keep HA from cancelling a Store's executor future during stop phase 1."""
-        task = create_critical_task(self._hass, self.async_save(token), "EZVIZ durable token save")
+        task = create_critical_task(
+            self._hass, self.async_save(token), "EZVIZ durable token save"
+        )
         await asyncio.shield(task)
 
     def save_from_worker(self, token: dict) -> None:
@@ -314,7 +353,9 @@ class TokenPersistence:
         except RuntimeError:
             loop = None
         if loop is self._hass.loop:
-            raise RuntimeError("EZVIZ persistence must run in an executor, not the HA loop")
+            raise RuntimeError(
+                "EZVIZ persistence must run in an executor, not the HA loop"
+            )
         with self._pending_lock:
             if self._removed:
                 raise OSError("EZVIZ token owner has been removed")

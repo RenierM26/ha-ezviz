@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -30,6 +30,7 @@ def create_migration_issue(hass: HomeAssistant, entry: ConfigEntry, key: str) ->
 
 @callback
 def clear_migration_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the issue after a successful migration."""
     ir.async_delete_issue(hass, DOMAIN, f"migration_{entry.entry_id}")
 
 
@@ -37,12 +38,19 @@ class MigrationRepairFlow(RepairsFlow):
     """Retry only the entry referenced by this issue, after the user fixes it."""
 
     def __init__(self, entry_id: str) -> None:
+        """Initialize the owner and its cached dependencies."""
         self.entry_id = entry_id
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Start the migration retry confirmation."""
         return await self.async_step_confirm()
 
-    async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> RepairsFlowResult:
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> RepairsFlowResult:
+        """Retry the affected entry only after explicit confirmation."""
         errors = {}
         if user_input is not None:
             entry = self.hass.config_entries.async_get_entry(self.entry_id)
@@ -56,16 +64,26 @@ class MigrationRepairFlow(RepairsFlow):
                 except HomeAssistantError:
                     errors["base"] = "retry_failed"
                 else:
-                    if ir.async_get(self.hass).async_get_issue(DOMAIN, f"migration_{self.entry_id}") is not None:
+                    if (
+                        ir.async_get(self.hass).async_get_issue(
+                            DOMAIN, f"migration_{self.entry_id}"
+                        )
+                        is not None
+                    ):
                         errors["base"] = "retry_failed"
                     else:
                         return self.async_create_entry(data={})
             else:
                 errors["base"] = "retry_failed"
-        return self.async_show_form(step_id="confirm", data_schema=vol.Schema({}), errors=errors)
+        return self.async_show_form(
+            step_id="confirm", data_schema=probatio.Schema({}), errors=errors
+        )
 
 
-async def async_create_fix_flow(hass: HomeAssistant, issue_id: str, data: dict[str, Any] | None) -> RepairsFlow:
+async def async_create_fix_flow(
+    hass: HomeAssistant, issue_id: str, data: dict[str, Any] | None
+) -> RepairsFlow:
+    """Create a retry flow for a known migration issue."""
     if (
         not issue_id.startswith("migration_")
         or data is None

@@ -30,6 +30,7 @@ class RuntimeCleanup:
         push: EzvizMqttHandler | None = None,
         persistence: TokenPersistence | None = None,
     ) -> None:
+        """Initialize the owner and its cached dependencies."""
         self.hass = hass
         self.coordinator = coordinator
         self.push = push
@@ -57,11 +58,14 @@ class RuntimeCleanup:
             future.exception()
 
     async def async_stop(self) -> None:
+        """Stop owned workers while retaining unfinished cleanup."""
         self._stopping = True
         self.coordinator.begin_shutdown()
         if self.task is None or (self.task.done() and not self.cleanup_complete):
             self.cleanup_error_type = None
-            self.task = create_critical_task(self.hass, self._finish(), "EZVIZ runtime cleanup")
+            self.task = create_critical_task(
+                self.hass, self._finish(), "EZVIZ runtime cleanup"
+            )
             self.task.add_done_callback(self._cleanup_done)
         try:
             await asyncio.wait_for(asyncio.shield(self.task), SHUTDOWN_TIMEOUT)
@@ -75,7 +79,7 @@ class RuntimeCleanup:
                 await self.async_stop()
                 if self.task is not None:
                     await asyncio.shield(self.task)
-            except Exception:
+            except Exception:  # noqa: BLE001 - Cleanup must retain ownership for retry.
                 # Retain this owner through removal/HA stop, and retry stages
                 # which did not finish; successful stages are not repeated.
                 await asyncio.sleep(CLEANUP_RETRY_SECONDS)
@@ -86,7 +90,10 @@ class RuntimeCleanup:
             self.cleanup_error_type = "CancelledError"
         elif error := task.exception():
             self.cleanup_error_type = type(error).__name__
-            _LOGGER.warning("EZVIZ cleanup incomplete (%s); ownership retained", self.cleanup_error_type)
+            _LOGGER.warning(
+                "EZVIZ cleanup incomplete (%s); ownership retained",
+                self.cleanup_error_type,
+            )
 
     async def _finish(self) -> None:
         errors: list[Exception] = []
@@ -101,7 +108,7 @@ class RuntimeCleanup:
             if not self._http_closed:
                 await self.coordinator.async_close()
                 self._http_closed = True
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - Preserve ownership after unknown SDK failures.
             errors.append(err)
         finally:
             # Drain currently owned writes even when an earlier cleanup stage fails.
@@ -109,7 +116,7 @@ class RuntimeCleanup:
             if self.persistence is not None:
                 try:
                     await self.persistence.async_drain()
-                except Exception as err:
+                except Exception as err:  # noqa: BLE001 - Preserve ownership after unknown SDK failures.
                     errors.append(err)
         if len(errors) == 1:
             raise errors[0]

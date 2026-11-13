@@ -62,6 +62,9 @@ jobs:
       - name: Ruff
         run: ruff check custom_components tests tools
 
+      - name: Core-style component formatting
+        run: ruff format --check custom_components/ezviz_cloud
+
       - name: mypy
         run: mypy --install-types --non-interactive custom_components tests tools
 

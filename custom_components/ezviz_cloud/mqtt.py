@@ -74,7 +74,7 @@ class EzvizMqttHandler:
         while not self._stopping.is_set():
             try:
                 await self._async_run_worker(self.start)
-            except Exception as err:  # Push is optional, including SDK failures.
+            except Exception as err:  # noqa: BLE001 - Preserve ownership after unknown SDK failures.
                 if await self._async_handle_terminal_failure(err):
                     return
                 if not failed:
@@ -106,17 +106,19 @@ class EzvizMqttHandler:
         while not self._stopping.is_set():
             try:
                 await asyncio.wait_for(self._stopping.wait(), PUSH_HEALTH_SECONDS)
-                return
             except TimeoutError:
                 pass
+            else:
+                return
             try:
                 mqtt = self._mqtt
                 if mqtt is None:
                     return
                 await self._async_run_worker(mqtt.raise_if_failed)
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - Preserve ownership after unknown SDK failures.
                 _LOGGER.warning(
-                    "EZVIZ push worker failed (%s); polling remains active", type(err).__name__
+                    "EZVIZ push worker failed (%s); polling remains active",
+                    type(err).__name__,
                 )
                 if await self._async_handle_terminal_failure(err):
                     return
@@ -132,18 +134,31 @@ class EzvizMqttHandler:
         persistence_failed = isinstance(err, EzvizTokenPersistenceError)
         cause: BaseException | None = err
         seen: set[int] = set()
-        auth_failed = isinstance(err, EzvizPushFatalError) and str(err) in _AUTH_FATAL_MESSAGES
+        auth_failed = (
+            isinstance(err, EzvizPushFatalError) and str(err) in _AUTH_FATAL_MESSAGES
+        )
         while cause is not None and id(cause) not in seen:
             seen.add(id(cause))
             persistence_failed |= isinstance(cause, EzvizTokenPersistenceError)
-            auth_failed |= isinstance(cause, (EzvizAuthTokenExpired, EzvizAuthVerificationCode, AuthenticationRejected))
+            auth_failed |= isinstance(
+                cause,
+                (
+                    EzvizAuthTokenExpired,
+                    EzvizAuthVerificationCode,
+                    AuthenticationRejected,
+                ),
+            )
             cause = cause.__cause__
         auth_failed &= not persistence_failed
         if not isinstance(err, EzvizPushFatalError) and not auth_failed:
             return False
         self._fatal_error_type = type(err).__name__
         self._fatal_failure_category = (
-            "authentication" if auth_failed else "storage" if persistence_failed else "other"
+            "authentication"
+            if auth_failed
+            else "storage"
+            if persistence_failed
+            else "other"
         )
         if auth_failed:
             if not self._reauth_requested:
@@ -173,7 +188,9 @@ class EzvizMqttHandler:
                 self._hass, self._async_finish_stop(), "EZVIZ push cleanup"
             )
         try:
-            await asyncio.wait_for(asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS)
+            await asyncio.wait_for(
+                asyncio.shield(self._stop_task), PUSH_STOP_TIMEOUT_SECONDS
+            )
         except TimeoutError:
             _LOGGER.debug("EZVIZ push cleanup still pending; continuing shutdown")
 
@@ -185,7 +202,9 @@ class EzvizMqttHandler:
 
     async def _async_finish_stop(self) -> None:
         """Serialize cleanup after startup without blocking the unload caller."""
-        monitors = tuple(task for task in (self._health_task, self._task) if task is not None)
+        monitors = tuple(
+            task for task in (self._health_task, self._task) if task is not None
+        )
         if monitors:
             await asyncio.gather(
                 *(asyncio.shield(task) for task in monitors), return_exceptions=True
@@ -214,8 +233,12 @@ class EzvizMqttHandler:
         """Start MQTT listener (executor only)."""
         try:
             if self._mqtt is not None and not self.stop():
-                raise RuntimeError("Previous EZVIZ push client cleanup is still pending")
-            self._mqtt = self._client.get_mqtt_client(on_message_callback=self._on_message)
+                raise RuntimeError(
+                    "Previous EZVIZ push client cleanup is still pending"
+                )
+            self._mqtt = self._client.get_mqtt_client(
+                on_message_callback=self._on_message
+            )
             self._mqtt.connect()
             _LOGGER.debug("EZVIZ MQTT started")
         finally:
@@ -231,7 +254,7 @@ class EzvizMqttHandler:
             return True
         try:
             mqtt.stop()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - Preserve ownership after unknown SDK failures.
             _LOGGER.debug("EZVIZ push cleanup failed (%s)", type(err).__name__)
             return False
         self._mqtt = None

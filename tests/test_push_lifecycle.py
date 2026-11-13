@@ -28,6 +28,8 @@ def integration(monkeypatch):
         "homeassistant.exceptions",
         "homeassistant.helpers",
         "homeassistant.helpers.storage",
+        "homeassistant.helpers.service",
+        "homeassistant.helpers.typing",
         "push_test.const",
         "push_test.coordinator",
         "push_test.views",

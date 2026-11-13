@@ -5,7 +5,7 @@ from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from datetime import timedelta
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
@@ -36,7 +36,14 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
 
     data: dict[str, Any]
 
-    def __init__(self, hass: HomeAssistant, *, config_entry: EzvizConfigEntry | None, api: EzvizClient, api_timeout: int) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        *,
+        config_entry: EzvizConfigEntry | None,
+        api: EzvizClient,
+        api_timeout: int,
+    ) -> None:
         """Initialize global EZVIZ data updater."""
         self.ezviz_client = api
         self._api_timeout = api_timeout
@@ -50,8 +57,15 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         self._close_succeeded = False
         update_interval = timedelta(seconds=30)
 
-        super().__init__(hass, _LOGGER, config_entry=config_entry, name=DOMAIN, update_interval=update_interval)
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=update_interval,
+        )
 
+    @override
     async def _async_update_data(self) -> dict:
         """Fetch data from EZVIZ."""
         try:
@@ -72,11 +86,20 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed from error
 
         except (InvalidURL, HTTPError, PyEzvizError, OSError, TimeoutError) as error:
-            raise UpdateFailed(f"EZVIZ polling failed ({type(error).__name__})") from error
+            raise UpdateFailed(
+                f"EZVIZ polling failed ({type(error).__name__})"
+            ) from error
+
+    @property
+    def poll_in_flight(self) -> bool:
+        """Return whether an owned inventory worker is still running."""
+        return self._poll_future is not None and not self._poll_future.done()
 
     def _poll_sync(self) -> DeviceSnapshot:
         """Require the new SDK's single deadline-bound mixed-family poll."""
-        return self.ezviz_client.poll_devices(DevicePollOptions(timeout=self._api_timeout))
+        return self.ezviz_client.poll_devices(
+            DevicePollOptions(timeout=self._api_timeout)
+        )
 
     def device_data(self, serial: str) -> dict:
         """Use the camera push projection, otherwise the detached inventory view."""
@@ -108,11 +131,15 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             raise HomeAssistantError("EZVIZ coordinator is shutting down")
         return result
 
-    async def async_execute_owned(self, operation: Callable[[], Coroutine[Any, Any, Any]]) -> Any:
+    async def async_execute_owned(
+        self, operation: Callable[[], Coroutine[Any, Any, Any]]
+    ) -> Any:
         """Own a complete side-effect/commit operation, not only its SDK worker."""
         if self._closing:
             raise HomeAssistantError("EZVIZ coordinator is shutting down")
-        task = create_critical_task(self.hass, operation(), "EZVIZ credential operation")
+        task = create_critical_task(
+            self.hass, operation(), "EZVIZ credential operation"
+        )
         self._action_futures.add(task)
         task.add_done_callback(self._action_futures.discard)
         task.add_done_callback(_retrieve_worker_error)
@@ -130,8 +157,12 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_close(self) -> None:
         """Keep HTTP session ownership until the last polling worker has finished."""
         self.begin_shutdown()
-        if self._close_task is None or (self._close_task.done() and not self._close_succeeded):
-            self._close_task = create_critical_task(self.hass, self._async_finish_close(), "EZVIZ HTTP cleanup")
+        if self._close_task is None or (
+            self._close_task.done() and not self._close_succeeded
+        ):
+            self._close_task = create_critical_task(
+                self.hass, self._async_finish_close(), "EZVIZ HTTP cleanup"
+            )
         await asyncio.shield(self._close_task)
 
     async def _async_finish_close(self) -> None:

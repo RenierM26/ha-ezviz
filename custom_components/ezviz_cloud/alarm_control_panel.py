@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+from typing import override
 
 from pyezvizapi import PyEzvizError
 from pyezvizapi.constants import DefenseModeType
@@ -16,7 +17,7 @@ from homeassistant.components.alarm_control_panel import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
@@ -47,7 +48,9 @@ ALARM_TYPE = EzvizAlarmControlPanelEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Ezviz alarm control panel."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -60,7 +63,9 @@ async def async_setup_entry(
         manufacturer=MANUFACTURER,
     )
 
-    async_add_entities([EzvizAlarm(coordinator, entry.entry_id, device_info, ALARM_TYPE)])
+    async_add_entities(
+        [EzvizAlarm(coordinator, entry.entry_id, device_info, ALARM_TYPE)]
+    )
 
 
 class EzvizAlarm(AlarmControlPanelEntity):
@@ -70,7 +75,8 @@ class EzvizAlarm(AlarmControlPanelEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_supported_features = (
-        AlarmControlPanelEntityFeature.ARM_AWAY | AlarmControlPanelEntityFeature.ARM_HOME
+        AlarmControlPanelEntityFeature.ARM_AWAY
+        | AlarmControlPanelEntityFeature.ARM_HOME
     )
     _attr_code_arm_required = False
 
@@ -88,37 +94,44 @@ class EzvizAlarm(AlarmControlPanelEntity):
         self.coordinator = coordinator
         self._attr_alarm_state = None
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Entity added to hass."""
         self.async_schedule_update_ha_state(True)
 
+    @override
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command."""
         try:
             if await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.api_set_defence_mode, DefenseModeType.HOME_MODE.value
+                self.coordinator.ezviz_client.api_set_defence_mode,
+                DefenseModeType.HOME_MODE.value,
             ):
                 self._attr_alarm_state = AlarmControlPanelState.DISARMED
 
         except PyEzvizError as err:
             raise HomeAssistantError("Cannot disarm EZVIZ alarm") from err
 
+    @override
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         """Send arm away command."""
         try:
             if await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.api_set_defence_mode, DefenseModeType.AWAY_MODE.value
+                self.coordinator.ezviz_client.api_set_defence_mode,
+                DefenseModeType.AWAY_MODE.value,
             ):
                 self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
 
         except PyEzvizError as err:
             raise HomeAssistantError("Cannot arm EZVIZ alarm") from err
 
+    @override
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command."""
         try:
             if await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.api_set_defence_mode, DefenseModeType.SLEEP_MODE.value
+                self.coordinator.ezviz_client.api_set_defence_mode,
+                DefenseModeType.SLEEP_MODE.value,
             ):
                 self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
 
@@ -132,10 +145,14 @@ class EzvizAlarm(AlarmControlPanelEntity):
             ezviz_alarm_state_number = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.get_group_defence_mode
             )
-            _LOGGER.debug("Updating EZVIZ alarm with response %s", ezviz_alarm_state_number)
+            _LOGGER.debug(
+                "Updating EZVIZ alarm with response %s", ezviz_alarm_state_number
+            )
             self._attr_alarm_state = self.entity_description.ezviz_alarm_states[
                 int(ezviz_alarm_state_number)
             ]
 
         except PyEzvizError as error:
-            raise HomeAssistantError(f"Could not fetch EZVIZ alarm status: {error}") from error
+            raise HomeAssistantError(
+                f"Could not fetch EZVIZ alarm status: {error}"
+            ) from error

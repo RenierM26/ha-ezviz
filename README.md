@@ -4,7 +4,7 @@
 Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
 https://www.home-assistant.io/integrations/ezviz/
 
-Requires **Home Assistant 2026.10.4+ and Python 3.14+**. Development, lint/type
+Requires **Home Assistant 2026.10.4+ and Python 3.14.2+**. Development, lint/type
 checks and CI use Python 3.14, including its default deferred annotations.
 
 ## Breaking change
@@ -222,3 +222,9 @@ failures distinguish authentication, storage and other fatal categories; polling
 can remain healthy while push is stopped. A failure to obtain push diagnostics
 is reported separately and does not discard the rest of the report. An unloaded
 entry returns minimal entry/runtime status without attempting setup.
+
+## Home Assistant Core development checks
+
+The component follows Core lint/formatting policy and has a separate moving-dev
+qualification job. See [development checks and compatibility exceptions](docs/core-development-checks.md)
+for repeatable commands, scope and the known built-in/custom SDK conflict.

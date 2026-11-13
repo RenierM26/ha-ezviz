@@ -42,9 +42,7 @@ class MigrationStats:
     skipped_collision: int = 0  # target UID already taken
 
 
-def _has_legacy_ids(
-    entity_registry: er.EntityRegistry, platform_domain: str
-) -> bool:
+def _has_legacy_ids(entity_registry: er.EntityRegistry, platform_domain: str) -> bool:
     """Return True if any entity for this platform still uses the legacy UID."""
 
     return any(
@@ -237,9 +235,7 @@ async def migrate_unique_ids_with_coordinator(
     # Perform migration across all entities for this config entry
     await er.async_migrate_entries(hass, entry.entry_id, compute_change)
 
-    _create_or_clear_issue(
-        hass, entry, platform_domain, stats, skipped_entity_ids
-    )
+    _create_or_clear_issue(hass, entry, platform_domain, stats, skipped_entity_ids)
 
     # Concise log
     log_fn = _LOGGER.info if stats.migrated else _LOGGER.debug

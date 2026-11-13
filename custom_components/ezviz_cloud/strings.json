@@ -10,14 +10,14 @@
           "password": "[%key:common::config_flow::data::password%]",
           "region": "Region",
           "url": "[%key:common::config_flow::data::url%]",
-          "timeout": "[%key:common::config_flow::data::timeout%]"
+          "timeout": "Timeout (seconds)"
         }
       },
       "user_mfa_confirm": {
         "title": "Two-factor verification required",
         "description": "Enter the SMS verification code sent by EZVIZ.",
         "data": {
-          "sms_code": "[%key:common::config_flow::data::code%]"
+          "sms_code": "Verification code"
         }
       },
       "reauth_confirm": {
@@ -32,7 +32,7 @@
         "title": "Re-authenticate: SMS code",
         "description": "Enter the SMS verification code to finish re-authentication.",
         "data": {
-          "sms_code": "[%key:common::config_flow::data::code%]"
+          "sms_code": "Verification code"
         }
       }
     },
@@ -70,7 +70,7 @@
         "title": "Cloud Settings",
         "description": "Set default options for the EZVIZ cloud account.",
         "data": {
-          "timeout": "[%key:common::config_flow::data::timeout%]"
+          "timeout": "Timeout (seconds)"
         }
       },
       "camera": {
@@ -82,7 +82,10 @@
       },
       "camera_select": {
         "title": "Select a camera",
-        "description": "Choose a camera to edit."
+        "description": "Choose a camera to edit.",
+        "data": {
+          "serial": "Camera"
+        }
       },
       "camera_edit": {
         "title": "Camera settings",
@@ -100,8 +103,8 @@
         "title": "One-time codes",
         "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
         "data": {
-          "cam_verification_2fa_code": "[%key:common::config_flow::data::code%]",
-          "cam_encryption_2fa_code": "[%key:common::config_flow::data::code%]"
+          "cam_verification_2fa_code": "Verification code",
+          "cam_encryption_2fa_code": "Verification code"
         }
       }
     },
@@ -110,7 +113,7 @@
       "device_exception": "Device exception, couldn't fetch key",
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "[%key:common::config_flow::error::unknown%]",
-      "rtsp_auth_failed": "[%key:common::config_flow::error::rtsp_auth_failed%]",
+      "rtsp_auth_failed": "RTSP authentication failed",
       "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
       "options_changed": "Camera settings changed while this form was open. Review the current values and submit again."
     },

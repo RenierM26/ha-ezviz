@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
@@ -24,7 +24,7 @@ from homeassistant.components.number import NumberEntity, NumberEntityDescriptio
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -184,8 +184,10 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_value=["3"],
         get_value=_algorithm_value_getter("0", 1),
         set_value=_detection_setter(3),
-        is_supported_fn=lambda data: data.get("device_sub_category") == "C3A"
-        and has_algorithm_subtype(data, "0", 1),
+        is_supported_fn=lambda data: (
+            data.get("device_sub_category") == "C3A"
+            and has_algorithm_subtype(data, "0", 1)
+        ),
     ),
     EzvizNumberEntityDescription(
         key="algorithm_param_0_1",
@@ -275,7 +277,9 @@ def _is_desc_supported(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -308,10 +312,12 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the current numeric value from coordinator data."""
         return self.entity_description.get_value(self.data)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value to the device and refresh coordinator state."""
         try:

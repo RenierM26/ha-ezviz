@@ -25,7 +25,9 @@ class CameraOptionsConflict(HomeAssistantError):
 
 def camera_options(entry: EzvizConfigEntry, serial: str) -> dict[str, Any]:
     """Detach the baseline so another update cannot mutate it in place."""
-    return deepcopy(dict((entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(serial, {})))
+    return deepcopy(
+        dict((entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(serial, {}))
+    )
 
 
 @callback
@@ -47,7 +49,9 @@ def build_camera_options(
     if expected is not None and any(
         current.get(key, _MISSING) != expected.get(key, _MISSING) for key in patch
     ):
-        raise CameraOptionsConflict("Camera settings changed; review the current values")
+        raise CameraOptionsConflict(
+            "Camera settings changed; review the current values"
+        )
     cameras[serial] = {**current, **patch}
     return {**options, OPTIONS_KEY_CAMERAS: cameras}
 
@@ -61,12 +65,14 @@ class CameraCredentials:
         entry: EzvizConfigEntry | None,
         coordinator: EzvizDataUpdateCoordinator,
     ) -> None:
+        """Initialize the owner and its cached dependencies."""
         self.hass = hass
         self.entry = entry
         self.coordinator = coordinator
         self._locks: dict[str, asyncio.Lock] = {}
 
     def key(self, serial: str) -> str | None:
+        """Return the configured encryption key without fetching it."""
         if self.entry is None:
             return None
         return camera_options(self.entry, serial).get(CONF_ENC_KEY)
@@ -75,16 +81,23 @@ class CameraCredentials:
     def commit(self, serial: str, key: str) -> None:
         """Commit after device success, even during unload; never resurrect removal."""
         entry = self.entry
-        if entry is None or self.hass.config_entries.async_get_entry(entry.entry_id) is not entry:
+        if (
+            entry is None
+            or self.hass.config_entries.async_get_entry(entry.entry_id) is not entry
+        ):
             return
+        if TYPE_CHECKING:
+            assert entry is not None
         options = build_camera_options(entry, serial, {CONF_ENC_KEY: key})
         self.hass.config_entries.async_update_entry(entry, options=options)
         self.coordinator.async_update_listeners()
 
     async def async_change(self, serial: str, new_key: str) -> str:
+        """Change the device key and commit the resulting options."""
         return await self._async_update(serial, new_key)
 
     async def async_fetch(self, serial: str) -> str:
+        """Fetch the device key and commit the resulting options."""
         return await self._async_update(serial, None)
 
     async def _async_update(self, serial: str, new_key: str | None) -> str:
@@ -96,11 +109,16 @@ class CameraCredentials:
                 # Read old key inside the lock: queued changes must use the preceding result.
                 old_key = self.key(serial)
                 if new_key is None:
-                    key = await self.hass.async_add_executor_job(client.get_cam_key, serial)
+                    key = await self.hass.async_add_executor_job(
+                        client.get_cam_key, serial
+                    )
                 else:
                     await self.hass.async_add_executor_job(
                         lambda: client.set_video_enc(
-                            serial=serial, enable=2, new_password=new_key, old_password=old_key
+                            serial=serial,
+                            enable=2,
+                            new_password=new_key,
+                            old_password=old_key,
                         )
                     )
                     key = new_key

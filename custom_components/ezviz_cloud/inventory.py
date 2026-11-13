@@ -35,12 +35,18 @@ def power_command(client: Any, serial: str, state: Any, on: bool) -> Any:
         return client.set_switch(serial, DeviceSwitchType.PLUG.value, int(on))
     values = state.values
     item = next(
-        (item for item in values.get("featureItems", ()) if item.get("itemKey") == "light_switch"),
+        (
+            item
+            for item in values.get("featureItems", ())
+            if item.get("itemKey") == "light_switch"
+        ),
         None,
     )
     if item is None or not values.get("productId"):
         raise PyEzvizError("Light has no observed on/off command metadata")
-    return client.set_device_feature_by_key(serial, values["productId"], on, item["itemKey"])
+    return client.set_device_feature_by_key(
+        serial, values["productId"], on, item["itemKey"]
+    )
 
 
 async def async_set_power(entity: Any, on: bool) -> None:
@@ -49,10 +55,16 @@ async def async_set_power(entity: Any, on: bool) -> None:
         raise HomeAssistantError("EZVIZ device is unavailable")
     try:
         result = await entity.coordinator.async_execute(
-            power_command, entity.coordinator.ezviz_client, entity._serial, entity.device_state, on
+            power_command,
+            entity.coordinator.ezviz_client,
+            entity.serial,
+            entity.device_state,
+            on,
         )
         if result is False:
             raise HomeAssistantError("EZVIZ did not accept the power command")
     except (HTTPError, PyEzvizError, OSError, TimeoutError) as error:
-        raise HomeAssistantError(f"EZVIZ power command failed ({type(error).__name__})") from error
+        raise HomeAssistantError(
+            f"EZVIZ power command failed ({type(error).__name__})"
+        ) from error
     await entity.coordinator.async_request_refresh()

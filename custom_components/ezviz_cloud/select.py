@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import SoundMode, SupportExt
@@ -23,7 +23,7 @@ from homeassistant.components.select import SelectEntity, SelectEntityDescriptio
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -81,10 +81,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1", "2", "3", "4"],
         option_range=[0, 1, 2],
         get_current_option=lambda d: getattr(SoundMode, d["alarm_sound_mod"]).value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.alarm_sound(serial, value, 1),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.alarm_sound(serial, value, 1)
+        ),
     ),
     EzvizSelectEntityDescription(
         key="battery_camera_work_mode",
@@ -102,10 +101,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1,2,3,4,10", "1,2,4,10"],
         option_range=[0, 1, 2, 3, 4, 5],
         get_current_option=lambda d: d["battery_camera_work_mode"],
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_battery_camera_work_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_battery_camera_work_mode(serial, value)
+        ),
     ),
     EzvizSelectEntityDescription(
         key="battery_camera_work_mode_aov",
@@ -122,10 +120,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1,3,10,9,8"],
         option_range=[1, 2, 3, 4, 7],
         get_current_option=lambda d: d["battery_camera_work_mode"],
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_battery_camera_work_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_battery_camera_work_mode(serial, value)
+        ),
     ),
     EzvizSelectEntityDescription(
         key="advanced_detect_human_car_pir",
@@ -139,12 +136,12 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["3,6"],
         option_range=[1, 5],
         get_current_option=lambda d: d["Alarm_DetectHumanCar"],
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_detection_mode(serial, value),
-        is_supported_fn=lambda d: str(SupportExt.SupportNewWorkMode.value)
-        not in (d.get("supportExt") or {}),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_detection_mode(serial, value)
+        ),
+        is_supported_fn=lambda d: (
+            str(SupportExt.SupportNewWorkMode.value) not in (d.get("supportExt") or {})
+        ),
     ),
     EzvizSelectEntityDescription(
         key="advanced_detect_human_car",
@@ -158,10 +155,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["2"],
         option_range=[1, 3],
         get_current_option=lambda d: d["Alarm_DetectHumanCar"],
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_detection_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_detection_mode(serial, value)
+        ),
     ),
     EzvizSelectEntityDescription(
         key="image_style_setting",
@@ -172,13 +168,12 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1"],
         option_range=[1, 2, 3],
         get_current_option=display_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        camera_data: ezviz_client.set_device_config_by_key(
-            serial,
-            value=f'{{"mode":{value}}}',
-            key="display_mode",
+        set_current_option=lambda ezviz_client, serial, value, camera_data: (
+            ezviz_client.set_device_config_by_key(
+                serial,
+                value=f'{{"mode":{value}}}',
+                key="display_mode",
+            )
         ),
     ),
     EzvizSelectEntityDescription(
@@ -197,17 +192,16 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1"],
         option_range=[0, 1, 2, 3, 4, 5],  # 0=Off; 1..5 map to positions
         get_current_option=blc_current_value,  # returns one of 0..5
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        camera_data: ezviz_client.set_device_config_by_key(
-            serial,
-            value=(
-                '{"mode":1,"enable":0,"position":0}'
-                if int(value) == 0
-                else f'{{"mode":1,"enable":1,"position":{int(value)}}}'
-            ),
-            key="inverse_mode",
+        set_current_option=lambda ezviz_client, serial, value, camera_data: (
+            ezviz_client.set_device_config_by_key(
+                serial,
+                value=(
+                    '{"mode":1,"enable":0,"position":0}'
+                    if int(value) == 0
+                    else f'{{"mode":1,"enable":1,"position":{int(value)}}}'
+                ),
+                key="inverse_mode",
+            )
         ),
     ),
     EzvizSelectEntityDescription(
@@ -238,10 +232,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["2"],
         option_range=[0, 1],
         get_current_option=night_vision_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_night_vision_mode(serial, value)
+        ),
         is_supported_fn=lambda data: bool(night_vision_config(data)),
     ),
     EzvizSelectEntityDescription(
@@ -257,11 +250,10 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1"],
         option_range=[0, 1, 2],
         get_current_option=night_vision_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
-        is_supported_fn=lambda data: (not support_ext_has(data, "688", ["6"])),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_night_vision_mode(serial, value)
+        ),
+        is_supported_fn=lambda data: not support_ext_has(data, "688", ["6"]),
     ),
     EzvizSelectEntityDescription(
         key="smart_night_vision_model_battery",
@@ -275,10 +267,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["7"],
         option_range=[0, 2],
         get_current_option=night_vision_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_night_vision_mode(serial, value)
+        ),
         is_supported_fn=lambda data: bool(night_vision_config(data)),
     ),
     EzvizSelectEntityDescription(
@@ -295,10 +286,9 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_value=["1,2,4,6"],
         option_range=[0, 1, 2, 5],
         get_current_option=night_vision_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        _camera_data: ezviz_client.set_night_vision_mode(serial, value),
+        set_current_option=lambda ezviz_client, serial, value, _camera_data: (
+            ezviz_client.set_night_vision_mode(serial, value)
+        ),
         is_supported_fn=lambda data: bool(night_vision_config(data)),
     ),
     EzvizSelectEntityDescription(
@@ -312,17 +302,16 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         supported_ext_key="715",
         supported_ext_value=["1"],
         option_range=[0, 1],
-        get_current_option=lambda data: 1
-        if linked_tracking_takeover_enabled(data)
-        else 0,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        camera_data: set_linked_tracking_takeover(
-            ezviz_client,
-            serial,
-            bool(value),
-            camera_data,
+        get_current_option=lambda data: (
+            1 if linked_tracking_takeover_enabled(data) else 0
+        ),
+        set_current_option=lambda ezviz_client, serial, value, camera_data: (
+            set_linked_tracking_takeover(
+                ezviz_client,
+                serial,
+                bool(value),
+                camera_data,
+            )
         ),
     ),
     EzvizSelectEntityDescription(
@@ -333,17 +322,16 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
         option_range=[0, 1, 2],
         is_supported_fn=lambda d: bool(device_icr_dss_config(d)),
         get_current_option=day_night_mode_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        camera_data: ezviz_client.set_dev_config_kv(
-            serial,
-            resolve_channel(camera_data),
-            "device_ICR_DSS",
-            {
-                "mode": value,
-                "sensitivity": day_night_sensitivity_value(camera_data),
-            },
+        set_current_option=lambda ezviz_client, serial, value, camera_data: (
+            ezviz_client.set_dev_config_kv(
+                serial,
+                resolve_channel(camera_data),
+                "device_ICR_DSS",
+                {
+                    "mode": value,
+                    "sensitivity": day_night_sensitivity_value(camera_data),
+                },
+            )
         ),
     ),
     EzvizSelectEntityDescription(
@@ -361,24 +349,25 @@ SELECTS: tuple[EzvizSelectEntityDescription, ...] = (
             or bool(device_icr_dss_config(d))
         ),
         get_current_option=day_night_sensitivity_value,
-        set_current_option=lambda ezviz_client,
-        serial,
-        value,
-        camera_data: ezviz_client.set_dev_config_kv(
-            serial,
-            resolve_channel(camera_data),
-            "device_ICR_DSS",
-            {
-                "mode": 0,
-                "sensitivity": value,
-            },
+        set_current_option=lambda ezviz_client, serial, value, camera_data: (
+            ezviz_client.set_dev_config_kv(
+                serial,
+                resolve_channel(camera_data),
+                "device_ICR_DSS",
+                {
+                    "mode": 0,
+                    "sensitivity": value,
+                },
+            )
         ),
     ),
 )
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ select entities based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -409,6 +398,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
+    @override
     def current_option(self) -> str | None:
         """Return the currently selected option."""
         current_value = self.entity_description.get_current_option(self.data)
@@ -419,6 +409,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
             return None
         return self.options[idx] if 0 <= idx < len(self.options) else None
 
+    @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         try:

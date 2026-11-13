@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi import HTTPError, PyEzvizError, SupportExt
 
@@ -14,7 +14,7 @@ from homeassistant.components.siren import (
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 import homeassistant.helpers.event as evt
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -32,7 +32,9 @@ SIREN_ENTITY_TYPE = SirenEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
@@ -66,6 +68,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         self._attr_is_on = False
         self._delay_listener: Callable | None = None
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         if not (last_state := await self.async_get_last_state()):
@@ -75,6 +78,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         if self._attr_is_on:
             evt.async_call_later(self.hass, OFF_DELAY, self.off_delay_listener)
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off camera siren."""
         try:
@@ -83,7 +87,9 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Failed to turn siren off for {self.name}") from err
+            raise HomeAssistantError(
+                f"Failed to turn siren off for {self.name}"
+            ) from err
 
         if result:
             if self._delay_listener is not None:
@@ -93,6 +99,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
             self._attr_is_on = False
             self.async_write_ha_state()
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on camera siren."""
         try:
@@ -101,7 +108,9 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
             )
 
         except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Failed to turn siren on for {self.name}") from err
+            raise HomeAssistantError(
+                f"Failed to turn siren on for {self.name}"
+            ) from err
 
         if result:
             if self._delay_listener is not None:

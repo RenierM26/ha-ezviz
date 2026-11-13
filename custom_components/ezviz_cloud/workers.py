@@ -26,6 +26,7 @@ def create_critical_task(hass: Any, coro: Coroutine, name: str) -> Any:
 
 def create_executor_task(hass: Any, func: Callable, *args: Any) -> Any:
     """Put the owner in HA's tracked set before it dispatches an executor job."""
+
     async def run() -> Any:
         return await hass.async_add_executor_job(func, *args)
 

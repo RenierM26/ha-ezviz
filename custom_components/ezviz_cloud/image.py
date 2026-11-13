@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from io import BytesIO
 import logging
-from typing import Any
+from typing import Any, override
 
 from PIL import Image as PilImage, ImageFile, UnidentifiedImageError
 from propcache.api import cached_property
@@ -14,14 +14,10 @@ from homeassistant.components.image import Image, ImageEntity, ImageEntityDescri
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import (
-    CONF_ENC_KEY,
-    OPTIONS_KEY_CAMERAS,
-    SIGNAL_PICTURE_CAPTURED,
-)
+from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS, SIGNAL_PICTURE_CAPTURED
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
@@ -44,7 +40,9 @@ MAX_MULTI_LENS_IMAGES = 4
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: EzvizConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ image entities based on a config entry."""
 
@@ -52,7 +50,7 @@ async def async_setup_entry(
 
     cams_options: Mapping[str, dict[str, Any]] = entry.options[OPTIONS_KEY_CAMERAS]
 
-    async_add_entities(
+    entities: list[EzvizLastMotion] = [
         EzvizLastMotion(
             hass,
             coordinator,
@@ -79,11 +77,12 @@ async def async_setup_entry(
             )
             + 1,
         )
-    )
-    async_add_entities(
+    ]
+    entities.extend(
         EzvizSnapshot(hass, coordinator, camera, cams_options.get(camera, {}))
         for camera in coordinator.data
     )
+    async_add_entities(entities)
 
 
 class EzvizLastMotion(EzvizEntity, ImageEntity):
@@ -108,21 +107,27 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         self._lens_index = max(1, lens_index)
         self._lens_total = max(1, lens_total)
         unique_suffix = (
-            IMAGE_TYPE.key if self._lens_index == 1 else f"{IMAGE_TYPE.key}_{self._lens_index}"
+            IMAGE_TYPE.key
+            if self._lens_index == 1
+            else f"{IMAGE_TYPE.key}_{self._lens_index}"
         )
         self._attr_unique_id = f"{serial}_{unique_suffix}"
         self.entity_description = IMAGE_TYPE
         self._attr_image_url = self.data["last_alarm_pic"]
-        self._attr_image_last_updated = dt_util.parse_datetime(str(self.data["last_alarm_time"]))
+        self._attr_image_last_updated = dt_util.parse_datetime(
+            str(self.data["last_alarm_time"])
+        )
         self.alarm_image_password: str | None = credentials.get(CONF_ENC_KEY)
         if self._lens_index > 1:
             self._attr_name = f"Lens {self._lens_index} Last Motion"
 
     @cached_property
+    @override
     def available(self) -> bool:
         """Entity gets data from EZVIZ cloud API rather than local device."""
         return True
 
+    @override
     async def _async_load_image_from_url(self, url: str) -> Image | None:
         """Fetch asynchronously and process immutable image inputs off the loop."""
         if self.coordinator.shutting_down:
@@ -142,12 +147,14 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 raise
             except PyEzvizError:
                 _LOGGER.warning(
-                    "%s: Can't decrypt image with the configured camera key", self.entity_id
+                    "%s: Can't decrypt image with the configured camera key",
+                    self.entity_id,
                 )
                 image_data = response.content
             return Image(content=image_data, content_type="image/jpeg")
         return None
 
+    @override
     async def async_image(self) -> bytes | None:
         """Reject downloads superseded by a capture, alarm URL or key update."""
         if self.coordinator.shutting_down:
@@ -161,7 +168,11 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         generation = self._image_generation
         image = await self._async_load_image_from_url(url)
         self._sync_encryption_key()
-        if self.coordinator.shutting_down or generation != self._image_generation or image is None:
+        if (
+            self.coordinator.shutting_down
+            or generation != self._image_generation
+            or image is None
+        ):
             return None
         self._cached_image = image
         self._attr_content_type = image.content_type
@@ -174,6 +185,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         self._cached_image = None
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
 
@@ -227,6 +239,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_image_url = None
         self._attr_image_last_updated = None
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Listen for pictures captured by the camera entity."""
         await super().async_added_to_hass()
@@ -239,6 +252,7 @@ class EzvizSnapshot(EzvizLastMotion):
         )
 
     @callback
+    @override
     def async_entity_id_changed(self, old_entity_id: str) -> None:
         """The capture subscription uses serial, not the entity ID."""
         super().async_entity_id_changed(old_entity_id)
@@ -250,6 +264,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_image_last_updated = dt_util.utcnow()
         self.async_write_ha_state()
 
+    @override
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
 

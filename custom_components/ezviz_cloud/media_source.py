@@ -5,7 +5,7 @@ import binascii
 from collections.abc import Mapping
 from dataclasses import dataclass
 import re
-from typing import Any
+from typing import Any, override
 from urllib.parse import urlsplit
 
 from pyezvizapi.exceptions import PyEzvizError
@@ -34,11 +34,15 @@ def _b64e(data: str) -> str:
 
 
 def _b64d(data: str) -> str:
-    return base64.b64decode(data.encode("ascii"), altchars=b"-_", validate=True).decode("utf-8")
+    return base64.b64decode(data.encode("ascii"), altchars=b"-_", validate=True).decode(
+        "utf-8"
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class CameraMediaId:
+    """Validated fields of an EZVIZ media identifier."""
+
     entry_id: str
     serial: str
     limit: int
@@ -46,6 +50,8 @@ class CameraMediaId:
 
 @dataclass(frozen=True, slots=True)
 class ImageMediaId:
+    """Validated fields of an EZVIZ media identifier."""
+
     url: str
     mime: str
     entry_id: str | None = None
@@ -58,52 +64,77 @@ def _valid_component(value: str) -> bool:
 
 def _validate_image_url(url: str) -> str:
     parsed = urlsplit(url)
-    if (parsed.scheme not in ("http", "https") or not parsed.hostname
-        or parsed.username is not None or parsed.password is not None
-        or parsed.fragment or any(ord(char) <= 32 for char in url)):
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or any(ord(char) <= 32 for char in url)
+    ):
         raise ValueError("Invalid image URL")
     # Validate malformed/out-of-range ports without changing signed URL contents.
     _ = parsed.port
     return url
 
 
+def _validated_camera_id(identifier: str) -> CameraMediaId:
+    """Validate syntax before translating boundary errors."""
+    parts = identifier.split("|")
+    if (
+        len(identifier) > MAX_IDENTIFIER_LENGTH
+        or len(parts) not in (3, 4)
+        or parts[0] != "CAM"
+    ):
+        raise ValueError
+    _, entry_id, serial, *rest = parts
+    if not _valid_component(entry_id) or not _valid_component(serial):
+        raise ValueError
+    if rest and (len(rest[0]) > 3 or not rest[0].isascii() or not rest[0].isdigit()):
+        raise ValueError
+    limit = int(rest[0]) if rest else DEFAULT_LIMIT
+    if not 1 <= limit <= MAX_LIMIT:
+        raise ValueError
+    return CameraMediaId(entry_id, serial, limit)
+
+
 def _parse_camera_id(identifier: str) -> CameraMediaId:
     try:
-        parts = identifier.split("|")
-        if len(identifier) > MAX_IDENTIFIER_LENGTH or len(parts) not in (3, 4) or parts[0] != "CAM":
-            raise ValueError
-        _, entry_id, serial, *rest = parts
-        if not _valid_component(entry_id) or not _valid_component(serial):
-            raise ValueError
-        if rest and (len(rest[0]) > 3 or not rest[0].isascii() or not rest[0].isdigit()):
-            raise ValueError
-        limit = int(rest[0]) if rest else DEFAULT_LIMIT
-        if not 1 <= limit <= MAX_LIMIT:
-            raise ValueError
-        return CameraMediaId(entry_id, serial, limit)
+        result = _validated_camera_id(identifier)
     except ValueError as err:
         raise Unresolvable("Invalid EZVIZ camera media identifier") from err
+    else:
+        return result
+
+
+def _validated_image_id(identifier: str) -> ImageMediaId:
+    """Validate syntax before translating boundary errors."""
+    parts = identifier.split("|")
+    if len(identifier) > MAX_IDENTIFIER_LENGTH:
+        raise ValueError
+    if len(parts) == 4 and parts[0] == "EIMG":
+        _, entry_id, serial, encoded = parts
+        if not _valid_component(entry_id) or not _valid_component(serial):
+            raise ValueError
+        return ImageMediaId(
+            _validate_image_url(_b64d(encoded)), "image/jpeg", entry_id, serial
+        )
+    if len(parts) == 3 and parts[0] == "IMG":
+        _, encoded, mime = parts
+        if not re.fullmatch(r"image/[a-z0-9.+-]+", mime):
+            raise ValueError
+        return ImageMediaId(_validate_image_url(_b64d(encoded)), mime)
+    raise ValueError
 
 
 def _parse_image_id(identifier: str) -> ImageMediaId:
     try:
-        parts = identifier.split("|")
-        if len(identifier) > MAX_IDENTIFIER_LENGTH:
-            raise ValueError
-        if len(parts) == 4 and parts[0] == "EIMG":
-            _, entry_id, serial, encoded = parts
-            if not _valid_component(entry_id) or not _valid_component(serial):
-                raise ValueError
-            return ImageMediaId(_validate_image_url(_b64d(encoded)), "image/jpeg", entry_id, serial)
-        if len(parts) == 3 and parts[0] == "IMG":
-            _, encoded, mime = parts
-            if not re.fullmatch(r"image/[a-z0-9.+-]+", mime):
-                raise ValueError
-            return ImageMediaId(_validate_image_url(_b64d(encoded)), mime)
-        raise ValueError
+        result = _validated_image_id(identifier)
     except (ValueError, UnicodeError, binascii.Error) as err:
         # Never echo stored identifiers: their encoded URLs may contain credentials.
         raise Unresolvable("Invalid EZVIZ image media identifier") from err
+    else:
+        return result
 
 
 async def async_get_media_source(hass: HomeAssistant) -> EzvizMediaSource:
@@ -121,6 +152,7 @@ class EzvizMediaSource(MediaSource):
         super().__init__(DOMAIN)
         self.hass = hass
 
+    @override
     async def async_browse_media(self, item: MediaSourceItem) -> BrowseMediaSource:
         """Browse Ezviz media items."""
         # Root: list cameras only (per-camera browsing)
@@ -128,8 +160,11 @@ class EzvizMediaSource(MediaSource):
             return await self._async_root()
 
         parsed = _parse_camera_id(item.identifier)
-        return await self._async_camera_alarms(parsed.entry_id, parsed.serial, parsed.limit)
+        return await self._async_camera_alarms(
+            parsed.entry_id, parsed.serial, parsed.limit
+        )
 
+    @override
     async def async_resolve_media(self, item: MediaSourceItem) -> PlayMedia:
         """Resolve current proxied and legacy image identifiers safely."""
         if not item.identifier:
@@ -137,7 +172,12 @@ class EzvizMediaSource(MediaSource):
         parsed = _parse_image_id(item.identifier)
         if parsed.entry_id is not None:
             assert parsed.serial is not None
-            return PlayMedia(async_generate_image_proxy_url(parsed.entry_id, parsed.serial, parsed.url), parsed.mime)
+            return PlayMedia(
+                async_generate_image_proxy_url(
+                    parsed.entry_id, parsed.serial, parsed.url
+                ),
+                parsed.mime,
+            )
         return PlayMedia(parsed.url, parsed.mime)
 
     async def _async_root(self) -> BrowseMediaSource:
@@ -156,7 +196,9 @@ class EzvizMediaSource(MediaSource):
                 # Use proxied thumbnail to support decryption like camera views
                 last_pic = cam.get("last_alarm_pic")
                 thumb = (
-                    async_generate_image_proxy_url(config_entry.entry_id, serial, last_pic)
+                    async_generate_image_proxy_url(
+                        config_entry.entry_id, serial, last_pic
+                    )
                     if last_pic
                     else None
                 )
@@ -193,7 +235,12 @@ class EzvizMediaSource(MediaSource):
         """Return list of recent alarms for a camera."""
         entry = self.hass.config_entries.async_get_entry(entry_id)
         data = getattr(entry, "runtime_data", None)
-        if entry is None or entry.domain != DOMAIN or data is None or data.coordinator.shutting_down:
+        if (
+            entry is None
+            or entry.domain != DOMAIN
+            or data is None
+            or data.coordinator.shutting_down
+        ):
             return BrowseMediaSource(
                 domain=DOMAIN,
                 identifier=f"CAM|{entry_id}|{serial}|{limit}",
@@ -226,7 +273,9 @@ class EzvizMediaSource(MediaSource):
             children=children,
         )
 
-    async def _async_get_alarms(self, coordinator: Any, *, serial: str, limit: int) -> list[dict]:
+    async def _async_get_alarms(
+        self, coordinator: Any, *, serial: str, limit: int
+    ) -> list[dict]:
         """Fetch alarms via the client in the executor and normalize."""
 
         def _fetch() -> list[dict]:
@@ -249,7 +298,11 @@ class EzvizMediaSource(MediaSource):
         # Build a friendly title: <time> - <camera> - <event>
         cam_serial = alarm.get("deviceSerial")
         if not isinstance(cam_serial, str) or not _valid_component(cam_serial):
-            cam_serial = next(iter(serial_to_name)) if serial_to_name and len(serial_to_name) == 1 else None
+            cam_serial = (
+                next(iter(serial_to_name))
+                if serial_to_name and len(serial_to_name) == 1
+                else None
+            )
         if cam_serial is None:
             return None
         cam_name = None
@@ -278,7 +331,9 @@ class EzvizMediaSource(MediaSource):
         )
         # Build a proxied thumbnail too (avoids showing encrypted thumbs)
         proxy_serial: str = str(cam_serial or "")
-        thumb = async_generate_image_proxy_url(entry_id, proxy_serial, pic) if pic else None
+        thumb = (
+            async_generate_image_proxy_url(entry_id, proxy_serial, pic) if pic else None
+        )
 
         return BrowseMediaSource(
             domain=DOMAIN,

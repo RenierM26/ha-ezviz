@@ -34,7 +34,11 @@ def async_generate_image_proxy_url(config_entry_id: str, serial: str, url: str) 
 @callback
 def _encryption_key(hass: HomeAssistant, entry: ConfigEntry, serial: str) -> str | None:
     """Prefer a usable runtime key, otherwise the private camera options."""
-    return (entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {}).get(serial, {}).get(CONF_ENC_KEY)
+    return (
+        (entry.options.get(OPTIONS_KEY_CAMERAS, {}) or {})
+        .get(serial, {})
+        .get(CONF_ENC_KEY)
+    )
 
 
 class ImageProxyView(HomeAssistantView):
@@ -55,7 +59,7 @@ class ImageProxyView(HomeAssistantView):
         """Return decrypted image bytes for an alarm picture."""
         try:
             raw_url = urlsafe_b64decode(url.encode("utf-8")).decode("utf-8")
-        except (ValueError, binascii.Error, UnicodeDecodeError):
+        except ValueError, binascii.Error, UnicodeDecodeError:
             return web.Response(
                 text="Invalid encoded URL",
                 status=HTTPStatus.BAD_REQUEST,
@@ -72,7 +76,8 @@ class ImageProxyView(HomeAssistantView):
         coordinator = runtime.coordinator if runtime is not None else None
         if coordinator is None or coordinator.shutting_down:
             return web.Response(
-                text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE
+                text="EZVIZ integration is unavailable",
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
             )
 
         enc_key = _encryption_key(self.hass, entry, serial)
@@ -89,7 +94,9 @@ class ImageProxyView(HomeAssistantView):
             resp = await self.session.get(
                 raw_url,
                 headers=headers,
-                timeout=ClientTimeout(total=30, connect=10, sock_connect=10, sock_read=20),
+                timeout=ClientTimeout(
+                    total=30, connect=10, sock_connect=10, sock_read=20
+                ),
             )
             if resp.status != HTTPStatus.OK:
                 return web.Response(text="Unable to fetch image", status=resp.status)
@@ -97,7 +104,9 @@ class ImageProxyView(HomeAssistantView):
             body = await resp.read()
         except (ClientError, TimeoutError) as err:
             _LOGGER.debug("Error fetching EZVIZ image (%s)", type(err).__name__)
-            return web.Response(text="Unable to fetch image", status=HTTPStatus.BAD_REQUEST)
+            return web.Response(
+                text="Unable to fetch image", status=HTTPStatus.BAD_REQUEST
+            )
         finally:
             if resp is not None:
                 resp.release()
@@ -108,11 +117,14 @@ class ImageProxyView(HomeAssistantView):
                 body = await coordinator.async_execute(decrypt_image, body, enc_key)
             except HomeAssistantError:
                 return web.Response(
-                    text="EZVIZ integration is unavailable", status=HTTPStatus.SERVICE_UNAVAILABLE
+                    text="EZVIZ integration is unavailable",
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
             except PyEzvizError as err:
                 _LOGGER.debug("Image decryption failed (%s)", type(err).__name__)
-                return web.Response(text="Unable to decrypt image", status=HTTPStatus.BAD_REQUEST)
+                return web.Response(
+                    text="Unable to decrypt image", status=HTTPStatus.BAD_REQUEST
+                )
         # If no key is set and the payload looks encrypted, warn once per request
         elif body[: len(HIK_ENCRYPTION_HEADER)] == HIK_ENCRYPTION_HEADER:
             _LOGGER.warning(

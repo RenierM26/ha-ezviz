@@ -82,3 +82,10 @@ cleanup, unloaded entries, legacy caches, unexpected nested/non-finite values,
 unknown capabilities, enabled/disabled entities and credential omission. The SDK
 client must receive no calls. Existing `test_push_recovery.py` keeps the real
 SDK-lock/HA token-save deadlock regression and checks fatal recovery categories.
+
+## Core checkout rules
+
+See [Core development checks](../../docs/core-development-checks.md) for the
+scoped Core-namespace policy runner and the moving-dev CI job.
+`test_core_contracts.py` adds behavioral controls for the source-layout/typing
+alignment while the published-version matrix protects the supported minimum.
