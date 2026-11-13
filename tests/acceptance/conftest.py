@@ -1,4 +1,4 @@
-"""Real HA acceptance, kept separate from the lightweight Python 3.12 job."""
+"""Real HA acceptance, kept separate from the lightweight Python 3.14 job."""
 
 import pytest
 

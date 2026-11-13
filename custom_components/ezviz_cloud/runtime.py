@@ -1,7 +1,5 @@
 """Own push, polling and HTTP cleanup even when unload's foreground wait ends."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any

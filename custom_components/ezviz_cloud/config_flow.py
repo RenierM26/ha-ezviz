@@ -1,7 +1,5 @@
 """Config + Options flow for EZVIZ Cloud integration (region-aware)."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Mapping
 import ipaddress

@@ -1,7 +1,5 @@
 """Ezviz Integration views (proxy and decrypt images)."""
 
-from __future__ import annotations
-
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 import binascii
 from http import HTTPStatus

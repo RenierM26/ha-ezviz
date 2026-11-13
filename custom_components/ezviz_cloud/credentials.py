@@ -1,7 +1,5 @@
 """Owned per-camera credential operations and conflict-safe option patches."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Mapping
 from copy import deepcopy

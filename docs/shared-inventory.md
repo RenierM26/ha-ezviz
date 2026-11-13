@@ -100,8 +100,8 @@ constructor fallback. Existing config-entry/registry migration and web-profile
 reauthentication remain: those migrate user data, not SDK versions.
 
 All CI runtime jobs install **pyezvizapi==2.0.0 from PyPI** to qualify the declared
-minimum. Python 3.12 covers standalone lint/types/lifecycle tests; the separate
-Python 3.14 job qualifies actual HA 2026.10.4 and disk storage. No editable SDK
+minimum. Python 3.14 covers standalone lint/types/lifecycle tests and the separate
+jobs qualifying actual HA 2026.10.4/2026.11.0 and disk storage. No editable SDK
 checkout, direct-Git manifest requirement or unpublished dependency remains.
 
 The SDK release gate is complete. Review and merge this integration separately;
@@ -187,7 +187,7 @@ python3.14 -m venv .venv-ha
 
 Tests use actual HA classes and disk storage in temporary config directories,
 synthetic account/device data, and mocked outbound account/command boundaries.
-The normal Python 3.12 CI uses that same published minimum; older SDK versions are
+The normal Python 3.14 CI uses that same published minimum; older SDK versions are
 not supported by this integration branch.
 
 ### Host-bound token rejection during startup

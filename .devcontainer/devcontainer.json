@@ -1,7 +1,7 @@
 {
   "name": "HA Integration Dev",
   "build": { "dockerfile": "Dockerfile" },
-  "features": { "ghcr.io/devcontainers/features/python:1": { "version": "3.12" } },
+  "features": { "ghcr.io/devcontainers/features/python:1": { "version": "3.14" } },
   "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && pip install -U pip wheel && pip install homeassistant ruff mypy pytest debugpy",
   "customizations": {
     "vscode": {

@@ -48,6 +48,13 @@ def integration(monkeypatch):
     for name in ("CONF_TYPE", "CONF_URL", "CONF_TIMEOUT"):
         setattr(sys.modules["homeassistant.const"], name, name.lower())
 
+    # A mocked base class manufactures a MagicMock subclass. Python 3.14's
+    # dataclass annotation evaluation needs an actual type for AcknowledgedStore.
+    class Store:
+        """Only a type boundary; real storage is covered by native HA tests."""
+
+    monkeypatch.setattr(sys.modules["homeassistant.helpers.storage"], "Store", Store)
+
     def load(name, filename):
         spec = importlib.util.spec_from_file_location(name, ROOT / filename)
         assert spec is not None and spec.loader is not None

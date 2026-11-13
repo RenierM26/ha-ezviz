@@ -1,7 +1,5 @@
 """Provides the ezviz DataUpdateCoordinator."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Coroutine
 from copy import deepcopy

@@ -4,6 +4,8 @@
 Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
 https://www.home-assistant.io/integrations/ezviz/
 
+Requires **Home Assistant 2026.10.4+ and Python 3.14+**. Development, lint/type
+checks and CI use Python 3.14, including its default deferred annotations.
 
 ## Breaking change
 

@@ -1,7 +1,5 @@
 """Thin on/off adapters; no guessed brightness, temperature or energy scales."""
 
-from __future__ import annotations
-
 from typing import Any, ClassVar
 
 from homeassistant.components.light import ColorMode, LightEntity

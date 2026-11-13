@@ -1,7 +1,5 @@
 """Support EZVIZ last motion image."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from io import BytesIO
 import logging

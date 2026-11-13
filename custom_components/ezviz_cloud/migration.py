@@ -12,8 +12,6 @@ Strategy:
 Idempotent, no persistent stats; uses Repairs issues (translation_key) for skipped items.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 import logging

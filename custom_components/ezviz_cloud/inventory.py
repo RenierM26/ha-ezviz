@@ -1,7 +1,5 @@
 """Shared discovery and command glue for non-camera coordinator views."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any
 

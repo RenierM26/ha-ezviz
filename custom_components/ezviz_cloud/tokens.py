@@ -1,7 +1,5 @@
 """Durable channel-99 snapshots using HA's public, private atomic Store API."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Mapping
 from concurrent.futures import Future

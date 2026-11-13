@@ -1,7 +1,5 @@
 """Cached, allowlisted diagnostics without a second cloud/account request."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from homeassistant.core import HomeAssistant

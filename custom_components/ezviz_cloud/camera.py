@@ -11,8 +11,6 @@ option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 "/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import logging
 from typing import Any
