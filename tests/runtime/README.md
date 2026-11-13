@@ -73,7 +73,7 @@ are compared, including synthetic future SDK fields and push replay state.
 
 ## Diagnostics
 
-`test_diagnostics.py` compares the synthetic account snapshot with
+`core_policy/test_diagnostics.py` compares the synthetic account snapshot with
 `fixtures/diagnostics.json` and exercises the actual HA download view for account
 and selected-device JSON. Only the wrapper's host metadata is synthetic; routing,
 registration, ownership, handlers and JSON serialization use real HA. Additional
@@ -87,5 +87,10 @@ SDK-lock/HA token-save deadlock regression and checks fatal recovery categories.
 
 See [Core development checks](../../docs/core-development-checks.md) for the
 scoped Core-namespace policy runner and the moving-dev CI job.
-`test_core_contracts.py` adds behavioral controls for the source-layout/typing
+`core_policy/test_core_contracts.py` adds behavioral controls for the source-layout/typing
 alignment while the published-version matrix protects the supported minimum.
+
+The focused `core_policy/` package also follows Core’s **test-specific** Ruff
+policy and enforces complete parameter/return annotations with `ANN`. It is
+checked both by normal lint/format CI and the actual moving-Core policy runner.
+Older modules remain under the independent legacy test policy.

@@ -6,20 +6,21 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-from test_hardening import entities, entry_for
-
 import custom_components
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import image, light
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.runtime import RuntimeCleanup
 from custom_components.ezviz_cloud.tokens import AcknowledgedStore
+import pytest
+
 from homeassistant import loader
 from homeassistant.components.light import ColorMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import EntityPlatform
+
+from tests.runtime.test_hardening import entities, entry_for
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +138,11 @@ def test_form_translation_and_store_initial_state(hass: HomeAssistant) -> None:
     """A new acknowledged Store and camera selector have explicit initial contracts."""
     root = Path(image.__file__).parent
     for path in (root / "strings.json", root / "translations/en.json"):
-        assert json.loads(path.read_text())["options"]["step"]["camera_select"]["data"]["serial"]
+        assert json.loads(path.read_text())["options"]["step"]["camera_select"]["data"][
+            "serial"
+        ]
     assert "[%key:" not in (root / "translations/en.json").read_text()
     store = AcknowledgedStore(hass, 1, "fixture", private=True, atomic_writes=True)
-    assert store._write_acknowledged is False
+    assert (
+        store._write_acknowledged is False
+    )  # Check the private durable-write acknowledgement invariant.

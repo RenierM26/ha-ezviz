@@ -88,3 +88,32 @@ Existing native tests exercise the probatio schemas, serialization/errors/MFA/re
 entry boolean hooks, cancellation, retained owners, durable writes, migration and
 registry identity. The source refactoring does not change entity unique IDs, action
 names, credentials, camera configuration or the SDK minimum.
+
+## Test-policy scope
+
+Core has a separate `tests/ruff.toml` overlay. In particular, it permits private
+member access in tests and allows/import-sorts test helpers differently from the
+production policy. Applying only Core's root config to tests is not equivalent to
+running Core's own test rules. We keep protected-state fault injection and the
+private durability invariant checks; no production accessors were added merely to
+satisfy test lint.
+
+The two new contract/diagnostics modules now live in `tests/runtime/core_policy/`,
+an explicit package with Core-test imports, docstrings and concrete fixture/test
+annotations. The rest of the native suite uses explicit `tests.runtime` helper
+imports so package collection does not duplicate modules. Its older modules have
+not all been converted to Core test style.
+
+The focused package inherits `tools/core_tests_ruff.toml` (Core's test overlay at
+the same recorded baseline) and additionally enables Ruff `ANN` annotation checks.
+Normal lint and CI formatting cover the whole package, including future additions.
+The moving-Core checker copies it unchanged, loads **that checkout's** actual test
+policy (from Git when sparse checkout omits the file), logs its Python hashes, and
+runs test lint/format plus annotation checks separately from integration checks.
+The only policy-path adjustment in the local snapshot is its `extend` target.
+
+Freshness edge cases now exercise the exported diagnostic report rather than
+calling private serializer helpers directly. Registration, retained worker/setup
+states and Store acknowledgement still use internals where they are the subject
+of the test. The fake HTTP request uses HA's existing string authentication key;
+the resulting aiohttp warning is not an integration runtime regression.

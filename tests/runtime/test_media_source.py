@@ -5,12 +5,12 @@ from unittest.mock import MagicMock
 
 from pyezvizapi.exceptions import PyEzvizError
 import pytest
-from test_hardening import entities
 
 from custom_components.ezviz_cloud import media_source as media
 from homeassistant.components.media_source import Unresolvable
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
+from tests.runtime.test_hardening import entities
 
 
 @pytest.mark.parametrize(

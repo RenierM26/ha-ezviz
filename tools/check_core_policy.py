@@ -13,12 +13,41 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = "ezviz_cloud"
+CORE_TESTS = ROOT / "tests/runtime/core_policy"
 
 
 def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
     """Print the bounded command and fail on any policy finding."""
     print("+", " ".join(command), flush=True)
     subprocess.run(command, cwd=cwd, env=env, check=True, timeout=180)
+
+
+def prepare_test_overlay(core: Path, overlay: Path) -> tuple[Path, Path]:
+    """Copy focused tests and Core's own test-policy overlay."""
+    # Use Core's test overlay, not production rules for private-access tests.
+    tests = overlay / "tests"
+    tests.mkdir()
+    (overlay / "pyproject.toml").symlink_to(core / "pyproject.toml")
+    test_config = core / "tests/ruff.toml"
+    policy = (
+        test_config.read_text()
+        if test_config.is_file()
+        else subprocess.check_output(
+            ["git", "show", "HEAD:tests/ruff.toml"],
+            cwd=core,
+            text=True,
+        )
+    )
+    (tests / "ruff.toml").write_text(policy)
+    shutil.copyfile(ROOT / "tests/__init__.py", tests / "__init__.py")
+    runtime_tests = tests / "runtime"
+    runtime_tests.mkdir()
+    shutil.copyfile(ROOT / "tests/runtime/__init__.py", runtime_tests / "__init__.py")
+    focused_tests = runtime_tests / "core_policy"
+    shutil.copytree(
+        CORE_TESTS, focused_tests, ignore=shutil.ignore_patterns("__pycache__", "ruff.toml")
+    )
+    return tests / "ruff.toml", focused_tests
 
 
 def main() -> None:
@@ -49,6 +78,10 @@ def main() -> None:
                     for name in ("homeassistant", "pyezvizapi", "ruff", "mypy", "pylint")
                 },
                 "source_sha256": files,
+                "core_test_sha256": {
+                    path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in sorted(CORE_TESTS.glob("*.py"))
+                },
             },
             indent=2,
         ),
@@ -68,6 +101,7 @@ def main() -> None:
                 (components / path.name).symlink_to(path, target_is_directory=path.is_dir())
         mirror = components / DOMAIN
         shutil.copytree(source, mirror, ignore=shutil.ignore_patterns("__pycache__", "ruff.toml"))
+        test_policy, focused_tests = prepare_test_overlay(core, overlay)
         for name in ("script", "requirements_all.txt"):
             (overlay / name).symlink_to(core / name, target_is_directory=(core / name).is_dir())
         env = {**os.environ, "MYPYPATH": f"{overlay}{os.pathsep}{core / 'stubs'}"}
@@ -105,6 +139,38 @@ def main() -> None:
                 "--config",
                 str(core / "pyproject.toml"),
                 str(mirror),
+            ],
+            core,
+            env,
+        )
+        run(
+            [
+                python,
+                "-m",
+                "ruff",
+                "check",
+                "--no-fix",
+                "--extend-select",
+                "ANN",
+                "--no-respect-gitignore",
+                "--config",
+                str(test_policy),
+                str(focused_tests),
+            ],
+            core,
+            env,
+        )
+        run(
+            [
+                python,
+                "-m",
+                "ruff",
+                "format",
+                "--check",
+                "--no-respect-gitignore",
+                "--config",
+                str(test_policy),
+                str(focused_tests),
             ],
             core,
             env,

@@ -8,8 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import return_password_hash
 import pytest
-import test_config_flow as controls
-from test_hardening import entities
 
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import runtime, text
@@ -17,6 +15,8 @@ from homeassistant.config_entries import ConfigEntries
 from homeassistant.core import EVENT_HOMEASSISTANT_STOP, HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from tests.runtime import test_config_flow as controls
+from tests.runtime.test_hardening import entities
 
 integration = controls.integration
 

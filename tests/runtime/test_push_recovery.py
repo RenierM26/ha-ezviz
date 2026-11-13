@@ -18,11 +18,11 @@ from pyezvizapi.push.longlink import auth as push_auth
 from pyezvizapi.push.longlink.codec import AuthenticationRejected
 from pyezvizapi.push.longlink.worker import PushWorker
 import pytest
-from test_hardening import entities
-from test_token_identity import identity_token
 
 from custom_components.ezviz_cloud import diagnostics, mqtt, tokens
 from homeassistant.config_entries import ConfigEntry
+from tests.runtime.test_hardening import entities
+from tests.runtime.test_token_identity import identity_token
 
 
 async def test_diagnostics_lock_allows_real_durable_callback_to_finish(hass, monkeypatch):

@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 
 import atomicwrites
 import pytest
-import test_config_flow as controls
 
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import config_flow, tokens
@@ -17,6 +16,7 @@ from homeassistant.config_entries import ConfigEntries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from tests.runtime import test_config_flow as controls
 
 integration = controls.integration
 sdk = controls.sdk

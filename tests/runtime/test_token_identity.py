@@ -12,7 +12,6 @@ from pyezvizapi import DeviceSnapshot
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.constants import FEATURE_CODE, PROFILE
 import pytest
-import test_config_flow as controls
 
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud.const import CONF_SDK_TOKEN, DOMAIN
@@ -21,6 +20,7 @@ from homeassistant.config_entries import ConfigEntries, ConfigEntryState, curren
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from tests.runtime import test_config_flow as controls
 
 integration = controls.integration
 

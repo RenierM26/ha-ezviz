@@ -5,7 +5,6 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from test_hardening import entities, entry_for
 
 import custom_components
 from custom_components import ezviz_cloud
@@ -27,6 +26,7 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import EntityPlatform
+from tests.runtime.test_hardening import entities, entry_for
 
 
 @pytest.fixture(autouse=True)
