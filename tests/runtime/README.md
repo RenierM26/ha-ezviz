@@ -29,12 +29,12 @@ Keep form schemas serializable (integer plus range); perform additional strict
 checks in the step before SDK calls or option writes. Error forms are serialized
 too, and booleans must not become integer timeouts.
 
-CI requires **100% statement and branch coverage** of `config_flow.py` on both HA
+CI requires **100% statement and branch coverage** of `config_flow.py` and `diagnostics.py` on both HA
 versions. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
 python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.0.0'
-python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
+python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 python -m coverage report --show-missing --fail-under=100
 ```
 
@@ -70,3 +70,15 @@ interruption, real disk restart, private staging cleanup/retry, reauth cancellat
 stale-writer ordering, foreign-account rejection and legacy login-name preservation.
 All initial/reauth direct/MFA storage-error forms are exercised. Exact opaque snapshots
 are compared, including synthetic future SDK fields and push replay state.
+
+## Diagnostics
+
+`test_diagnostics.py` compares the synthetic account snapshot with
+`fixtures/diagnostics.json` and exercises the actual HA download view for account
+and selected-device JSON. Only the wrapper's host metadata is synthetic; routing,
+registration, ownership, handlers and JSON serialization use real HA. Additional
+controls cover missing/stale and registry-only devices, failed polling, pending
+cleanup, unloaded entries, legacy caches, unexpected nested/non-finite values,
+unknown capabilities, enabled/disabled entities and credential omission. The SDK
+client must receive no calls. Existing `test_push_recovery.py` keeps the real
+SDK-lock/HA token-save deadlock regression and checks fatal recovery categories.

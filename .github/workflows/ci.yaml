@@ -120,5 +120,5 @@ jobs:
           PYVERSIONS
       - name: Real shutdown, worker ownership, image CPU and durable storage
         run: |
-          python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
+          python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
           python -m coverage report --show-missing --fail-under=100

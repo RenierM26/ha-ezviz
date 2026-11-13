@@ -187,7 +187,9 @@ async def test_diagnostics_are_cached_and_allowlisted(hass):
     entry.runtime_data = SimpleNamespace(coordinator=data, push=handler)
     value = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
     assert "PRIVATE_" not in json.dumps(value)
-    assert value["push"] == {"state": "online"}
+    assert value["push"] == {
+        "state": "online", "reauth_requested": False, "fatal_failure_category": None,
+    }
     client.get_device_infos.assert_not_called()
 
 

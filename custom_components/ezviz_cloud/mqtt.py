@@ -52,6 +52,7 @@ class EzvizMqttHandler:
         self._worker_futures: set[asyncio.Future] = set()
         self._reauth_requested = False
         self._fatal_error_type: str | None = None
+        self._fatal_failure_category: str | None = None
         self._stopping = asyncio.Event()
 
     def async_start(self) -> None:
@@ -141,6 +142,9 @@ class EzvizMqttHandler:
         if not isinstance(err, EzvizPushFatalError) and not auth_failed:
             return False
         self._fatal_error_type = type(err).__name__
+        self._fatal_failure_category = (
+            "authentication" if auth_failed else "storage" if persistence_failed else "other"
+        )
         if auth_failed:
             if not self._reauth_requested:
                 self._reauth_requested = True
@@ -242,6 +246,7 @@ class EzvizMqttHandler:
                 "state": "fatal" if self._fatal_error_type else "unavailable",
                 "reauth_requested": self._reauth_requested,
                 "fatal_error_type": self._fatal_error_type,
+                "fatal_failure_category": self._fatal_failure_category,
             }
         allowed = {
             "state",
@@ -252,7 +257,11 @@ class EzvizMqttHandler:
             "last_error_type",
             "fatal_error_type",
         }
-        return {k: v for k, v in mqtt.get_push_diagnostics().items() if k in allowed}
+        return {
+            **{k: v for k, v in mqtt.get_push_diagnostics().items() if k in allowed},
+            "reauth_requested": self._reauth_requested,
+            "fatal_failure_category": self._fatal_failure_category,
+        }
 
     def _on_message(self, event: dict) -> None:
         """Handle incoming MQTT push message (called from MQTT thread)."""

@@ -192,3 +192,33 @@ Requires **Home Assistant 2026.10.4 or newer**. CI retains the pinned 2026.10.4
 acceptance suite and separately checks native lifecycle/image/storage behavior
 on 2026.10.4 and 2026.11.0. See the shared-inventory contract for the precise
 synthetic-test boundaries and the built-in/custom EZVIZ coexistence limitation.
+
+## Downloading diagnostics
+
+Use **Download diagnostics** on the integration entry for an account-wide report,
+or on a device page for that device plus shared polling/push health. Reports use
+cached data only; downloading does not poll EZVIZ, wake a camera, read credentials
+from disk or test an RTSP stream.
+
+The report includes polling freshness and error types, per-device model/firmware,
+connectivity and freshness, observed capabilities, credential-configured booleans,
+enabled/disabled entity counts, push retries/recovery and pending cleanup. Device
+health is joined to anonymous `device_N` labels; labels are local to the report,
+not serial hashes or permanent identifiers. Missing devices remain visible when
+cached health or the device registry knows about them. Unknown is `null`, not
+proof that a feature is unsupported. `verified_binary_state_available` indicates
+whether the SDK has a qualified binary reading, **not** the door/leak state.
+
+Only allowlisted information is exported. Names, serials, account identifiers,
+addresses, passwords, encryption keys, tokens, media/RTSP URLs, raw vendor payloads
+and exception messages are omitted from the integration's JSON data. HA supplies
+its own system/manifest envelope and download filename (a device filename can
+contain its HA name). Review attachments before posting publicly.
+
+Freshness is expressed as age in seconds, not alarm/activity timestamps. A failed
+poll can retain an older snapshot: check both polling success and device
+`current`/`present`/`available` before treating cached values as current. Push
+failures distinguish authentication, storage and other fatal categories; polling
+can remain healthy while push is stopped. A failure to obtain push diagnostics
+is reported separately and does not discard the rest of the report. An unloaded
+entry returns minimal entry/runtime status without attempting setup.

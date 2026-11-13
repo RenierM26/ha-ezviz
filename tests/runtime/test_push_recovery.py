@@ -141,6 +141,9 @@ async def test_real_sdk_cached_fatal_stops_retrying(hass, monkeypatch, phase, fa
             await hass.async_add_executor_job(sdk.connect)
         assert api.get_mqtt_client() is sdk
         assert handler.get_diagnostics()["state"] == "fatal"
+        assert handler.get_diagnostics()["fatal_failure_category"] == (
+            "storage" if failure.startswith("storage") else "other" if failure == "other" else "authentication"
+        )
         assert data.last_update_success
         assert "private disk detail" not in caplog.text
         assert "private unknown failure" not in caplog.text
