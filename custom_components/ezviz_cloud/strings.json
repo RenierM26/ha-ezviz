@@ -338,6 +338,9 @@
       },
       "alarm_volume": {
         "name": "Alarm volume"
+      },
+      "alarm_voice_volume": {
+        "name": "Alarm voice volume"
       }
     },
     "sensor": {

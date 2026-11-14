@@ -20,6 +20,9 @@
       },
       "alarm_volume": {
         "default": "mdi:volume-high"
+      },
+      "alarm_voice_volume": {
+        "default": "mdi:volume-high"
       }
     },
     "select": {
