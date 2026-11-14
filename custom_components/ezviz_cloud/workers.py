@@ -2,12 +2,15 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
-def create_critical_task(hass: Any, coro: Coroutine, name: str) -> Any:
+
+def create_critical_task(hass: HomeAssistant, coro: Coroutine, name: str) -> Any:
     """Track before execution and join during HA's integration-stop phase.
 
     Merely tracking a task is insufficient: HA snapshots pre-stop tasks and can
@@ -24,7 +27,7 @@ def create_critical_task(hass: Any, coro: Coroutine, name: str) -> Any:
     return task
 
 
-def create_executor_task(hass: Any, func: Callable, *args: Any) -> Any:
+def create_executor_task(hass: HomeAssistant, func: Callable, *args: Any) -> Any:
     """Put the owner in HA's tracked set before it dispatches an executor job."""
 
     async def run() -> Any:

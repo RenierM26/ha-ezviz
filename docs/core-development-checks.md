@@ -37,6 +37,11 @@ namespace configuration:
 - Generate English translations with Core's translation tool and compare content.
 - Ruff lint and formatter.
 - Pylint including HA-specific checks, one worker, scoped to this integration.
+  Common-argument checks are strict (`--ignore-missing-annotations=n`), including
+  `hass: HomeAssistant`. An ephemeral `hass: Any` negative control must emit
+  exactly E7402 before production lint runs; it is removed before mypy/tests.
+  The former `y` override also skipped annotated common arguments, not merely
+  missing annotations, and therefore masked eight token/worker annotations.
 - Mypy in the Core integration namespace, with Core's plugin and import policy.
 - Hassfest on the **custom** integration path, using the existing exact-conflict
   wrapper. Every other validator failure remains fatal.

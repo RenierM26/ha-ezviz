@@ -22,6 +22,41 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
     subprocess.run(command, cwd=cwd, env=env, check=True, timeout=180)
 
 
+def check_argument_type_guard(
+    command: list[str], probe: Path, core: Path, env: dict[str, str]
+) -> None:
+    """Prove the actual Pylint invocation rejects a mistyped HA common argument."""
+    probe.write_text(
+        '"""Negative control for Home Assistant argument typing."""\n'
+        "from typing import Any\n\n"
+        "def policy_probe(hass: Any) -> None:\n"
+        '    """The checker must reject this annotation."""\n'
+    )
+    try:
+        result = subprocess.run(
+            [*command, "--output-format=json", str(probe)],
+            cwd=core,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        messages = json.loads(result.stdout)
+        if (
+            result.returncode != 2
+            or len(messages) != 1
+            or messages[0]["message-id"] != "E7402"
+            or messages[0]["symbol"] != "home-assistant-argument-type"
+        ):
+            raise RuntimeError(
+                f"Pylint common-argument negative control failed: {result.stdout} {result.stderr}"
+            )
+        print("PASS: Pylint negative control rejects hass: Any with E7402", flush=True)
+    finally:
+        probe.unlink()
+
+
 def prepare_test_overlay(core: Path, overlay: Path) -> tuple[Path, Path]:
     """Copy focused tests and Core's own test-policy overlay."""
     # Use Core's test overlay, not production rules for private-access tests.
@@ -175,22 +210,19 @@ def main() -> None:
             core,
             env,
         )
-        run(
-            [
-                python,
-                "-m",
-                "pylint",
-                "--rcfile",
-                str(core / "pyproject.toml"),
-                "--ignore-missing-annotations=y",
-                "--reports=n",
-                "-j",
-                "1",
-                str(mirror),
-            ],
-            core,
-            env,
-        )
+        pylint_command = [
+            python,
+            "-m",
+            "pylint",
+            "--rcfile",
+            str(core / "pyproject.toml"),
+            "--ignore-missing-annotations=n",
+            "--reports=n",
+            "-j",
+            "1",
+        ]
+        check_argument_type_guard(pylint_command, mirror / "_type_policy_probe.py", core, env)
+        run([*pylint_command, str(mirror)], core, env)
         run(
             [
                 python,
