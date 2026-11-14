@@ -16,6 +16,7 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
@@ -176,8 +177,12 @@ class EzvizLight(EzvizEntity, LightEntity):
                     self._serial,
                     percent,
                 )
+                if ok is False:
+                    raise HomeAssistantError(
+                        "EZVIZ did not accept the brightness command"
+                    )
                 if ok:
-                    self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
+                    await self.coordinator.async_request_refresh()
 
             # Then power on
             ok = await self.coordinator.async_execute(
@@ -185,9 +190,10 @@ class EzvizLight(EzvizEntity, LightEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
             )
+            if ok is False:
+                raise HomeAssistantError("EZVIZ did not accept the light command")
             if ok:
-                self._attr_is_on = True
-                self.async_write_ha_state()
+                await self.coordinator.async_request_refresh()
 
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn on light", err) from err
@@ -201,9 +207,10 @@ class EzvizLight(EzvizEntity, LightEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
             )
+            if ok is False:
+                raise HomeAssistantError("EZVIZ did not accept the light command")
             if ok:
-                self._attr_is_on = False
-                self.async_write_ha_state()
+                await self.coordinator.async_request_refresh()
 
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn off light", err) from err

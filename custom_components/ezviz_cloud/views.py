@@ -1,33 +1,73 @@
 """Ezviz Integration views (proxy and decrypt images)."""
 
-from base64 import urlsafe_b64decode, urlsafe_b64encode
-import binascii
 from http import HTTPStatus
+from ipaddress import ip_address
 import logging
+import socket
+from urllib.parse import urlsplit
 
-from aiohttp import ClientError, ClientTimeout, web
-from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
+from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
+from aiohttp.resolver import ThreadedResolver
+from pyezvizapi.devices.images import process_image_bytes
 from pyezvizapi.exceptions import PyEzvizError
-from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.image import infer_image_type
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_CLOSE
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import CONF_ENC_KEY, DOMAIN, OPTIONS_KEY_CAMERAS
+from .image import _has_residual_encryption
 
 _LOGGER = logging.getLogger(__name__)
 
 
+class PublicImageResolver(ThreadedResolver):
+    """Reject non-public DNS results at the actual connection boundary."""
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET):
+        """Use only globally routable addresses, including after DNS changes."""
+        addresses = await super().resolve(host, port, family)
+        if not addresses or any(
+            not ip_address(item["host"]).is_global for item in addresses
+        ):
+            raise OSError("Non-public image target")
+        return addresses
+
+
+def _public_image_url(url: str) -> bool:
+    """Require HTTPS and reject literal private targets (which bypass DNS)."""
+    try:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.port not in (None, 443)
+            or parsed.fragment
+            or any(ord(char) <= 32 for char in url)
+        ):
+            return False
+        try:
+            return ip_address(parsed.hostname).is_global
+        except ValueError:
+            return True
+    except ValueError:
+        return False
+
+
 @callback
-def async_generate_image_proxy_url(config_entry_id: str, serial: str, url: str) -> str:
-    """Generate proxy URL for alarm image (decrypted if needed)."""
+def async_generate_image_proxy_url(
+    config_entry_id: str, serial: str, reference: str
+) -> str:
+    """Generate a URL for an opaque server-owned image reference, never a URL."""
     return ImageProxyView.url.format(
         config_entry_id=config_entry_id,
         serial=serial,
-        url=urlsafe_b64encode(url.encode("utf-8")).decode("utf-8"),
+        url=reference,
     )
 
 
@@ -51,20 +91,21 @@ class ImageProxyView(HomeAssistantView):
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the proxy view."""
         self.hass = hass
-        self.session = async_get_clientsession(hass)
+        # A dedicated connector enforces public-only DNS at connection time;
+        # HA's pooled connector cannot accept a custom resolver.
+        self.session = ClientSession(
+            connector=TCPConnector(resolver=PublicImageResolver())
+        )
+
+        async def close_session(_event: Event) -> None:
+            await self.session.close()
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_CLOSE, close_session)
 
     async def get(
         self, request: web.Request, config_entry_id: str, serial: str, url: str
     ) -> web.StreamResponse:
         """Return decrypted image bytes for an alarm picture."""
-        try:
-            raw_url = urlsafe_b64decode(url.encode("utf-8")).decode("utf-8")
-        except ValueError, binascii.Error, UnicodeDecodeError:
-            return web.Response(
-                text="Invalid encoded URL",
-                status=HTTPStatus.BAD_REQUEST,
-            )
-
         entry = self.hass.config_entries.async_get_entry(config_entry_id)
         if entry is None or entry.domain != DOMAIN:
             return web.Response(
@@ -78,6 +119,19 @@ class ImageProxyView(HomeAssistantView):
             return web.Response(
                 text="EZVIZ integration is unavailable",
                 status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+
+        record = coordinator.image_records.get(url)
+        if (
+            serial not in (coordinator.data or {})
+            or record is None
+            or record[0] != serial
+        ):
+            return web.Response(text="Unknown image", status=HTTPStatus.NOT_FOUND)
+        raw_url = record[1]
+        if not _public_image_url(raw_url):
+            return web.Response(
+                text="Invalid image target", status=HTTPStatus.BAD_REQUEST
             )
 
         enc_key = _encryption_key(self.hass, entry, serial)
@@ -94,13 +148,15 @@ class ImageProxyView(HomeAssistantView):
             resp = await self.session.get(
                 raw_url,
                 headers=headers,
+                allow_redirects=False,
                 timeout=ClientTimeout(
                     total=30, connect=10, sock_connect=10, sock_read=20
                 ),
             )
             if resp.status != HTTPStatus.OK:
-                return web.Response(text="Unable to fetch image", status=resp.status)
-            content_type = resp.content_type or "image/jpeg"
+                return web.Response(
+                    text="Unable to fetch image", status=HTTPStatus.BAD_GATEWAY
+                )
             body = await resp.read()
         except (ClientError, TimeoutError) as err:
             _LOGGER.debug("Error fetching EZVIZ image (%s)", type(err).__name__)
@@ -111,25 +167,25 @@ class ImageProxyView(HomeAssistantView):
             if resp is not None:
                 resp.release()
 
-        # Try to decrypt if key available; the helper returns original if unencrypted
-        if enc_key:
-            try:
-                body = await coordinator.async_execute(decrypt_image, body, enc_key)
-            except HomeAssistantError:
-                return web.Response(
-                    text="EZVIZ integration is unavailable",
-                    status=HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-            except PyEzvizError as err:
-                _LOGGER.debug("Image decryption failed (%s)", type(err).__name__)
-                return web.Response(
-                    text="Unable to decrypt image", status=HTTPStatus.BAD_REQUEST
-                )
-        # If no key is set and the payload looks encrypted, warn once per request
-        elif body[: len(HIK_ENCRYPTION_HEADER)] == HIK_ENCRYPTION_HEADER:
-            _LOGGER.warning(
-                "Image appears encrypted but no encryption key is set for camera %s",
-                serial,
+        try:
+            # Media browser defaults to the first SDK lens, with or without a key.
+            body = await coordinator.async_execute(
+                process_image_bytes, body, enc_key, 1, 1
             )
-
+        except HomeAssistantError:
+            return web.Response(
+                text="EZVIZ integration is unavailable",
+                status=HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        except PyEzvizError:
+            return web.Response(
+                text="Unable to decode image", status=HTTPStatus.BAD_REQUEST
+            )
+        content_type = (
+            "image/jpeg" if body.startswith(b"\xff\xd8\xff") else infer_image_type(body)
+        )
+        if _has_residual_encryption(body) or content_type is None:
+            return web.Response(
+                text="Unable to decode image", status=HTTPStatus.BAD_REQUEST
+            )
         return web.Response(body=body, content_type=content_type)

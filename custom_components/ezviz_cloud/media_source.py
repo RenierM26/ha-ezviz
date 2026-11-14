@@ -172,9 +172,28 @@ class EzvizMediaSource(MediaSource):
         parsed = _parse_image_id(item.identifier)
         if parsed.entry_id is not None:
             assert parsed.serial is not None
+            entry = self.hass.config_entries.async_get_entry(parsed.entry_id)
+            runtime = getattr(entry, "runtime_data", None)
+            if entry is None or entry.domain != DOMAIN or runtime is None:
+                raise Unresolvable("EZVIZ image is unavailable; browse again")
+            coordinator = runtime.coordinator
+            reference = next(
+                (
+                    ref
+                    for ref, record in coordinator.image_records.items()
+                    if record == (parsed.serial, parsed.url)
+                ),
+                None,
+            )
+            if (
+                reference is None
+                or coordinator.shutting_down
+                or parsed.serial not in coordinator.data
+            ):
+                raise Unresolvable("EZVIZ image is unavailable; browse again")
             return PlayMedia(
                 async_generate_image_proxy_url(
-                    parsed.entry_id, parsed.serial, parsed.url
+                    parsed.entry_id, parsed.serial, reference
                 ),
                 parsed.mime,
             )
@@ -197,7 +216,9 @@ class EzvizMediaSource(MediaSource):
                 last_pic = cam.get("last_alarm_pic")
                 thumb = (
                     async_generate_image_proxy_url(
-                        config_entry.entry_id, serial, last_pic
+                        config_entry.entry_id,
+                        serial,
+                        coordinator.register_image(serial, last_pic),
                     )
                     if last_pic
                     else None
@@ -253,6 +274,8 @@ class EzvizMediaSource(MediaSource):
             )
 
         coordinator = data.coordinator
+        if serial not in (coordinator.data or {}):
+            raise Unresolvable("Unknown EZVIZ camera")
         cam_name = (coordinator.data or {}).get(serial, {}).get("name", serial)
 
         alarms = await self._async_get_alarms(coordinator, serial=serial, limit=limit)
@@ -305,6 +328,8 @@ class EzvizMediaSource(MediaSource):
             )
         if cam_serial is None:
             return None
+        if serial_to_name and cam_serial not in serial_to_name:
+            return None
         cam_name = None
         if serial_to_name and cam_serial in serial_to_name:
             cam_name = serial_to_name.get(cam_serial)
@@ -325,6 +350,11 @@ class EzvizMediaSource(MediaSource):
         except ValueError:
             return None
 
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        runtime = getattr(entry, "runtime_data", None)
+        if runtime is None or cam_serial not in runtime.coordinator.data:
+            return None
+        reference = runtime.coordinator.register_image(cam_serial, pic)
         # Route images through proxy for optional decryption using camera key
         img_identifier: str | None = (
             f"EIMG|{entry_id}|{cam_serial}|{_b64e(str(pic))}" if pic else None
@@ -332,7 +362,9 @@ class EzvizMediaSource(MediaSource):
         # Build a proxied thumbnail too (avoids showing encrypted thumbs)
         proxy_serial: str = str(cam_serial or "")
         thumb = (
-            async_generate_image_proxy_url(entry_id, proxy_serial, pic) if pic else None
+            async_generate_image_proxy_url(entry_id, proxy_serial, reference)
+            if pic
+            else None
         )
 
         return BrowseMediaSource(

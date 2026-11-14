@@ -1,10 +1,12 @@
 """Provides the ezviz DataUpdateCoordinator."""
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from datetime import timedelta
 import logging
+from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
@@ -53,6 +55,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
+        self.image_records: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
         self._close_succeeded = False
@@ -99,6 +102,20 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         return self.ezviz_client.poll_devices(
             DevicePollOptions(timeout=self._api_timeout)
         )
+
+    def register_image(self, serial: str, url: str) -> str:
+        """Remember only SDK-provided images in a bounded account-local registry."""
+        if serial not in (self.data or {}):
+            raise ValueError("Unknown camera")
+        record = (serial, url)
+        for reference, existing in self.image_records.items():
+            if existing == record:
+                return reference
+        reference = token_urlsafe(24)
+        self.image_records[reference] = record
+        while len(self.image_records) > 1024:
+            self.image_records.popitem(last=False)
+        return reference
 
     def device_data(self, serial: str) -> dict[str, Any]:
         """Use the camera push projection, otherwise the detached inventory view."""

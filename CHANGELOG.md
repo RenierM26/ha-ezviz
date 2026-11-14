@@ -26,6 +26,16 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Bind media-proxy requests to bounded, account/camera-owned image references;
+  reject caller URLs, private DNS/IP targets and redirects. Old proxy links must
+  be refreshed by browsing again. Only direct public HTTPS image targets work.
+- Decode media-browser images through the SDK even without a key (first lens),
+  reject unresolved encryption and serve the decoded image content type.
+- Publish siren availability on coordinator failure/recovery without polling or
+  changing local assumed state/timer semantics.
+- Camera switches/lights now await shared authoritative refresh rather than
+  publishing optimistic values that unrelated alarm pushes could roll back.
+
 - Recognize clear image signatures before rejecting embedded encryption markers,
   including legal JPEG metadata in fresh/cached Last motion and Snapshot images.
   Keep residual ciphertext rejection and recovery. Image fetch failures no longer
