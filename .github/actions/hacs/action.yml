@@ -1,0 +1,25 @@
+# Input contract: hacs/action at 1ebf01c408f29afcb6406bd431bc98fd8cbb15aa.
+name: Pinned HACS validation
+description: Run the audited upstream HACS image by immutable digest
+inputs:
+  ignore:
+    description: Space-separated checks to ignore
+    required: false
+    default: ""
+  category:
+    description: Repository category
+    required: true
+  repository:
+    description: Repository name override
+    required: false
+  comment:
+    description: Post the upstream validation result
+    required: false
+    default: "true"
+  github_token:
+    description: GitHub token used by the upstream validator
+    required: false
+    default: ${{ github.token }}
+runs:
+  using: docker
+  image: Dockerfile
