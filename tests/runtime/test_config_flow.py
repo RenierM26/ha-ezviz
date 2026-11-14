@@ -18,7 +18,7 @@ import pytest
 
 import custom_components
 from custom_components import ezviz_cloud
-from custom_components.ezviz_cloud import config_flow as flow
+from custom_components.ezviz_cloud import camera_flow, config_flow as flow
 from custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
     DEFAULT_FETCH_MY_KEY,
@@ -273,7 +273,7 @@ async def start_camera(hass, monkeypatch, *, cameras=True, battery=False):
     )
     entry.runtime_data = SimpleNamespace(coordinator=coordinator)
     rtsp = MagicMock()
-    monkeypatch.setattr(flow, "TestRTSPAuth", rtsp)
+    monkeypatch.setattr(camera_flow, "TestRTSPAuth", rtsp)
     manager = hass.config_entries.options
     result = await manager.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+COVERED_MODULES = ("config_flow", "options_flow", "camera_flow", "flow_validation", "diagnostics")
 
 
 def run(*args: str, env: dict[str, str] | None = None) -> None:
@@ -104,7 +105,8 @@ def main() -> None:
             "coverage",
             "run",
             "--branch",
-            "--source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics",
+            "--source="
+            + ",".join(f"custom_components.ezviz_cloud.{name}" for name in COVERED_MODULES),
             "-m",
             "pytest",
             "-p",

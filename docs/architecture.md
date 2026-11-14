@@ -1,6 +1,6 @@
 # Integration architecture and ownership
 
-Baseline: merged foundations PR #239 (`7ef0caa`), HA 2026.10.4+, published SDK 2.2.0+.
+Baseline: merged ownership PR #240 (`cf0ee87`), HA 2026.10.4+, published SDK 2.2.0+.
 This describes current contracts; it is not a proposal to replace working owners.
 
 ## Boundaries
@@ -8,7 +8,7 @@ This describes current contracts; it is not a proposal to replace working owners
 | Concern | Owner | Contract |
 | --- | --- | --- |
 | Vendor authentication, HTTP fallback, push protocol, device rendering | `pyezvizapi` | HA consumes published SDK APIs; no copied vendor routing/auth implementation. SDK success is not proof of physical operation. |
-| Initial login/MFA/reauth, options and migration forms | `config_flow.py`, `migration.py` | Preserve step IDs, HTTP-serializable forms, config-entry identity, migrations and retryable storage errors. |
+| Initial login/MFA/reauth, options and migration forms | `config_flow.py`, `options_flow.py`, `camera_flow.py`, `flow_validation.py`, `migration.py` | Preserve step IDs, HTTP-serializable forms, config-entry identity, migrations and retryable storage errors. |
 | Installation identity, staged login, canonical token snapshot | `tokens.py` | Acknowledge durable private Store writes; retain opaque SDK fields, shared locks and revisions; reject stale writers. |
 | Committed per-camera options and key changes | `credentials.py` | Serialize device operation and local commit; reject conflicting edits; do not resurrect removed entries. |
 | Account polling, accepted inventory and command executor ownership | `coordinator.py`, `workers.py` | One shared poll owner; retain pending work through cancellation/unload; native tests block network/DNS. |
@@ -62,4 +62,4 @@ callbacks and commands from a prior lifetime must not write to re-added entities
 - Report configured, SDK-accepted, HA-reported and physically observed outcomes
   separately. Offline qualification does not establish live cloud/device behavior.
 
-See [lifecycle audit and evidence](lifecycle-audit.md), [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).
+See [flow module boundaries](flow-modularity.md), [lifecycle audit and evidence](lifecycle-audit.md), [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).
