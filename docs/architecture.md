@@ -1,6 +1,6 @@
 # Integration architecture and ownership
 
-Baseline: merged PR #238 (`651460a`), HA 2026.10.4+, published SDK 2.2.0+.
+Baseline: merged foundations PR #239 (`7ef0caa`), HA 2026.10.4+, published SDK 2.2.0+.
 This describes current contracts; it is not a proposal to replace working owners.
 
 ## Boundaries
@@ -30,7 +30,9 @@ This describes current contracts; it is not a proposal to replace working owners
 4. Successful unload stops the runtime after platforms unload. The foreground
    wait is bounded, but pending work/cleanup still has an owner.
 5. Removal waits for token-producing work to finish before deleting private
-   credentials. Failed cleanup must remain retryable, not lose its owner.
+   credentials. Transient deletion failures retain the same critical task and
+   persistence owner for retry. Shared account identity used by a replacement
+   cloud entry is not deleted by old-entry cleanup.
 
 `hass.data` exceptions are intentional and line-scoped: instance-wide view
 registration, retained `_runtimes`, pre-entry `_identity_stores`, and shared
@@ -60,4 +62,4 @@ callbacks and commands from a prior lifetime must not write to re-added entities
 - Report configured, SDK-accepted, HA-reported and physically observed outcomes
   separately. Offline qualification does not establish live cloud/device behavior.
 
-See [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).
+See [lifecycle audit and evidence](lifecycle-audit.md), [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).

@@ -403,8 +403,16 @@ class TokenPersistence:
             self._state.record = None
             identity = _identity_state(self._hass, self._account)
             async with identity.lock:
-                await identity.store.async_remove()
-                identity.needs_ack = False
+                # Account identity is shared across entry lifetimes. HA may have
+                # created a replacement while this removed entry was draining.
+                if not any(
+                    candidate.entry_id != self._entry.entry_id
+                    and candidate.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD
+                    and _account(candidate) == self._account
+                    for candidate in self._hass.config_entries.async_entries(DOMAIN)
+                ):
+                    await identity.store.async_remove()
+                    identity.needs_ack = False
 
     async def async_drain(self) -> None:
         """Join pending credential writes without discarding ownership."""

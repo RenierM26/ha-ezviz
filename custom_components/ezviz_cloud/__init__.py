@@ -1,5 +1,6 @@
 """EZVIZ integration init."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -73,6 +74,7 @@ PLATFORMS: list[Platform] = [
 ]
 
 TARGET_VERSION = 5
+REMOVE_RETRY_SECONDS = 30
 
 
 async def _async_validate_login(
@@ -204,28 +206,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except BaseException:
-        await runtime.async_stop()
-        raise
 
-    # MQTT handler
-    mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
-    runtime.push = mqtt_handler
+        mqtt_handler = EzvizMqttHandler(hass, client, entry.entry_id)
+        runtime.push = mqtt_handler
 
-    # Register HTTP view for image proxy/decryption once per instance
-    domain_data = hass.data.setdefault(DOMAIN, {})  # pylint: disable=home-assistant-use-runtime-data
-    if not domain_data.get("_http_view_registered"):
-        hass.http.register_view(ImageProxyView(hass))
-        domain_data["_http_view_registered"] = True
+        # View registration and push startup share the same owner as polling and
+        # platform setup. Any late setup failure must release that owner too.
+        domain_data = hass.data.setdefault(DOMAIN, {})  # pylint: disable=home-assistant-use-runtime-data
+        if not domain_data.get("_http_view_registered"):
+            hass.http.register_view(ImageProxyView(hass))
+            domain_data["_http_view_registered"] = True
 
-    try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         _ensure_setup_running(coordinator)
+        mqtt_handler.async_start()
     except BaseException:
         await runtime.async_stop()
         raise
-
-    mqtt_handler.async_start()
 
     return True
 
@@ -258,12 +255,33 @@ async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> No
     runtime = getattr(entry, "runtime_data", runtime)
 
     async def remove() -> None:
-        if runtime is not None:
-            await runtime.async_wait_stopped()
         persistence = runtime.persistence if runtime is not None else None
-        await (persistence or TokenPersistence(hass, entry)).async_remove()
-        if owners.get(entry.entry_id) is runtime:
-            owners.pop(entry.entry_id, None)
+        persistence = persistence or TokenPersistence(hass, entry)
+        failed = False
+        while True:
+            try:
+                if runtime is not None:
+                    await runtime.async_wait_stopped()
+                await persistence.async_remove()
+            except Exception as err:  # noqa: BLE001 - Retain removed-entry cleanup ownership for retry.
+                if not failed:
+                    _LOGGER.warning(
+                        "EZVIZ credential removal incomplete (%s); retrying in %s seconds",
+                        type(err).__name__,
+                        REMOVE_RETRY_SECONDS,
+                    )
+                else:
+                    _LOGGER.debug(
+                        "EZVIZ credential removal retry failed (%s)", type(err).__name__
+                    )
+                failed = True
+                await asyncio.sleep(REMOVE_RETRY_SECONDS)
+            else:
+                if owners.get(entry.entry_id) is runtime:
+                    owners.pop(entry.entry_id, None)
+                if failed:
+                    _LOGGER.info("EZVIZ credential removal completed")
+                return
 
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 

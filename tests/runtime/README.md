@@ -160,3 +160,14 @@ python -m tools.qualify_switch_errors
 It checks all four primary/fallback HTTP pairs using real SDK wrapping/fallback
 and HA classification. Run with SDK 2.2.0 or newer in a native HA environment.
 SDK 2.1.0 remains an intentional negative control, not a supported minimum.
+
+
+## Ownership audit
+
+`core_policy/test_ownership.py` adds actual HA setup/unload/removal and private
+Store filesystem controls for late setup failure, transient unlink retry at all
+three private file stages, replacement-account identity preservation and retry
+through HA stop. A platform-refused unload remains an unrecoverable HA state with
+its working owner retained; the test does not fabricate an unsupported retry.
+See the [audit/evidence matrix](../../docs/lifecycle-audit.md) for related existing
+controls, closed gaps and process-local cleanup limits.
