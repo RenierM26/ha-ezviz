@@ -14,7 +14,7 @@ rewrite; flow behavior is covered by the native HA tests.
 - Check your selected release's HA/Python requirements. Main requires HA
   2026.10.4+ and Python 3.14.2+. Do not replace HA OS/Container's managed Python.
 - Do not run this alongside built-in EZVIZ: its `pyezvizapi==1.0.5.0` pin conflicts
-  with this line's `>=2.2.0` requirement. The narrowly documented CI exception is
+  with this line's `>=2.3.0` requirement. The narrowly documented CI exception is
   not proof that both can load together. Do not force-install SDK packages into
   HA to hide a dependency conflict.
 - For an existing installation, first read [upgrading and rollback](upgrading.md).

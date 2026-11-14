@@ -1,48 +1,70 @@
-# SDK feature boundary migration (release-blocked draft)
+# SDK feature boundary migration
 
-This branch depends on the new public device controls, audio and image helpers in
-[pyEzvizApi #438](https://github.com/RenierM26/pyEzvizApi/pull/438). **Do not merge or deploy it against SDK 2.2.0.**
-The provisional next minimum is 2.3.0. Before landing, publish/qualify the actual
-SDK release and update the manifest and `requirements/sdk.txt` together if its
-version differs. The normal published-profile CI checks intentionally remain
-unchanged: an unreleased candidate is not proof the published dependency works.
+This integration requires **published pyezvizapi 2.3.0 or newer**, with CI and
+local check profiles pinned to exactly 2.3.0 from PyPI. The manifest and
+`requirements/sdk.txt` agree. The release contains both the extraction
+[SDK #438](https://github.com/RenierM26/pyEzvizApi/pull/438) and the focused-module
+refactor [SDK #439](https://github.com/RenierM26/pyEzvizApi/pull/439).
+No editable checkout, source override or direct-Git dependency is required.
+Pillow is already an explicit Home Assistant core dependency, so the SDK image
+helpers use HA's provided Pillow rather than adding another conflicting pin.
 
-Moved to SDK:
+## Ownership
+
+The SDK owns:
 
 - Chime/voice/microphone capability, range, decoding and field-preserving writes.
-- Port-security read/modify/write, including SDK-owned cached fallback.
+- Port-security read/modify/write, enclosing enable hints and cached vendor fields.
 - `SupportExtView` matching and vendor feature/network/storage readers.
 - Linked-tracking nested payloads and commands; encoded intelligent-app readers.
-- Concatenated JPEG scanning and stacked-lens splitting/decryption.
+- JPEG marker scanning, embedded-thumbnail handling, decryption and stacked-lens splitting.
 
-HA retains entity descriptions/IDs, `passes_description_gates` orchestration,
-executor ownership, coordinator refreshes, credential storage, image fetching and
-caching, config flows, translations, migrations and media presentation. `utility`
-re-exports SDK helpers so existing integration consumers have one implementation.
-No entity-registry migration or live account/device access is part of this work.
+HA imports the canonical SDK modules. Its `utility` module retains description-
+gate orchestration and compatibility re-exports, not duplicate vendor parsing.
+HA still owns entity descriptions/IDs, executor and shutdown ownership, refresh,
+credentials, image fetching/caching, config flows, translations, migrations and
+media presentation. This migration makes no entity-registry changes.
 
-Intentional fixes: microphone writes preserve unknown/speaker fields rather than
-inventing a speaker volume of 100. Missing reported microphone configuration and
-non-finite writes fail before I/O. SDK image processing does not alter Pillow's
-process-global truncated-image flag; undecodable composites pass through.
+## Intentional inherited fixes
 
-## Candidate validation (not published-release qualification)
+Microphone writes preserve unknown/speaker fields rather than inventing speaker
+volume 100. Missing reported microphone configuration and non-finite writes fail
+before IO. Port updates preserve enclosing enable flags and extension fields in
+fresh/cached configurations; write objects remain detached. JPEG extraction
+keeps embedded EXIF thumbnails inside their containing frame. The SDK closes
+source/cropped images and does not change Pillow's process-global truncated-
+image policy; undecodable composites pass through. No live device outcome is
+inferred from offline regression tests.
 
-Use an isolated environment with the normal HA test requirements and Pillow.
-Point `PYTHONPATH` at the companion SDK checkout and run explicit test layers:
+## Published dependency qualification
+
+Install normal isolated profile requirements and use the shared checks:
 
 ```
-PYTHONPATH=/path/to/companion-sdk python -m pytest tests/test_*.py
-PYTHONPATH=/path/to/companion-sdk python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
-PYTHONPATH=/path/to/companion-sdk PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -p pytest_asyncio.plugin --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
+python -m pip install -r requirements/lint.txt
+python tools/check.py lint
+python tools/check.py standalone
+# In separate native environments with tests/runtime/requirements.txt,
+# requirements/sdk.txt and each supported Home Assistant version:
+python tools/check.py native
+# In the separate plugin-patched acceptance environment:
+python tools/check.py acceptance
+# In the scoped Core-dev environment:
+python tools/check.py core --core /path/to/core --runtime-tests
 ```
 
-Run each layer in its own environment as documented in the runtime test guide.
-After release, rerun the standard `tools/check.py` profiles against the published
-wheel without a source override, including both supported HA versions/Core-dev.
+Do not set `PYTHONPATH` to an SDK checkout. The shared runner checks the installed
+SDK distribution version against the manifest/profile before running tests.
+Both HA 2026.10.4/2026.11.0 and Core-dev are qualified; flow/diagnostics retain
+100% statement/branch coverage. Actual HA number-service controls cover field-
+preserving microphone writes, observed state, owned worker execution and failures.
 
-The Core source Ruff/format/Pylint/mypy and translation checks pass locally.
-The end-to-end policy runner currently stops at hassfest: its deliberately exact
-2.2.0 custom-only dependency exception does not permit provisional 2.3.0.
-Requalify/update that exact exception and its tests only when the released SDK
-profile is known; do not widen it or claim stock Core dependency compatibility.
+## Narrow Core dependency conflict
+
+Core's optional built-in EZVIZ integration still requests `pyezvizapi==1.0.5.0`.
+`tools/check_hassfest.py` permits only the exact custom-only
+`pyezvizapi>=2.3.0` conflict with that pin, with a visible warning. Other packages,
+changed versions, additional errors and core integrations remain fatal; negative
+controls cover the old 2.2.0 requirement too. This is **not** stock hassfest
+success or proof the built-in and custom integrations can coexist. Do not enable
+them together. Remove the exception when upstream alignment makes it unused.

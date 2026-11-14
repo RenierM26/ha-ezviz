@@ -1,2 +1,2 @@
-# Provisional next SDK release; draft blocked until published and qualified.
+# Published SDK minimum qualified by CI and development profiles.
 pyezvizapi==2.3.0
