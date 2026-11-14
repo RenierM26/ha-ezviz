@@ -42,6 +42,8 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 ## Features and limits
 
 - Existing camera platforms and stable entity/action identities are retained.
+- [Alarm volume](docs/alarm-volume.md) exposes a 0–100 configuration control on
+  cameras reporting `ChimeMusic.volume`, without changing arm/disarm behavior.
 - One SDK poll supplies cameras, detectors, light bulbs and plugs. Entity
   availability requires successful polling, current/present device health and a
   known online state; retained stale values are not current measurements.
