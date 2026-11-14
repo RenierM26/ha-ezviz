@@ -8,6 +8,8 @@ from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.exceptions import HomeAssistantError
 
+from .errors import request_error
+
 
 def async_add_inventory_entities(
     coordinator: Any, entry: Any, add: Callable, kind: str, factory: Callable
@@ -64,7 +66,5 @@ async def async_set_power(entity: Any, on: bool) -> None:
         if result is False:
             raise HomeAssistantError("EZVIZ did not accept the power command")
     except (HTTPError, PyEzvizError, OSError, TimeoutError) as error:
-        raise HomeAssistantError(
-            f"EZVIZ power command failed ({type(error).__name__})"
-        ) from error
+        raise request_error("Set device power", error) from error
     await entity.coordinator.async_request_refresh()

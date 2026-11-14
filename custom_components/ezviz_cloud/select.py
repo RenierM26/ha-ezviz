@@ -27,6 +27,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 from .utility import (
     has_lens_defog,
@@ -434,7 +435,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
                 set_value,
                 self.data,
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot set option for {self.entity_id}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Select option", err) from err
 
         await self.coordinator.async_request_refresh()

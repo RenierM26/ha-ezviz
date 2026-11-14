@@ -15,12 +15,12 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelState,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -109,8 +109,8 @@ class EzvizAlarm(AlarmControlPanelEntity):
             ):
                 self._attr_alarm_state = AlarmControlPanelState.DISARMED
 
-        except PyEzvizError as err:
-            raise HomeAssistantError("Cannot disarm EZVIZ alarm") from err
+        except (PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Disarm alarm", err) from err
 
     @override
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
@@ -122,8 +122,8 @@ class EzvizAlarm(AlarmControlPanelEntity):
             ):
                 self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
 
-        except PyEzvizError as err:
-            raise HomeAssistantError("Cannot arm EZVIZ alarm") from err
+        except (PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Arm alarm", err) from err
 
     @override
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
@@ -135,8 +135,8 @@ class EzvizAlarm(AlarmControlPanelEntity):
             ):
                 self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
 
-        except PyEzvizError as err:
-            raise HomeAssistantError("Cannot arm EZVIZ alarm") from err
+        except (PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Arm alarm", err) from err
 
     async def async_update(self) -> None:
         """Fetch data from EZVIZ."""
@@ -152,7 +152,5 @@ class EzvizAlarm(AlarmControlPanelEntity):
                 int(ezviz_alarm_state_number)
             ]
 
-        except PyEzvizError as error:
-            raise HomeAssistantError(
-                f"Could not fetch EZVIZ alarm status: {error}"
-            ) from error
+        except (PyEzvizError, OSError, TimeoutError) as error:
+            raise request_error("Fetch alarm status", error) from error

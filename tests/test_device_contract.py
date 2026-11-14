@@ -40,7 +40,11 @@ def coordinator_module(monkeypatch):
         def async_set_updated_data(self, value):
             self.data = value
     class Failed(Exception):
-        pass
+        def __init__(self, *args, translation_domain=None, translation_key=None,
+                     translation_placeholders=None):
+            # Match HA's translated-exception constructor; actual rendering is
+            # verified by the network-denied native runtime suite.
+            super().__init__(*args or (translation_key,))
     for name in ("homeassistant", "homeassistant.core", "homeassistant.helpers"):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     monkeypatch.setitem(sys.modules, "homeassistant.exceptions", SimpleNamespace(ConfigEntryAuthFailed=Failed, HomeAssistantError=Failed))

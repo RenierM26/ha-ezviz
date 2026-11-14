@@ -13,13 +13,13 @@ from homeassistant.components.siren import (
 )
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 import homeassistant.helpers.event as evt
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizBaseEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 
 PARALLEL_UPDATES = 1
@@ -88,10 +88,8 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 1
             )
 
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Failed to turn siren off for {self.name}"
-            ) from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Turn off siren", err) from err
 
         if result and not self._removed:
             self._cancel_off_delay()
@@ -107,10 +105,8 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 2
             )
 
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(
-                f"Failed to turn siren on for {self.name}"
-            ) from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Turn on siren", err) from err
 
         if result and not self._removed:
             self._attr_is_on = True

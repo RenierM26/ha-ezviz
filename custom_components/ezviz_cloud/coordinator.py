@@ -24,6 +24,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import DOMAIN
 from .credentials import CameraCredentials
+from .errors import request_error
 from .workers import create_critical_task, create_executor_task
 
 if TYPE_CHECKING:
@@ -86,9 +87,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed from error
 
         except (InvalidURL, HTTPError, PyEzvizError, OSError, TimeoutError) as error:
-            raise UpdateFailed(
-                f"EZVIZ polling failed ({type(error).__name__})"
-            ) from error
+            raise UpdateFailed(str(request_error("Poll devices", error))) from error
 
     @property
     def poll_in_flight(self) -> bool:

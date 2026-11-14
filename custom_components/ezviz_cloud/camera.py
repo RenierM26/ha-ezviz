@@ -41,6 +41,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -276,8 +277,8 @@ class EzvizCamera(EzvizEntity, Camera):
             await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.get_detection_sensibility, self._serial
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot wake device") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Wake camera", err) from err
 
     async def async_capture_picture(self) -> ServiceResponse:
         """Take a new picture through the EZVIZ cloud.
@@ -289,8 +290,8 @@ class EzvizCamera(EzvizEntity, Camera):
             result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.capture_picture, self._serial, 1
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot capture picture: {err}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Capture picture", err) from err
 
         capture_info = (
             result.get("captureInfo") if isinstance(result, Mapping) else None

@@ -105,3 +105,23 @@ callbacks, retrigger/manual-off/removal, committed RTSP credential selection and
 existing source refresh, creation/commit/unload ordering, real HA preloaded stream
 restart/stop with preserved preferences, and entry-scoped push device resolution.
 These controls use synthetic SDK IO and never contact cameras or the cloud.
+
+## Request failure messages
+
+`core_policy/test_errors.py` exercises the published SDK's empty `HTTPError`
+chained to a real `requests.HTTPError`, API response-summary codes, transport
+failures, actual HA exception translation loading, malformed cause cycles,
+secret-bearing payload omission, alarm recovery without reauth and permission
+failures across camera action platforms. Network access remains prohibited.
+
+Messages retain HTTP vs API numeric codes without forwarding arbitrary SDK text,
+URLs, response bodies, account names or credentials. A 403 indicates a permission
+rejection, not proof that a device is shared or unsupported; the owner/app check
+is guidance, not an automatic capability change. A 504 is a request timeout, not
+a reason to clear credentials, restart HA or initiate reauthentication. Existing
+coordinator handling for explicit SDK authentication exceptions is unchanged.
+
+Actions raise translated `HomeAssistantError` once and retain their exception
+cause; they do not also log the same failure. Shared polling retains HA's
+`UpdateFailed` suppression/recovery behavior. Image/media/push workers keep their
+separate failure and lifecycle policies; no verbose payload logging is enabled.
