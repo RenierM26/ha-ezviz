@@ -104,15 +104,21 @@ async def _async_validate_login(
 
 
 def _create_token_client(
-    token: dict[str, Any], timeout: int, persistence: TokenPersistence
+    token: dict[str, Any],
+    timeout: int,
+    persistence: TokenPersistence,
+    feature_code: str,
 ) -> EzvizClient:
     """Classify SDK construction failures before a runtime/session owner exists."""
     try:
         return EzvizClient(
-            token=token, timeout=timeout, on_token_updated=persistence.save_from_worker
+            token=token,
+            timeout=timeout,
+            feature_code=feature_code,
+            on_token_updated=persistence.save_from_worker,
         )
     except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as err:
-        # The SDK validates host-bound tokens before allocating its HTTP session.
+        # The SDK validates identity-bound tokens before allocating its HTTP session.
         # This boundary must request reauth too, not escape as an unexpected setup
         # error. Never rewrite a feature code or discard saved push state to bypass it.
         raise ConfigEntryAuthFailed(
@@ -172,7 +178,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> boo
         raise ConfigEntryAuthFailed(
             "Missing EZVIZ token fields; reauthenticate required"
         )
-    client = _create_token_client(token_input, timeout, persistence)
+    try:
+        feature_code = await persistence.async_identity(token_input)
+    except OSError as err:
+        raise ConfigEntryNotReady(
+            translation_domain=DOMAIN, translation_key="credential_storage_failed"
+        ) from err
+    client = _create_token_client(token_input, timeout, persistence, feature_code)
 
     coordinator = EzvizDataUpdateCoordinator(
         hass, config_entry=entry, api=client, api_timeout=timeout

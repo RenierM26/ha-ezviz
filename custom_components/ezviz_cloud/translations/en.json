@@ -486,7 +486,7 @@
             "message": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry."
         },
         "saved_login_invalid": {
-            "message": "The saved EZVIZ login is no longer valid for this host. Reauthenticate to create a fresh login."
+            "message": "The saved EZVIZ login does not match this installation identity. Reauthenticate to create a fresh login."
         }
     },
     "issues": {

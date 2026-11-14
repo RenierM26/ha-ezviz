@@ -88,7 +88,8 @@ async def test_real_sdk_cached_fatal_stops_retrying(hass, monkeypatch, phase, fa
     session = SimpleNamespace(headers={}, put=lambda *a, **k: response)
     monkeypatch.setattr(sdk_mqtt, "isolated_session", lambda _session: session)
 
-    def refresh(*_args):
+    def refresh(*_args: object, **_kwargs: object) -> None:
+        assert _kwargs == {"feature_code": token["feature_code"]}
         raise EzvizAuthTokenExpired("synthetic private auth detail")
 
     monkeypatch.setattr(sdk_mqtt, "refresh_credentials", refresh)

@@ -90,16 +90,20 @@ image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
 ## Published SDK requirement and release handoff
 
-The manifest requires **pyezvizapi >=2.0.0**. The
-[published 2.0.0 release](https://pypi.org/project/pyezvizapi/2.0.0/) contains
+The manifest requires **pyezvizapi >=2.1.0**. The
+[published 2.1.0 release](https://pypi.org/project/pyezvizapi/2.1.0/) contains
 [pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), LAN RTSP
 controls and the alarm epoch correction. This integration directly uses
 `poll_devices()`, typed snapshots, `enable_channel99()`, durable callbacks and
 push health diagnostics. There is no obsolete-SDK loader, credential-login or
-constructor fallback. Existing config-entry/registry migration and web-profile
+constructor fallback. SDK 2.1.0 adds the explicit `feature_code` identity API
+([#433](https://github.com/RenierM26/pyEzvizApi/pull/433)) and intercom `Video`
+resource selection ([#434](https://github.com/RenierM26/pyEzvizApi/pull/434));
+physical HPD7 confirmation for SDK issue #432 remains pending.
+Existing config-entry/registry migration and web-profile
 reauthentication remain: those migrate user data, not SDK versions.
 
-All CI runtime jobs install **pyezvizapi==2.0.0 from PyPI** to qualify the declared
+All CI runtime jobs install **pyezvizapi==2.1.0 from PyPI** to qualify the declared
 minimum. Python 3.14 covers standalone lint/types/lifecycle tests and the separate
 jobs qualifying actual HA 2026.10.4/2026.11.0 and disk storage. No editable SDK
 checkout, direct-Git manifest requirement or unpublished dependency remains.
@@ -151,20 +155,20 @@ warning or validator is suppressed.
 
 Current hassfest compares custom dependencies against every optional core
 integration's requirement, even when unused. Core EZVIZ still requests
-`pyezvizapi==1.0.5.0`; this custom integration needs the published 2.0.0 APIs.
+`pyezvizapi==1.0.5.0`; this custom integration needs the published 2.1.0 APIs.
 Our custom-only real-HA acceptance passes, but **do not enable built-in EZVIZ
 alongside this integration**: their shared package requirements conflict and
 simultaneous operation is not qualified.
 
 The hassfest workflow runs the current stock container and all its validators
 through `tools/check_hassfest.py`. It converts only this exact requirements error
-for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.0.0`, into a
+for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.1.0`, into a
 visible GitHub warning. All other errors remain fatal, including malformed
 manifests/requirements, other packages and changed core/SDK version conflicts.
 There is no blanket `continue-on-error`, skipped requirements plugin, altered
 runtime dependency or replacement core requirement file.
 
-When core accepts 2.0.0, stock validation produces no matching error and the
+When core accepts 2.1.0, stock validation produces no matching error and the
 exception is unused. Remove the wrapper after upstream alignment; review any
 changed mismatch rather than widening it automatically.
 
@@ -181,7 +185,7 @@ No firmware upgrades are performed by the acceptance tests.
 
 ```sh
 python3.14 -m venv .venv-ha
-.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.0.0
+.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.1.0
 .venv-ha/bin/python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
 ```
 
@@ -206,3 +210,39 @@ real Store stop/restart, and independent Python processes with synthetic host MA
 A stable host resumes the unchanged snapshot; changing the simulated host rejects it
 until a fresh login is created. These tests do not establish why a particular dev
 container's identity changed, and no production identity override is introduced.
+
+
+## Persisted installation identity
+
+The integration owns a private, atomic HA Store record keyed by a hash of the
+account's existing unique ID (or immutable entry ID for legacy entries). It saves
+a 32-character installation identity **before** constructing the first credential
+client. All setup, initial login, MFA and reauthentication clients receive it as
+`feature_code=`. Account flows share a lock; cancellation does not cancel a pending
+owned save. Disk/acknowledgement failure stops authentication and shows the existing
+credential-storage error instead of proceeding with an unpersisted identity.
+
+On first adoption, a valid identity from this account's trusted existing private
+or legacy token is saved unchanged, even if the current container MAC differs.
+The complete token, future SDK fields and push counters are not relabeled or reset.
+New accounts without such a token get a random UUID identity. An existing saved
+identity wins over a conflicting token; normal SDK validation requests reauth for
+invalid/missing/mismatched channel-99 credentials. Genuine reauth may establish new
+credentials and replay state under the same persisted identity.
+
+Identity is not stored in public config-entry data, entity state or diagnostics.
+Removing the account cleans up its identity via HA's Store API after retained
+workers finish. A damaged existing identity record is a retryable storage failure,
+not permission to silently generate another identity; restore the persistent HA
+configuration from a known-good backup, or deliberately remove/re-add the account
+through the UI if restoring is inappropriate. Do not hand-edit `.storage` records.
+A cancelled initial flow can retain its non-credential identity anchor for retries;
+no password, token or account name is stored in that anchor.
+
+Keep the HA configuration directory persistent across container recreation. A
+stable identity does not bypass token expiry, revocation or MFA. Do not run two
+clones with the same credentials/push replay state concurrently. Offline tests
+verify acknowledged saves, actual HA Store restart with changed synthetic MACs,
+SDK constructor validation, all four login paths, corruption, cancellation,
+concurrent selection, account removal and established-identity reauthentication.
+This is software regression evidence, not a live cloud/device soak guarantee.

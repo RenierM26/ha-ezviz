@@ -175,10 +175,22 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 ## Shared inventory and channel-99 migration
 
 See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
-Requires **pyezvizapi >=2.0.0**, now published on PyPI, for the inventory and
-channel-99 API; there are no old-SDK fallbacks. All CI runtime jobs qualify the published
-2.0.0 minimum, not a source checkout. Existing camera IDs and user-data migration
+Requires **pyezvizapi >=2.1.0**, now published on PyPI, for inventory,
+channel-99 and persisted client identity APIs; there are no old-SDK fallbacks. All CI runtime jobs qualify the published
+2.1.0 minimum, not a source checkout. Existing camera IDs and user-data migration
 are preserved. This PR supersedes the older channel-99 proposal #234.
+
+## Stable identity across container restarts
+
+Before the first cloud login, the integration atomically saves a private
+per-account installation identity using Home Assistant Store. Setup, MFA and
+reauthentication explicitly pass that same identity to SDK 2.1.0. Existing trusted
+saved tokens supply their original identity on first adoption; credentials and
+push replay state are not rewritten to match a new container MAC.
+
+Keep HA's configuration volume persistent. Expired/revoked credentials can still
+require reauthentication, and concurrent cloned deployments must not share token
+or replay state. See [identity storage and recovery](docs/shared-inventory.md#persisted-installation-identity).
 
 ## On-demand pictures
 

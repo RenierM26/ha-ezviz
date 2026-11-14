@@ -103,6 +103,8 @@ async def test_native_reauth_replaces_old_identity_and_stale_private_store(hass,
     await hass.async_block_till_done()
     progress = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert len(progress) == 1
+    selected = await TokenPersistence(hass, entry).async_identity()
+    fresh["feature_code"] = selected
     api = SimpleNamespace(enable_channel99=MagicMock(return_value=fresh), close_session=MagicMock())
     monkeypatch.setattr(controls.flow, "EzvizClient", MagicMock(return_value=api))
     result = await hass.config_entries.flow.async_configure(
@@ -113,15 +115,19 @@ async def test_native_reauth_replaces_old_identity_and_stale_private_store(hass,
     assert entry.data == {"type": controls.ATTR_TYPE_CLOUD, "url": fresh["api_url"]}
     assert await TokenPersistence(hass, entry).async_load() == fresh
     # The actual published SDK constructor accepts the replacement; no validation bypass.
-    resumed = EzvizClient(token=deepcopy(await TokenPersistence(hass, entry).async_load()))
+    resumed = EzvizClient(token=deepcopy(await TokenPersistence(hass, entry).async_load()), feature_code=selected)
     resumed.close_session()
     assert "not-stored" not in json.dumps(entry.as_dict())
     api.close_session.assert_called_once_with()
 
 
-async def test_matching_host_full_token_survives_real_setup_and_storage_restart(hass, monkeypatch):
-    full = identity_token()
-    rotated = identity_token(session_id="rotated-session", push_state={"counter": 9})
+@pytest.mark.parametrize("code", [FEATURE_CODE, "1" * 32])
+async def test_matching_host_full_token_survives_real_setup_and_storage_restart(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, code: str
+) -> None:
+    """Restore valid credentials with either the host or a persisted identity."""
+    full = identity_token(feature_code=code)
+    rotated = identity_token(feature_code=code, session_id="rotated-session", push_state={"counter": 9})
     entry = controls.add_entry(
         hass,
         state=ConfigEntryState.SETUP_IN_PROGRESS,
@@ -169,7 +175,8 @@ async def test_matching_host_full_token_survives_real_setup_and_storage_restart(
         assert saved is not None
         assert await TokenPersistence(restored, saved).async_load() == rotated
         assert saved.data == {"type": controls.ATTR_TYPE_CLOUD, "url": full["api_url"]}
-        resumed = EzvizClient(token=await TokenPersistence(restored, saved).async_load())
+        restored_owner = TokenPersistence(restored, saved)
+        resumed = EzvizClient(token=await restored_owner.async_load(), feature_code=await restored_owner.async_identity())
         assert resumed.export_token() == rotated
         resumed.close_session()
     finally:

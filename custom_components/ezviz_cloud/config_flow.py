@@ -66,7 +66,12 @@ from .const import (
 from .coordinator import EzvizDataUpdateCoordinator
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .runtime import EzvizConfigEntry
-from .tokens import TokenPersistence, credential_login, stage_login
+from .tokens import (
+    TokenPersistence,
+    async_login_identity,
+    credential_login,
+    stage_login,
+)
 from .workers import create_critical_task, create_executor_task
 
 _LOGGER = logging.getLogger(__name__)
@@ -257,11 +262,15 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                         password=password,
                         url=api_url,
                         timeout=timeout,
+                        feature_code=await async_login_identity(self.hass, username),
                     )
                     # First attempt without SMS -> returns a token dict on success
                     token = await asyncio.shield(
                         create_executor_task(self.hass, credential_login, client)
                     )
+
+                except OSError:
+                    return await self._async_storage_error("user")
 
                 except EzvizAuthVerificationCode:
                     # Stash pending values; request SMS code
@@ -315,10 +324,16 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     password=self._pending_user_password,
                     url=self._pending_user_url,
                     timeout=self._pending_user_timeout,
+                    feature_code=await async_login_identity(
+                        self.hass, self._pending_user_username
+                    ),
                 )
                 token = await asyncio.shield(
                     create_executor_task(self.hass, credential_login, client, sms_code)
                 )
+
+            except OSError:
+                return await self._async_storage_error("user_mfa_confirm")
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"
@@ -382,10 +397,16 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     password=self._reauth_password,
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
+                    feature_code=await TokenPersistence(
+                        self.hass, self._reauth_entry
+                    ).async_identity(),
                 )
                 token = await asyncio.shield(
                     create_executor_task(self.hass, credential_login, client)
                 )
+
+            except OSError:
+                return await self._async_storage_error("reauth_confirm")
 
             except EzvizAuthVerificationCode:
                 return await self.async_step_reauth_mfa()
@@ -436,12 +457,18 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     password=self._reauth_password,
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
+                    feature_code=await TokenPersistence(
+                        self.hass, self._reauth_entry
+                    ).async_identity(),
                 )
                 token = await asyncio.shield(
                     create_executor_task(
                         self.hass, credential_login, client, user_input["sms_code"]
                     )
                 )
+
+            except OSError:
+                return await self._async_storage_error("reauth_mfa")
 
             except EzvizAuthVerificationCode:
                 errors["base"] = "verification_required"

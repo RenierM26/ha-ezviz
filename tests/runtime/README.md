@@ -33,7 +33,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py` and `diag
 versions. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.0.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.1.0'
 python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 python -m coverage report --show-missing --fail-under=100
 ```
@@ -61,7 +61,10 @@ malformed/stale identifiers, validated limits/URLs, legacy resolution and vendor
 
 `test_token_identity.py` exercises the actual SDK host-feature-code rejection through
 HA's entry setup/re-authentication handler, real storage restart, and fresh subprocesses
-with synthetic NIC identities. Constructor authentication errors trigger reauth;
+with synthetic NIC identities. SDK defaults still reject host changes, while `core_policy/test_persisted_identity.py`
+qualifies explicit adoption/persistence and fresh HA/SDK process restoration across
+different simulated MACs, pre-login fsync, concurrency, cancellation, storage
+failures, MFA/reauth reuse and removal. Constructor authentication errors trigger reauth;
 connectivity errors retry without discarding or rewriting saved tokens.
 
 `test_token_layout.py` qualifies version-5 minimal config data and the single canonical

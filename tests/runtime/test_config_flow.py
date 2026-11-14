@@ -156,7 +156,8 @@ async def test_user_success(hass, sdk, region, url, host):
     assert await TokenPersistence(hass, entry).async_load() == TOKEN
     assert entry.options == {"timeout": 54, "cameras": {}}
     sdk.assert_called_once_with(
-        account=USER["username"], password=USER["password"], url=host, timeout=54
+        account=USER["username"], password=USER["password"], url=host, timeout=54,
+        feature_code=await TokenPersistence(hass, entry).async_identity(),
     )
     sdk.return_value.close_session.assert_called_once_with()
     sdk.return_value.login.assert_not_called()
@@ -485,7 +486,8 @@ async def test_reauth_targets_context_entry_and_repairs_legacy_id(hass, sdk, mfa
     if other:
         assert other.as_dict() == before_other
     sdk.assert_called_with(
-        account=target.unique_id, password="new", url=target.data["url"], timeout=DEFAULT_TIMEOUT
+        account=target.unique_id, password="new", url=target.data["url"], timeout=DEFAULT_TIMEOUT,
+        feature_code=await TokenPersistence(hass, target).async_identity(),
     )
 
 
@@ -651,4 +653,4 @@ async def test_reauth_ignores_invalid_legacy_timeout(hass, sdk, timeout):
     result = await manager.async_init(DOMAIN, context={"source": "reauth", "entry_id": entry.entry_id}, data=dict(entry.data))
     result = await manager.async_configure(result["flow_id"], {"username": entry.unique_id, "password": "new"})
     assert result["reason"] == "reauth_successful"
-    sdk.assert_called_once_with(account=entry.unique_id, password="new", url=entry.data["url"], timeout=DEFAULT_TIMEOUT)
+    sdk.assert_called_once_with(account=entry.unique_id, password="new", url=entry.data["url"], timeout=DEFAULT_TIMEOUT, feature_code=await TokenPersistence(hass, entry).async_identity())

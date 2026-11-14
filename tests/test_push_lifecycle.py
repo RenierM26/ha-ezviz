@@ -77,6 +77,9 @@ def integration(monkeypatch):
         async def async_load(self):
             return {"session_id": "synthetic", "rf_session_id": "refresh", "api_url": "api.test", "username": "user"}
 
+        async def async_identity(self, token=None):
+            return "1" * 32
+
         def save_from_worker(self, token):
             pass
 

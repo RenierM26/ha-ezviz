@@ -99,7 +99,7 @@ neither the recovery fix nor the compact layout bypasses the SDK's host binding.
   actual private Store callback/fsync, with a bounded persistence deadline.
 - [x] Detect sticky SDK fatal workers in startup and health checks. Authentication
   requests reauth once; persistence and unknown fatal errors pause retries and
-  log distinct corrective/reload guidance. Polling remains independent. SDK 2.0.0
+  log distinct corrective/reload guidance. Polling remains independent. SDK 2.1.0
   uses two untyped HTTP-auth markers; match those exactly, plus typed auth causes
   (including long-link AuthenticationRejected). Never treat persistence as auth.
 - [x] Exercise real SDK get_mqtt_client caching and PushWorker fatal retention,

@@ -1,11 +1,13 @@
 """Real HA setup/config flow/token migration, without any production login."""
 
 import asyncio
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, datetime
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from pyezvizapi import DeviceSnapshot, EzvizClient
@@ -79,10 +81,14 @@ async def test_setup_restores_full_token_installs_callback_and_closes_after_unlo
     observed = {}
     real_type = EzvizClient
 
-    def build(*, token, timeout, on_token_updated):
+    def build(
+        *, token: dict[str, Any], timeout: int,
+        on_token_updated: Callable[[dict[str, Any]], None], feature_code: str
+    ) -> EzvizClient:
         observed["token"] = deepcopy(token)
         observed["callback"] = on_token_updated
-        api = real_type(token=token, timeout=timeout, on_token_updated=on_token_updated)
+        observed["feature_code"] = feature_code
+        api = real_type(token=token, timeout=timeout, on_token_updated=on_token_updated, feature_code=feature_code)
         monkeypatch.setattr(api, "login", api.export_token)
         monkeypatch.setattr(api, "get_device_records", lambda _: {})
         observed["close"] = MagicMock(wraps=api.close_session)
@@ -114,6 +120,7 @@ async def test_setup_restores_full_token_installs_callback_and_closes_after_unlo
     finally:
         current_entry.reset(context)
     assert observed["token"] == full
+    assert observed["feature_code"] == await TokenPersistence(hass, entry).async_identity()
     changed = {**full, "push_state": {"counter": 8}}
     await hass.async_add_executor_job(observed["callback"], changed)
     assert await TokenPersistence(hass, entry).async_load() == changed

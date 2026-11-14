@@ -7,8 +7,9 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
 import json
+import re
 from threading import RLock
-from typing import Any, override
+from typing import Any, TypeGuard, override
 from uuid import uuid4
 
 from homeassistant.const import CONF_TYPE, CONF_URL, CONF_USERNAME
@@ -46,6 +47,72 @@ class AcknowledgedStore(Store):
             # Store catches WriteError/SerializationError and would otherwise ACK.
             raise OSError("EZVIZ durable token write failed") from error
         self._write_acknowledged = True
+
+
+@dataclass
+class _IdentityState:
+    store: AcknowledgedStore
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    needs_ack: bool = False
+
+
+def _identity_state(hass: Any, account: str) -> _IdentityState:
+    # Initial flows have no entry/runtime_data; retain their shared lock through
+    # setup, reauth and unload so competing first logins cannot select two IDs.
+    registry = hass.data.setdefault(DOMAIN, {}).setdefault("_identity_stores", {})  # pylint: disable=home-assistant-use-runtime-data
+    if account not in registry:
+        registry[account] = _IdentityState(
+            AcknowledgedStore(
+                hass,
+                1,
+                f"{DOMAIN}.identity.{account}",
+                private=True,
+                atomic_writes=True,
+            )
+        )
+    return registry[account]
+
+
+def _valid_identity(value: Any) -> TypeGuard[str]:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
+
+
+async def _async_identity(hass: Any, account: str, token: Mapping | None) -> str:
+    async def resolve() -> str:
+        state = _identity_state(hass, account)
+        async with state.lock:
+            record = await state.store.async_load()
+            if record is not None:
+                if not isinstance(record, Mapping) or not _valid_identity(
+                    record.get("feature_code")
+                ):
+                    raise OSError("Invalid saved EZVIZ installation identity")
+                if not state.needs_ack:
+                    return record["feature_code"]
+                identity = record["feature_code"]
+            else:
+                identity = None
+            # Explicitly adopt a trusted existing token's identity, even when the
+            # container MAC changed. Never rewrite its credentials/replay state.
+            if identity is None:
+                candidate = (token or {}).get("feature_code")
+                identity = candidate if _valid_identity(candidate) else uuid4().hex
+            # Store can expose its deferred in-memory data after a shutdown save
+            # failed to ACK. Do not trust that data without a successful write.
+            state.needs_ack = True
+            await state.store.async_save({"feature_code": identity})
+            state.needs_ack = False
+            return identity
+
+    task = create_critical_task(hass, resolve(), "EZVIZ installation identity save")
+    return await asyncio.shield(task)
+
+
+async def async_login_identity(hass: Any, account: str) -> str:
+    """Durably choose an account's installation identity before its first login."""
+    return await _async_identity(
+        hass, hashlib.sha256(account.encode()).hexdigest(), None
+    )
 
 
 def credential_login(client: Any, code: str | None = None) -> dict:
@@ -196,6 +263,12 @@ class TokenPersistence:
             return legacy
         return None
 
+    async def async_identity(self, token: dict | None = None) -> str:
+        """Select the persisted identity, adopting trusted old credentials once."""
+        if token is None:
+            token = await self.async_load()
+        return await _async_identity(self._hass, self._account, token)
+
     async def async_load(self) -> dict | None:
         """Load or promote the private account snapshot."""
         if self._entry.data.get(CONF_AUTH_REF):
@@ -322,6 +395,10 @@ class TokenPersistence:
             if reference := self._entry.data.get(CONF_AUTH_REF):
                 await _pending_store(self._hass, reference).async_remove()
             self._state.record = None
+            identity = _identity_state(self._hass, self._account)
+            async with identity.lock:
+                await identity.store.async_remove()
+                identity.needs_ack = False
 
     async def async_drain(self) -> None:
         """Join pending credential writes without discarding ownership."""

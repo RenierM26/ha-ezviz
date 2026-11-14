@@ -446,6 +446,8 @@ async def test_cancelled_reauth_finishes_private_commit_and_schedules_reload(
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "reauth", "entry_id": entry.entry_id}, data=dict(entry.data)
     )
+    # Stall the credential replacement, not the newly required pre-login identity save.
+    await tokens.TokenPersistence(hass, entry).async_identity()
     entered, release = Event(), Event()
     original = atomicwrites._proper_fsync
 
