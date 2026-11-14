@@ -56,3 +56,16 @@ This is not permission to broaden ignored checks or the hassfest SDK exception.
 The repository does not publish/deploy from these validation jobs. Tag validation
 now includes bare versions as well as `v`-prefixed tags; the release preflight and
 maintainer convention still require the chosen tag to equal the manifest version.
+
+## Repository automation additions (2026-11-14)
+
+- `actions/labeler` `v7.0.0` → `bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13`.
+- `actions/upload-artifact` `v7.0.2` → `cf430e030ddbb5b0abf93d22962f4752f3646cd9`.
+- Workflow expression/schema validation uses Go module
+  `github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
+- Repository forms/YAML validation uses `requirements/repository.txt` (PyYAML).
+
+Action refs were resolved through official repository tag refs. These actions
+remain SHA-pinned and covered by weekly Dependabot Actions PRs. Python tooling
+updates and the HACS Docker wrapper are also proposed weekly; review Core/HA/SDK
+profiles separately. The release-preparation workflow creates drafts only.

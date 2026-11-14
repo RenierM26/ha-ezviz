@@ -1,0 +1,16 @@
+changelog:
+  exclude:
+    labels: [duplicate, invalid, wontfix]
+  categories:
+    - title: Breaking changes — review upgrade instructions
+      labels: [breaking-change]
+    - title: Fixes
+      labels: [bug, fix]
+    - title: Features and device support
+      labels: [enhancement, device-support]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies and maintenance
+      labels: [dependencies, github_actions, maintenance]
+    - title: Other changes
+      labels: ['*']

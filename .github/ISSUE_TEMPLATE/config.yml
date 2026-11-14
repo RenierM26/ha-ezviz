@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup and troubleshooting
+    url: https://github.com/RenierM26/ha-ezviz/blob/main/docs/troubleshooting.md
+    about: Start here for setup, permissions, polling, push and RTSP troubleshooting.
+  - name: Report a security vulnerability privately
+    url: https://github.com/RenierM26/ha-ezviz/security/advisories/new
+    about: Do not disclose vulnerabilities or credentials in a public issue.

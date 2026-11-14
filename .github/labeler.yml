@@ -1,0 +1,27 @@
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ['**/*.md']
+maintenance:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**', 'tools/**', '.devcontainer/**', '.vscode/**']
+github_actions:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/workflows/**', '.github/actions/**']
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ['requirements/**', 'tests/**/requirements.txt', '**/manifest.json']
+'area: auth':
+  - changed-files:
+      - any-glob-to-any-file: ['custom_components/ezviz_cloud/{tokens,credentials,config_flow,flow_validation,camera_flow,options_flow,migration}.py']
+'area: streaming':
+  - changed-files:
+      - any-glob-to-any-file: ['custom_components/ezviz_cloud/{camera,media_source,views}.py']
+'area: push':
+  - changed-files:
+      - any-glob-to-any-file: ['custom_components/ezviz_cloud/{mqtt,workers}.py']
+'area: snapshots':
+  - changed-files:
+      - any-glob-to-any-file: ['custom_components/ezviz_cloud/image.py', 'docs/capture-picture.md']
+'area: devices':
+  - changed-files:
+      - any-glob-to-any-file: ['custom_components/ezviz_cloud/{inventory,entity,coordinator,availability,alarm_control_panel,binary_sensor,button,light,number,select,sensor,siren,switch,text,update}.py']

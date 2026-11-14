@@ -1,0 +1,57 @@
+[
+  {
+    "name": "area: auth",
+    "color": "5319e7",
+    "description": "Account login, credentials, reauthentication and persistence"
+  },
+  {
+    "name": "area: streaming",
+    "color": "1d76db",
+    "description": "Local RTSP and media source handling"
+  },
+  {
+    "name": "area: push",
+    "color": "006b75",
+    "description": "Optional push connection and event delivery"
+  },
+  {
+    "name": "area: devices",
+    "color": "0e8a16",
+    "description": "Device inventory, entities and controls"
+  },
+  {
+    "name": "area: snapshots",
+    "color": "0052cc",
+    "description": "Capture-picture, image retrieval and decryption"
+  },
+  {
+    "name": "maintenance",
+    "color": "ededed",
+    "description": "Repository workflows, developer tools and housekeeping"
+  },
+  {
+    "name": "device-support",
+    "color": "c2e0c6",
+    "description": "Model support request requiring capability evidence"
+  },
+  {
+    "name": "needs-info",
+    "color": "fbca04",
+    "description": "Waiting for specific reproduction details or diagnostics"
+  },
+  {
+    "name": "needs-device-testing",
+    "color": "f9d0c4",
+    "description": "Offline checks cannot establish the physical device outcome"
+  },
+  {
+    "name": "breaking-change",
+    "color": "b60205",
+    "description": "Requires user action or changes a public behavior"
+  },
+  {
+    "name": "fix",
+    "color": "d73a4a",
+    "description": "Bug fix included in release notes"
+  }
+]

@@ -1,0 +1,103 @@
+name: Prepare draft release
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full reviewed candidate SHA already merged into main (with a new manifest version)
+        required: true
+        type: string
+      version:
+        description: New bare version, exactly matching manifest.version and a versioned CHANGELOG heading
+        required: true
+        type: string
+      core_sha:
+        description: Full Home Assistant Core SHA to qualify and record (not a moving branch)
+        required: true
+        type: string
+      prerelease:
+        description: Mark the draft as a prerelease (publishing still requires a separate decision)
+        default: true
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: prepare-draft-release
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate trusted candidate identity before executing its tools
+        id: identity
+        env:
+          CANDIDATE: ${{ inputs.candidate_sha }}
+          CORE_SHA: ${{ inputs.core_sha }}
+        run: |
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CORE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$CANDIDATE" origin/main
+          git checkout --detach "$CANDIDATE"
+          echo "sha=$CANDIDATE" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.14'
+      - name: Reject reused or mismatched versions and unreviewed notes
+        env:
+          CANDIDATE: ${{ inputs.candidate_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python tools/check_release.py --commit "$CANDIDATE" --tag "$VERSION"
+          if git show-ref --verify --quiet "refs/tags/$VERSION"; then
+            echo 'Draft preparation requires an unused version' >&2
+            exit 1
+          fi
+          PYTHONPATH=tools python - <<'PYCODE'
+          import os
+          from pathlib import Path
+          from prepare_draft_release import version_notes
+          version_notes(Path('CHANGELOG.md').read_text(), os.environ['VERSION'])
+          PYCODE
+
+  qualification:
+    needs: candidate
+    uses: ./.github/workflows/ci.yaml
+    with:
+      checkout_ref: ${{ needs.candidate.outputs.sha }}
+      core_ref: ${{ inputs.core_sha }}
+
+  draft:
+    needs: [candidate, qualification]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.14'
+      - name: Create draft and source report (never publishes or pushes a tag)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ needs.candidate.outputs.sha }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          python tools/prepare_draft_release.py --commit "$CANDIDATE" --tag "$VERSION" \
+            --prerelease "$PRERELEASE" --output "$RUNNER_TEMP/release-source.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-source-${{ needs.candidate.outputs.sha }}
+          path: ${{ runner.temp }}/release-source.json
+          if-no-files-found: error
+          retention-days: 90

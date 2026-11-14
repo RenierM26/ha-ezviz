@@ -61,6 +61,9 @@ establish live broker delivery, physical actions or browser/media compatibility.
 
 ## Development and maintenance
 
+- [Contributing](CONTRIBUTING.md), [support](SUPPORT.md) and [private security reporting](SECURITY.md)
+- [Repository automation and merge policy](docs/repository-maintenance.md)
+
 - [Development/check commands](docs/development.md)
 - [Architecture and ownership](docs/architecture.md)
 - [Test responsibilities and isolation](tests/README.md)

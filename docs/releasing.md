@@ -104,3 +104,28 @@ separate test environment before making any deployment claim.
 Do not deploy/restart a household HA instance as part of publishing. A release,
 HACS download, source installation, entry migration, runtime reload and physical
 camera check are distinct outcomes with separate authorization/evidence.
+
+## Automated draft preparation
+
+After merging a **new versioned candidate**, run **Prepare draft release** from
+`main`. Supply the full candidate SHA already reachable from `main`, the new bare
+version, a full Core SHA to reproduce, and the desired prerelease flag (defaults
+to true). The candidate must include this automation and a nonempty
+`## VERSION` heading in `CHANGELOG.md` with reviewed upgrade notes. Current
+`0.2.0.25`/Unreleased main intentionally fails these prerequisites.
+
+The workflow rejects branch-name SHAs, unmerged candidates, reused tags, version
+mismatches and missing notes. It runs the shared **full** qualification at that
+candidate/Core revision, then rechecks source identity and rejects any existing
+GitHub release or draft for the version. Only the final draft job has contents
+write permission. It creates a GitHub **draft**, includes reviewed version notes,
+categorized merged changes and the qualification run link, and stores the source
+report as a 90-day workflow artifact. Preserve that report elsewhere before
+expiry if needed. Artifact hashes describe source, not a prebuilt install ZIP.
+
+Draft creation does not create/push a tag, publish a release, make a HACS update
+or deploy HA. Review the draft and follow the separate publication approval above.
+Do not blindly retry after an ambiguous API failure: inspect releases first. If
+creation succeeded but artifact upload failed, keep the existing draft and recover
+the source report; do not overwrite it or create a second draft. Reuse of versions
+is deliberately refused, including matching pre-existing tags.
