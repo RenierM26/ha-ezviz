@@ -7,6 +7,7 @@ from typing import Any, override
 
 from PIL import Image as PilImage, ImageFile, UnidentifiedImageError
 from propcache.api import cached_property
+from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.utils import decrypt_image
 
@@ -147,10 +148,16 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 raise
             except PyEzvizError:
                 _LOGGER.warning(
-                    "%s: Can't decrypt image with the configured camera key",
+                    "%s: Unable to decode camera image; image not cached",
                     self.entity_id,
                 )
-                image_data = response.content
+                return None
+            if HIK_ENCRYPTION_HEADER in image_data:
+                _LOGGER.warning(
+                    "%s: Camera image remains encrypted; image not cached",
+                    self.entity_id,
+                )
+                return None
             return Image(content=image_data, content_type="image/jpeg")
         return None
 
@@ -161,7 +168,9 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             return None
         self._sync_encryption_key()
         if self._cached_image is not None:
-            return self._cached_image.content
+            if HIK_ENCRYPTION_HEADER not in self._cached_image.content:
+                return self._cached_image.content
+            self._invalidate_image()
         url = self.image_url
         if not isinstance(url, str) or not url:
             return None

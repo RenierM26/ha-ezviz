@@ -67,3 +67,18 @@ captures, broker delivery or player/browser compatibility.
 python -m pip install -r tests/runtime/requirements.txt homeassistant==2026.11.0 pyezvizapi==2.2.0
 python -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 ```
+
+## Undecoded encrypted images
+
+A cloud HTTP 200 response is not proof of a decoded JPEG. Last motion and
+Snapshot image entities reject SDK decoding errors and residual encryption
+markers rather than publishing/caching ciphertext as `image/jpeg`. A failed
+request leaves no successful image cache and a later request can recover.
+Previously cached encrypted content is discarded before another fetch.
+Warnings do not include keys, signed URLs, hashes, payloads or raw exception text.
+
+This is separate from SDK support for a vendor multi-image envelope. Framing
+failures must be corrected in the SDK using verified frame extents, not guessed
+byte trimming or relaxed padding. Install/reload the fixed integration code to
+activate the new handling; no automatic reload, credential change or live-device
+operation is performed by this change.
