@@ -1,14 +1,13 @@
 """Support EZVIZ last motion image."""
 
 from collections.abc import Mapping
-from io import BytesIO
 import logging
 from typing import Any, override
 
-from PIL import Image as PilImage, ImageFile, UnidentifiedImageError
 from propcache.api import cached_property
+from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
+from pyezvizapi.devices.images import process_image_bytes as _process_image_bytes
 from pyezvizapi.exceptions import PyEzvizError
-from pyezvizapi.utils import decrypt_image
 
 from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
 from homeassistant.core import HomeAssistant, callback
@@ -23,7 +22,6 @@ from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
-ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 IMAGE_TYPE = ImageEntityDescription(
     key="last_motion_image",
@@ -34,8 +32,6 @@ SNAPSHOT_TYPE = ImageEntityDescription(
     translation_key="snapshot",
 )
 
-JPEG_SOI = b"\xff\xd8"
-JPEG_EOI = b"\xff\xd9"
 MAX_MULTI_LENS_IMAGES = 4
 
 
@@ -147,10 +143,16 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                 raise
             except PyEzvizError:
                 _LOGGER.warning(
-                    "%s: Can't decrypt image with the configured camera key",
+                    "%s: Unable to decode camera image; image not cached",
                     self.entity_id,
                 )
-                image_data = response.content
+                return None
+            if HIK_ENCRYPTION_HEADER in image_data:
+                _LOGGER.warning(
+                    "%s: Camera image remains encrypted; image not cached",
+                    self.entity_id,
+                )
+                return None
             return Image(content=image_data, content_type="image/jpeg")
         return None
 
@@ -161,7 +163,9 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             return None
         self._sync_encryption_key()
         if self._cached_image is not None:
-            return self._cached_image.content
+            if HIK_ENCRYPTION_HEADER not in self._cached_image.content:
+                return self._cached_image.content
+            self._invalidate_image()
         url = self.image_url
         if not isinstance(url, str) or not url:
             return None
@@ -267,71 +271,3 @@ class EzvizSnapshot(EzvizLastMotion):
     @override
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
-
-
-def _process_image_bytes(
-    image_data: bytes, password: str | None, lens_index: int, lens_total: int
-) -> bytes:
-    """Pure worker-side decryption, JPEG scanning, decoding and lens cropping."""
-    if not password:
-        return image_data
-    decrypted = decrypt_image(image_data, password)
-    segments = _extract_jpeg_segments(decrypted) or [decrypted]
-    if len(segments) == 1 and lens_total > 1:
-        segments = _split_composite_image(segments[0], lens_total)
-    return segments[min(lens_index - 1, len(segments) - 1)]
-
-
-def _extract_jpeg_segments(image_data: bytes) -> list[bytes]:
-    """Extract individual JPEG segments from a concatenated payload."""
-    segments: list[bytes] = []
-    cursor = image_data.find(JPEG_SOI)
-
-    while cursor != -1:
-        next_soi = image_data.find(JPEG_SOI, cursor + 2)
-        eoi = image_data.find(JPEG_EOI, cursor + 2)
-
-        if eoi != -1 and (next_soi == -1 or eoi < next_soi):
-            end = eoi + 2
-        elif next_soi != -1:
-            end = next_soi
-        elif eoi != -1:
-            end = eoi + 2
-        else:
-            end = len(image_data)
-
-        segment = image_data[cursor:end]
-        segments.append(segment)
-
-        if next_soi == -1:
-            break
-        cursor = next_soi
-
-    return segments
-
-
-def _split_composite_image(image_data: bytes, parts: int) -> list[bytes]:
-    """Split a single JPEG containing multiple stacked views."""
-    if parts <= 1:
-        return [image_data]
-
-    try:
-        img = PilImage.open(BytesIO(image_data))
-        img.load()
-    except (UnidentifiedImageError, OSError) as err:
-        _LOGGER.debug("Unable to decode composite multi-lens snapshot: %s", err)
-        return [image_data]
-
-    width, height = img.size
-    slice_height = max(1, height // parts)
-    segments: list[bytes] = []
-
-    for idx in range(parts):
-        top = idx * slice_height
-        bottom = height if idx == parts - 1 else (idx + 1) * slice_height
-        cropped = img.crop((0, top, width, bottom))
-        with BytesIO() as buf:
-            cropped.save(buf, format="JPEG", quality=90)
-            segments.append(buf.getvalue())
-
-    return segments or [image_data]

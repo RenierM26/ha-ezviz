@@ -13,6 +13,7 @@ from custom_components.ezviz_cloud import number
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.runtime import RuntimeCleanup
 from pyezvizapi import EzvizClient
+from pyezvizapi.devices.audio import alarm_volume_config
 from pyezvizapi.exceptions import PyEzvizError
 from pyezvizapi.models import EzvizDeviceRecord
 import pytest
@@ -313,7 +314,7 @@ async def test_real_sdk_inventory_retains_the_volume_configuration(
             return
         assert number._is_desc_supported(data, DESCRIPTION)
         assert DESCRIPTION.get_value(data) == current
-        assert number._alarm_volume_config(data) == config
+        assert alarm_volume_config(data) == config
         assert number._alarm_voice_volume_getter(data) == 60
         assert number._alarm_volume_max(data) == (7 if category == "DBScreen" else 100)
     finally:
