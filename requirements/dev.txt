@@ -1,5 +1,5 @@
 # Native minimum-HA development environment. No HA pytest plugin.
 -r ../tests/runtime/requirements.txt
 -r sdk.txt
-homeassistant==2026.10.4
+homeassistant==2026.11.1
 debugpy==1.8.22
