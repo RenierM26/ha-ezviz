@@ -87,10 +87,11 @@ def main() -> None:
             "ruff",
             "format",
             "--check",
+            "conftest.py",
             "custom_components/ezviz_cloud",
             "tests/runtime/core_policy",
         )
-        run("mypy", "custom_components", "tests", "tools")
+        run("mypy", "conftest.py", "custom_components", "tests", "tools")
     elif args.profile == "standalone":
         paths = [str(path.relative_to(ROOT)) for path in sorted((ROOT / "tests").glob("test_*.py"))]
         if not paths:

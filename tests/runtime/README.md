@@ -83,7 +83,7 @@ registration, ownership, handlers and JSON serialization use real HA. Additional
 controls cover missing/stale and registry-only devices, failed polling, pending
 cleanup, unloaded entries, legacy caches, unexpected nested/non-finite values,
 unknown capabilities, enabled/disabled entities and credential omission. The SDK
-client must receive no calls. Existing `test_push_recovery.py` keeps the real
+client must receive no calls. Existing `core_policy/test_push_recovery.py` keeps the real
 SDK-lock/HA token-save deadlock regression and checks fatal recovery categories.
 
 ## Core checkout rules
@@ -180,3 +180,13 @@ serialization, MFA, partial credential, options conflict and storage controls no
 exercise the extracted options/camera/validation modules. The RTSP transport patch
 targets `camera_flow`, not a stale re-export. Coverage includes every extracted
 flow module; see [flow modularity](../../docs/flow-modularity.md).
+
+
+## Behavioral contracts and incremental policy migration
+
+The root collection guard refuses native tests in a plugin-installed environment
+and refuses mixed/unscoped collection. The migrated
+`core_policy/test_push_recovery.py` retains all 13 prior SDK-lock/fatal controls
+and adds four actual SDK worker transient-recovery/shutdown controls. See
+[the F05 audit and evidence](../../docs/behavioral-tests.md). Other legacy modules
+are not claimed to have been migrated to strict Core test policy.
