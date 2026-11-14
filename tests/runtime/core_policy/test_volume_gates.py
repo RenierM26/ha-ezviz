@@ -12,6 +12,7 @@ from custom_components.ezviz_cloud import number
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.runtime import RuntimeCleanup
 from pyezvizapi import EzvizClient
+from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import PyEzvizError
 import pytest
 
@@ -317,3 +318,87 @@ def test_raw_nested_device_metadata_retains_the_screen_scale() -> None:
     api.set_dev_config_kv.assert_called_once_with(
         "CAM001", 2, "ChimeMusic", {**CHIME, "volume": 7}
     )
+
+
+@pytest.mark.parametrize("speaker", [None, 60])
+@pytest.mark.parametrize("encoded", [False, True])
+async def test_microphone_service_preserves_siblings_and_uses_sdk_worker(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    speaker: int | None,
+    encoded: bool,
+) -> None:
+    """Exercise the published SDK writer through actual HA service dispatch."""
+    loader.async_setup(hass)
+    integration = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
+    assert integration is not None
+    hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = integration
+    entry, api, coordinator, *_ = entities(hass)
+    description = next(
+        item
+        for item in number.STATIC_NUMBER_DESCRIPTIONS
+        if item.key == "microphone_volume"
+    )
+    config = {"microphone_volume": 15, "future": {"keep": [1]}}
+    if speaker is not None:
+        config["volume"] = speaker
+    data = camera_data(deepcopy(CHIME))
+    data["supportExt"][str(SupportExt.SupportAudioOnoff.value)] = "1"
+    data["STATUS"]["optionals"]["CustomVoice_Volume"] = (
+        json.dumps(config) if encoded else deepcopy(config)
+    )
+    coordinator.data["CAM001"].update(data)
+    before = deepcopy(coordinator.data)
+    refresh = AsyncMock()
+    monkeypatch.setattr(coordinator, "async_request_refresh", refresh)
+    worker_threads: list[int] = []
+
+    def write(*_args: object) -> None:
+        worker_threads.append(get_ident())
+
+    api.set_dev_config_kv = MagicMock(side_effect=write)
+    component = EntityComponent[NumberEntity](
+        logging.getLogger(__name__), "number", hass
+    )
+    hass.data[DATA_COMPONENT] = component
+    async_setup_services(hass)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="number",
+        platform_name=DOMAIN,
+        platform=None,
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = entry
+    entity = number.EzvizNumber(coordinator, "CAM001", description)
+    try:
+        await platform.async_add_entities([entity])
+        assert entity.unique_id == "CAM001_microphone_volume"
+        await hass.services.async_call(
+            "number",
+            "set_value",
+            {"entity_id": entity.entity_id, "value": 30},
+            blocking=True,
+        )
+        api.set_dev_config_kv.assert_called_once_with(
+            "CAM001", 2, "CustomVoice_Volume", {**config, "microphone_volume": 30}
+        )
+        assert worker_threads and all(
+            thread != get_ident() for thread in worker_threads
+        )
+        refresh.assert_awaited_once()
+        assert entity.native_value == 15
+        assert coordinator.data == before
+        api.set_dev_config_kv.reset_mock()
+        refresh.reset_mock()
+        coordinator.data["CAM001"]["STATUS"]["optionals"].pop("CustomVoice_Volume")
+        assert entity.native_value is None
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_native_value(30)
+        api.set_dev_config_kv.assert_not_called()
+        refresh.assert_not_awaited()
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()

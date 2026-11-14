@@ -14,6 +14,7 @@ import atomicwrites
 import httpx
 from PIL import Image as PILImage
 from pyezvizapi import DeviceSnapshot
+from pyezvizapi.devices import images as sdk_images
 from pyezvizapi.devices.snapshot import CameraState, DeviceHealth
 import pytest
 
@@ -136,7 +137,7 @@ async def test_real_decryption_and_pil_crop_run_off_the_event_loop(hass, monkeyp
         alarm, "_fetch_url", AsyncMock(return_value=httpx.Response(200, content=buf.getvalue()))
     )
     loop_thread, threads = get_ident(), []
-    decrypt, split = image.decrypt_image, image._split_composite_image
+    decrypt, split = sdk_images.decrypt_image, sdk_images.split_composite_image
 
     def decrypt_on_worker(*args):
         threads.append(get_ident())
@@ -146,10 +147,13 @@ async def test_real_decryption_and_pil_crop_run_off_the_event_loop(hass, monkeyp
         threads.append(get_ident())
         return split(*args)
 
-    monkeypatch.setattr(image, "decrypt_image", decrypt_on_worker)
-    monkeypatch.setattr(image, "_split_composite_image", split_on_worker)
+    monkeypatch.setattr(sdk_images, "decrypt_image", decrypt_on_worker)
+    monkeypatch.setattr(sdk_images, "split_composite_image", split_on_worker)
     result = await alarm.async_image()
-    assert PILImage.open(BytesIO(result)).size == (16, 16)
+    with PILImage.open(BytesIO(result)) as decoded:
+        decoded.load()
+        size = decoded.size
+    assert size == (16, 16)
     assert len(threads) == 2 and all(thread != loop_thread for thread in threads)
     await data.async_close()
 

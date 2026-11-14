@@ -1,24 +1,29 @@
 """Support for EZVIZ number controls."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-import json
 import logging
-import math
 from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
+from pyezvizapi.devices.audio import (
+    alarm_voice_volume_getter as _alarm_voice_volume_getter,
+    alarm_volume_getter as _alarm_volume_getter,
+    alarm_volume_max as _alarm_volume_max,
+    microphone_volume_getter as _microphone_volume_getter,
+    set_alarm_voice_volume,
+    set_alarm_volume,
+    set_microphone_volume,
+)
 from pyezvizapi.devices.features import (
-    custom_voice_volume_config,
     get_algorithm_value,
     has_algorithm_subtype,
     night_vision_duration_value,
     night_vision_luminance_value,
     night_vision_mode_value,
     night_vision_payload,
-    optionals_mapping,
     resolve_channel,
 )
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
@@ -32,7 +37,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
 from .runtime import EzvizConfigEntry
-from .utility import SupportExtView, passes_description_gates
+from .utility import passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
 PARALLEL_UPDATES = 0
@@ -138,166 +143,6 @@ def _night_vision_duration_setter() -> Callable[
     return _setter
 
 
-def _volume_capability(camera_data: dict[str, Any], key: SupportExt) -> bool:
-    """Require an enabled numeric flag, never mere presence or truthiness."""
-    value = SupportExtView.from_camera_data(camera_data).get(str(key.value))
-    if isinstance(value, str):
-        try:
-            value = int(value.strip())
-        except ValueError:
-            return False
-    if isinstance(value, bool) or not isinstance(value, int):
-        return False
-    # Native voice-volume UI requires 203 == 1; RN chime UI uses enabled 185.
-    return value == 1 if key is SupportExt.SupportChangeVolume else value > 0
-
-
-def _volume_config(camera_data: dict[str, Any], key: str) -> dict[str, Any] | None:
-    """Decode a complete reported volume object, retaining unrecognized fields."""
-    config = optionals_mapping(camera_data).get(key)
-    if isinstance(config, str):
-        try:
-            config = json.loads(config)
-        except json.JSONDecodeError:
-            return None
-    return dict(config) if isinstance(config, Mapping) else None
-
-
-def _alarm_volume_max(camera_data: dict[str, Any]) -> float:
-    """The app's DBScreen ChimeMusic slider is 0-7, not a percentage."""
-    category = camera_data.get("device_category")
-    if category is None and isinstance(
-        infos := camera_data.get("deviceInfos"), Mapping
-    ):
-        category = infos.get("deviceCategory")
-    return 7 if category == "DBScreen" else 100
-
-
-def _alarm_volume_config(camera_data: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the reported alarm chime object without changing its payload."""
-    return _volume_config(camera_data, "ChimeMusic")
-
-
-def _reported_volume(config: dict[str, Any] | None, maximum: float) -> float | None:
-    """Keep missing/invalid readings unknown, including boolean enable flags."""
-    value = config.get("volume") if config else None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 0 <= value <= maximum
-    ):
-        return None
-    return float(value)
-
-
-def _alarm_volume_getter(camera_data: dict[str, Any]) -> float | None:
-    """Require app-backed support as well as a valid observed chime value."""
-    if not _volume_capability(camera_data, SupportExt.SupportDeviceRing):
-        return None
-    return _reported_volume(
-        _alarm_volume_config(camera_data), _alarm_volume_max(camera_data)
-    )
-
-
-def _alarm_volume_setter() -> Callable[[EzvizClient, str, float, dict[str, Any]], Any]:
-    def _setter(
-        client: EzvizClient,
-        serial: str,
-        value: float,
-        camera_data: dict[str, Any],
-    ) -> Any:
-        config = _alarm_volume_config(camera_data)
-        if config is None or _alarm_volume_getter(camera_data) is None:
-            raise PyEzvizError("Camera does not report a supported alarm chime volume")
-        if isinstance(value, bool) or not math.isfinite(value):
-            raise PyEzvizError("Alarm chime volume must be a finite number")
-        payload = {
-            **config,
-            "volume": max(0, min(int(_alarm_volume_max(camera_data)), round(value))),
-        }
-        return client.set_dev_config_kv(
-            serial, resolve_channel(camera_data), "ChimeMusic", payload
-        )
-
-    return _setter
-
-
-def _alarm_voice_volume_getter(camera_data: dict[str, Any]) -> float | None:
-    """Report voice volume independently of ChimeMusic and microphone gain."""
-    if not _volume_capability(camera_data, SupportExt.SupportChangeVolume):
-        return None
-    value = _reported_volume(_volume_config(camera_data, "CustomVoice_Volume"), 100)
-    return None if value is not None and 0 < value < 10 else value
-
-
-def _alarm_voice_volume_setter() -> Callable[
-    [EzvizClient, str, float, dict[str, Any]], Any
-]:
-    def _setter(
-        client: EzvizClient,
-        serial: str,
-        value: float,
-        camera_data: dict[str, Any],
-    ) -> Any:
-        config = _volume_config(camera_data, "CustomVoice_Volume")
-        if config is None or _alarm_voice_volume_getter(camera_data) is None:
-            raise PyEzvizError("Camera does not report a supported alarm voice volume")
-        # App voice sliders select 10-100. A reported zero remains a valid muted
-        # reading, but changing volume must not silently select a sound mode.
-        if (
-            isinstance(value, bool)
-            or not math.isfinite(value)
-            or not 10 <= value <= 100
-        ):
-            raise PyEzvizError("Alarm voice volume must be between 10 and 100")
-        return client.set_dev_config_kv(
-            serial,
-            resolve_channel(camera_data),
-            "CustomVoice_Volume",
-            {**config, "volume": round(value)},
-        )
-
-    return _setter
-
-
-def _microphone_volume_getter(camera_data: dict[str, Any]) -> float | None:
-    config = custom_voice_volume_config(camera_data)
-    if not config:
-        return None
-    value = config.get("microphone_volume")
-    return float(value) if isinstance(value, int) else None
-
-
-def _microphone_volume_setter() -> Callable[
-    [EzvizClient, str, float, dict[str, Any]], Any
-]:
-    def _setter(
-        client: EzvizClient,
-        serial: str,
-        value: float,
-        camera_data: dict[str, Any],
-    ) -> Any:
-        config = custom_voice_volume_config(camera_data) or {}
-        speaker_volume = config.get("volume", 100)
-
-        def _clamp(val: int) -> int:
-            return max(0, min(100, val))
-
-        payload = {
-            "volume": _clamp(int(speaker_volume)),
-            "microphone_volume": _clamp(round(value)),
-        }
-
-        return client.set_dev_config_kv(
-            serial,
-            resolve_channel(camera_data),
-            "CustomVoice_Volume",
-            payload,
-        )
-
-    return _setter
-
-
 STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
     EzvizNumberEntityDescription(
         key="detection_sensibility",
@@ -386,7 +231,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         supported_ext_key=str(SupportExt.SupportDeviceRing.value),
         get_max_value=_alarm_volume_max,
         get_value=_alarm_volume_getter,
-        set_value=_alarm_volume_setter(),
+        set_value=set_alarm_volume,
         is_supported_fn=lambda data: _alarm_volume_getter(data) is not None,
     ),
     EzvizNumberEntityDescription(
@@ -398,7 +243,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_step=1,
         supported_ext_key=str(SupportExt.SupportChangeVolume.value),
         get_value=_alarm_voice_volume_getter,
-        set_value=_alarm_voice_volume_setter(),
+        set_value=set_alarm_voice_volume,
         is_supported_fn=lambda data: _alarm_voice_volume_getter(data) is not None,
     ),
     EzvizNumberEntityDescription(
@@ -410,7 +255,7 @@ STATIC_NUMBER_DESCRIPTIONS: tuple[EzvizNumberEntityDescription, ...] = (
         native_step=1,
         supported_ext_key=str(SupportExt.SupportAudioOnoff.value),
         get_value=_microphone_volume_getter,
-        set_value=_microphone_volume_setter(),
+        set_value=set_microphone_volume,
     ),
 )
 

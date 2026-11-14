@@ -17,7 +17,7 @@ SPEC.loader.exec_module(CHECK)
 def integration(**overrides):
     return SimpleNamespace(**({
         "core": False, "domain": "ezviz_cloud",
-        "requirements": ["pyezvizapi>=2.2.0"], "errors": [],
+        "requirements": ["pyezvizapi>=2.4.0"], "errors": [],
     } | overrides))
 
 
@@ -53,8 +53,10 @@ def test_expected_conflict_does_not_hide_an_additional_failure():
     ({"domain": "other"}, error()),
     ({"requirements": ["pyezvizapi>=3.0.0"]}, error()),
     ({"requirements": ["pyezvizapi>=2.1.0"]}, error()),
-    ({}, error(CHECK.EXPECTED_ERROR.replace(">=2.2.0", ">=2.1.0"))),
-    ({"requirements": ["pyezvizapi>=2.2.0", "other>=1"]}, error()),
+    ({"requirements": ["pyezvizapi>=2.2.0"]}, error()),
+    ({"requirements": ["pyezvizapi>=2.3.0"]}, error()),
+    ({}, error(CHECK.EXPECTED_ERROR.replace(">=2.4.0", ">=2.1.0"))),
+    ({"requirements": ["pyezvizapi>=2.4.0", "other>=1"]}, error()),
     ({}, error(CHECK.EXPECTED_ERROR.replace("==1.0.5.0", "==1.0.5.1"))),
     ({}, error(plugin="manifest")),
 ])
