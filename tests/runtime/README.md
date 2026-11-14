@@ -33,7 +33,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py` and `diag
 versions. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.1.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.2.0'
 python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 python -m coverage report --show-missing --fail-under=100
 ```
@@ -136,25 +136,27 @@ separate failure and lifecycle policies; no verbose payload logging is enabled.
 ### Active siren rename and SDK fallback qualification
 
 Active siren renames use the real restore lookup (which returns no state at the
-new ID) and a controlled monotonic clock. A rename after 20 seconds retains the
+new ID on HA 2026.10.4) and a controlled monotonic clock. A rename after 20 seconds retains the
 remaining 40 seconds, a second rename retains 30, and re-add after the deadline
 reports off immediately. No extra firmware minute is added by renaming.
 
-SDK 2.1.0's switch fallback erases the primary HTTP cause when both endpoints
-fail. This cannot be safely recovered by following `__context__`: mixed HTTP
-403/504 responses would identify the wrong endpoint. The [SDK-boundary correction](https://github.com/RenierM26/pyEzvizApi/pull/436)
-must be released before its guarantee can be required by the integration's
-minimum dependency. No SDK release or minimum-version bump is part of this fix.
+Published SDK 2.2.0 retains the primary HTTP cause when both switch endpoints
+fail ([SDK #436](https://github.com/RenierM26/pyEzvizApi/pull/436)); it is now the
+manifest and CI minimum. No `__context__` guessing is needed for mixed statuses.
 
-Qualify a corrected SDK wheel in an isolated native HA environment, from this
-repository root:
+`core_policy/test_errors.py` now exercises real SDK PUT/POST fallback through HA
+light, camera-switch and inventory-plug adapters, in both directions. The 24
+cases cover 403/403, 504/504, 403/504 and 504/403, preserving the primary status,
+HA/SDK cached states, safe translated errors and no refresh/reauthentication on
+failure. Only requests transport is mocked. All 24 fail with SDK 2.1.0 and pass
+with published 2.2.0; no editable SDK or live account/device requests are used.
+
+The standalone cross-check remains available from the repository root:
 
 ```sh
 python -m tools.qualify_switch_errors
 ```
 
-The tool runs real SDK switch fallback and HA classification for PUT/POST status
-pairs 403/403, 504/504, 403/504 and 504/403. Only requests transport is mocked;
-no account/device requests occur. All four pass against the corrected built
-wheel. Published 2.1.0 is the intentional negative control and fails; this is a
-candidate qualification tool, not a claim that the existing minimum was fixed.
+It checks all four primary/fallback HTTP pairs using real SDK wrapping/fallback
+and HA classification. Run with SDK 2.2.0 or newer in a native HA environment.
+SDK 2.1.0 remains an intentional negative control, not a supported minimum.

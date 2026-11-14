@@ -1,7 +1,7 @@
-"""Qualify an SDK candidate's real switch fallback through HA error classification.
+"""Qualify the published SDK's real switch fallback through HA error classification.
 
-Run from the repository root with a native HA interpreter and the candidate SDK
-wheel installed in an isolated environment (or on PYTHONPATH). SDK 2.1.0 is an
+Run from the repository root with a native HA interpreter and SDK 2.2.0+
+installed in an isolated environment. SDK 2.1.0 is an
 intentional negative control: it erases the primary HTTP cause and fails here.
 Only requests transport is mocked; SDK wrapping, fallback and HA classification
 are real. This does not operate devices or modify the environment.

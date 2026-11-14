@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import custom_components
 from custom_components.ezviz_cloud import (
@@ -17,6 +17,8 @@ from custom_components.ezviz_cloud import (
 )
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.errors import error_category, request_error
+from pyezvizapi import EzvizClient, PlugState
+from pyezvizapi.constants import DeviceSwitchType
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 import pytest
 import requests
@@ -243,3 +245,78 @@ def test_malformed_cause_cycle_is_bounded() -> None:
     error = PyEzvizError("SECRET_MARKER")
     error.__cause__ = error
     assert error_category(error) == ("request_failed", "PyEzvizError")
+
+
+@pytest.mark.parametrize("kind", ["light", "switch", "plug"])
+@pytest.mark.parametrize("statuses", [(403, 403), (504, 504), (403, 504), (504, 403)])
+@pytest.mark.parametrize("turn_on", [False, True])
+async def test_real_sdk_switch_fallback_through_action_adapters(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    statuses: tuple[int, int],
+    turn_on: bool,
+) -> None:
+    """Real SDK PUT/POST failures retain primary codes and never change HA state."""
+    entry, _, coordinator, *_ = entities(hass)
+    entry_before = dict(entry.data)
+    initial = not turn_on
+    switches = {
+        DeviceSwitchType.ALARM_LIGHT.value: initial,
+        DeviceSwitchType.ALARM_TONE.value: initial,
+        DeviceSwitchType.PLUG.value: initial,
+    }
+    coordinator.data["CAM001"]["switches"] = switches
+    client = EzvizClient(
+        token={"session_id": "synthetic", "api_url": "private.invalid"}
+    )
+    client._cameras["CAM001"] = {"switches": dict(switches)}
+    coordinator.ezviz_client = client
+    coordinator.async_request_refresh = AsyncMock()
+    entity: light.EzvizLight | switch.EzvizSwitch | switch.EzvizInventoryPlug
+    if kind == "light":
+        entity = light.EzvizLight(coordinator, "CAM001", light.LIGHTS[0])
+    elif kind == "switch":
+        entity = switch.EzvizSwitch(coordinator, "CAM001", switch.SWITCHES[0])
+    else:
+        coordinator.inventory_snapshot = replace(
+            coordinator.inventory_snapshot,
+            devices={"CAM001": PlugState("CAM001", "plug", {"is_on": initial})},
+        )
+        entity = switch.EzvizInventoryPlug(coordinator, "CAM001")
+    entity.hass = hass
+    entity.async_write_ha_state = MagicMock()
+    assert entity.is_on is initial
+    responses = []
+    for status in statuses:
+        response = requests.Response()
+        response.status_code = status
+        response.url = "https://private.invalid/?token=SECRET_MARKER"
+        response._content = b"SECRET_MARKER"
+        responses.append(response)
+    transport = MagicMock(side_effect=responses)
+    monkeypatch.setattr(client._session, "request", transport)
+    try:
+        action = entity.async_turn_on if turn_on else entity.async_turn_off
+        with pytest.raises(HomeAssistantError, match=f"HTTP {statuses[0]}") as caught:
+            await action()
+        expected = "request_forbidden" if statuses[0] == 403 else "request_timeout"
+        assert caught.value.translation_key == expected
+        assert "SECRET_MARKER" not in str(caught.value)
+        assert "private.invalid" not in str(caught.value)
+        sdk_error = caught.value.__cause__
+        assert isinstance(sdk_error, HTTPError)
+        assert isinstance(sdk_error.__cause__, requests.HTTPError)
+        assert sdk_error.__cause__.response is responses[0]
+        assert [call.kwargs["method"] for call in transport.call_args_list] == [
+            "PUT",
+            "POST",
+        ]
+        assert entity.is_on is initial
+        assert client._cameras["CAM001"]["switches"] == switches
+        entity.async_write_ha_state.assert_not_called()
+        coordinator.async_request_refresh.assert_not_awaited()
+        assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+        assert entry.data == entry_before
+    finally:
+        await coordinator.async_close()

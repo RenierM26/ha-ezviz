@@ -11,9 +11,9 @@ from pathlib import Path
 import sys
 from typing import Any
 
-EXPECTED_REQUIREMENT = "pyezvizapi>=2.1.0"
+EXPECTED_REQUIREMENT = "pyezvizapi>=2.2.0"
 EXPECTED_ERROR = (
-    "Requirement pyezvizapi>=2.1.0 is incompatible with pyezvizapi==1.0.5.0, "
+    "Requirement pyezvizapi>=2.2.0 is incompatible with pyezvizapi==1.0.5.0, "
     "which Home Assistant depends on."
 )
 
@@ -45,7 +45,7 @@ def validate_with_exception(
     integration.errors[start:] = [error for error in added if error is not allowed[0]]
     print(
         "\n::warning title=Known custom-only EZVIZ dependency exception::"
-        f"{EXPECTED_ERROR} Custom-only 2.1.0 acceptance passes; simultaneous use "
+        f"{EXPECTED_ERROR} Custom-only 2.2.0 acceptance passes; simultaneous use "
         "with built-in EZVIZ is not qualified. All other hassfest errors remain fatal."
     )
     return len(integration.errors) == start
