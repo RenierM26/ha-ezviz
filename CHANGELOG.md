@@ -19,6 +19,10 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Fix options-save failures with loaded cameras by removing their redundant
+  config-entry listener; HA owns options reloads, while credential actions retain
+  coordinator-driven stream updates.
+
 - Shared typed SDK inventory/freshness for cameras, detectors, bulbs and plugs;
   retain IDs and stale-row health instead of inventing online/capability semantics.
 - Optional channel-99 push independent of polling, stable persisted installation

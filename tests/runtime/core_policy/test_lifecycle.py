@@ -73,44 +73,41 @@ async def test_siren_retrigger_and_remove_reject_queued_old_timers(
 
 
 @pytest.mark.parametrize("verification", [False, True])
-async def test_committed_rtsp_selection_updates_existing_stream(
+async def test_credential_commit_updates_existing_stream(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, verification: bool
 ) -> None:
-    """Committed keys/options update snapshots and streams, not unselected secrets."""
+    """Credential actions update streams without entry listeners or account reloads."""
     entry, _api, data, cam, *_ = entities(hass)
     opts = {
-        "username": "admin",
-        "password": "sticker",
+        "username": "u@ser",
+        "password": "p:/@ss",
         "enc_key": "key",
         "rtsp_uses_verification_code": verification,
         "ffmpeg_arguments": "new/path",
     }
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": opts}})
     await cam.async_added_to_hass()
+    assert not entry.update_listeners
+    reload_entry = AsyncMock(return_value=True)
+    monkeypatch.setattr(hass.config_entries, "async_reload", reload_entry)
     cam.stream = MagicMock(dynamic_stream_settings=DynamicStreamSettings())
     cam.stream.stop = AsyncMock()
-    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": opts}})
-    await hass.async_block_till_done()
-    selected = "sticker" if verification else "key"
+    selected = "p%3A%2F%40ss" if verification else "key"
     assert (
-        await cam.stream_source() == f"rtsp://admin:{selected}@192.0.2.1:554/new/path"
+        await cam.stream_source() == f"rtsp://u%40ser:{selected}@192.0.2.1:554/new/path"
     )
-    cam.stream.update_source.assert_called_once_with(await cam.stream_source())
-    cam.stream.update_source.reset_mock()
+    cam.stream.update_source.assert_not_called()
     data.credentials.commit("CAM001", "new-key")
     await hass.async_block_till_done()
     assert cam.stream.update_source.call_count == (0 if verification else 1)
-    opts = dict(entry.options["cameras"]["CAM001"])
-    opts.update(username="u@ser", password="p:/@ss", enc_key="p:/@ss")
-    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": opts}})
-    await hass.async_block_till_done()
-    assert "u%40ser:p%3A%2F%40ss@" in await cam.stream_source()
+    reload_entry.assert_not_awaited()
     data.data["CAM001"]["local_ip"] = "192.0.2.2"
     cam._handle_coordinator_update()
     assert "192.0.2.2" in cam.stream.update_source.call_args.args[0]
     cam.stream.update_source.reset_mock()
     stream = cam.stream
     await cam.async_will_remove_from_hass()
-    await cam._async_options_updated(hass, entry)
+    cam._refresh_stream_source()
     cam._handle_coordinator_update()
     stream.update_source.assert_not_called()
     stream.stop.assert_awaited_once()
