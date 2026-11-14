@@ -29,13 +29,13 @@ Keep form schemas serializable (integer plus range); perform additional strict
 checks in the step before SDK calls or option writes. Error forms are serialized
 too, and booleans must not become integer timeouts.
 
-CI requires **100% statement and branch coverage** of `config_flow.py` and `diagnostics.py` on both HA
-versions. Defensive exception handlers are included, not marked `no cover`.
+CI requires **100% statement and branch coverage** of `config_flow.py`,
+`options_flow.py`, `camera_flow.py`, `flow_validation.py` and `diagnostics.py` on
+both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
 python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.2.0'
-python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
-python -m coverage report --show-missing --fail-under=100
+python tools/check.py native
 ```
 
 Guidance checked against current Home Assistant developer documentation:
@@ -171,3 +171,12 @@ through HA stop. A platform-refused unload remains an unrecoverable HA state wit
 its working owner retained; the test does not fabricate an unsupported retry.
 See the [audit/evidence matrix](../../docs/lifecycle-audit.md) for related existing
 controls, closed gaps and process-local cleanup limits.
+
+
+## Flow extraction
+
+The canonical HA handler/factory remains in `config_flow.py`. Existing flow/HTTP
+serialization, MFA, partial credential, options conflict and storage controls now
+exercise the extracted options/camera/validation modules. The RTSP transport patch
+targets `camera_flow`, not a stale re-export. Coverage includes every extracted
+flow module; see [flow modularity](../../docs/flow-modularity.md).

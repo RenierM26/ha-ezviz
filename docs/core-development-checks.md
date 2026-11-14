@@ -54,7 +54,7 @@ and blocks network connections/DNS; it performs no live acquisitions or commands
 
 `.github/workflows/core-policy.yaml` runs this against moving Core **dev** on PRs,
 weekly, or manually against a specified Core ref. The published-HA native matrix
-in `ci.yaml` remains separate, with 100% config-flow and diagnostics coverage.
+in `ci.yaml` remains separate, with 100% coverage across the canonical/extracted flow modules and diagnostics.
 
 ## Local lint and formatting
 
