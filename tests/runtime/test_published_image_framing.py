@@ -15,10 +15,11 @@ from custom_components.ezviz_cloud import image
 from .test_hardening import entities
 
 
+@pytest.mark.parametrize("indexed", [False, True])
 @pytest.mark.parametrize("encrypted", [False, True])
 @pytest.mark.parametrize("trailer", [b"", b"opaque-trailer"])
 async def test_published_sdk_selects_and_caches_each_plain_lens(
-    hass, monkeypatch, encrypted, trailer
+    hass, monkeypatch, encrypted, trailer, indexed
 ):
     """Declared bounds, not opaque trailers, define each encrypted image block."""
     plains = []
@@ -27,7 +28,7 @@ async def test_published_sdk_selects_and_caches_each_plain_lens(
             picture.save(buf, format="JPEG")
             plains.append(buf.getvalue())
     records = []
-    for plain in plains:
+    for channel, plain in enumerate(plains, 1):
         block = plain
         if encrypted:
             padding = 16 - len(plain) % 16
@@ -37,7 +38,10 @@ async def test_published_sdk_selects_and_caches_each_plain_lens(
                 + b"ac837ab144ae11d771426037bf46479e"
                 + cipher.encrypt(plain + bytes([padding]) * padding)
             )
-        records.append(b"meta" + pack(">II", 4 + len(block) + len(trailer), len(block)) + block + trailer)
+        records.append(
+            pack(">HHII", channel if indexed else 0, 1, 4 + len(block) + len(trailer), len(block))
+            + block + trailer
+        )
     payload = b"mutichhikpic\0\1" + b"".join(records)
     entry, _, coordinator, _, _, second = entities(hass, lens_total=2)
     hass.config_entries.async_update_entry(
