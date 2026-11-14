@@ -11,11 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from Crypto.Cipher import AES
+import httpx
 from PIL import Image
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 import pytest
 
 from custom_components.ezviz_cloud import light, siren, switch, views
+from custom_components.ezviz_cloud.image import EzvizLastMotion
 from homeassistant.helpers.entity_platform import EntityPlatform
 
 from .test_hardening import entities
@@ -151,4 +153,83 @@ async def test_control_awaits_observation_through_partial_push(hass, monkeypatch
     release.set()
     await task
     assert entity.is_on is on
+    await data.async_close()
+
+
+@pytest.mark.parametrize("stale", [None, "url", "key", "capture", "shutdown"])
+async def test_image_cold_requests_coalesce_and_fence_all_waiters(hass, monkeypatch, stale):
+    entry, _, data, _, snapshot, alarm = entities(hass)
+    entity = snapshot if stale == "capture" else alarm
+    if stale == "capture":
+        entity._handle_picture_captured("https://images.example.invalid/capture")
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def fetch(_url):
+        entered.set()
+        await release.wait()
+        return httpx.Response(200, content=jpeg())
+    fetch_mock = AsyncMock(side_effect=fetch)
+    monkeypatch.setattr(entity, "_fetch_url", fetch_mock)
+    waiters = [asyncio.create_task(entity.async_image()) for _ in range(6)]
+    await entered.wait()
+    waiters[0].cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiters[0]
+    if stale == "url":
+        data.data["CAM001"]["last_alarm_pic"] = "https://images.example.invalid/new"
+        entity._handle_coordinator_update()
+    elif stale == "key":
+        hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"enc_key": "NEW"}}})
+        entity._handle_coordinator_update()
+    elif stale == "capture":
+        entity._handle_picture_captured("https://images.example.invalid/capture")
+    elif stale == "shutdown":
+        data.begin_shutdown()
+    release.set()
+    results = await asyncio.gather(*waiters[1:])
+    fetch_mock.assert_awaited_once()
+    if stale:
+        assert results == [None] * 5 and entity._cached_image is None
+    else:
+        assert all(result == jpeg() for result in results)
+        assert await entity.async_image() == jpeg()
+        fetch_mock.assert_awaited_once()
+    await data.async_close()
+
+
+async def test_two_lenses_share_concurrent_download_not_accounts(hass, monkeypatch):
+    _, _, data, _, _, second = entities(hass, lens_total=2)
+    first = EzvizLastMotion(hass, data, "CAM001", {}, lens_index=1, lens_total=2)
+    first.hass = hass
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def fetch(_url):
+        entered.set()
+        await release.wait()
+        return httpx.Response(200, content=jpeg())
+    fetch_mock = AsyncMock(side_effect=fetch)
+    monkeypatch.setattr(first, "_fetch_url", fetch_mock)
+    monkeypatch.setattr(second, "_fetch_url", fetch_mock)
+    requests = [asyncio.create_task(entity.async_image()) for entity in (first, second)]
+    await entered.wait()
+    release.set()
+    assert all(await asyncio.gather(*requests))
+    fetch_mock.assert_awaited_once()
+    await data.async_close()
+
+
+async def test_push_noops_skip_fanout_and_affected_row_is_detached(hass):
+    _, _, data, *_ = entities(hass)
+    data.data["OTHER"] = {"nested": {"keep": [1]}}
+    old = data.data
+    data.async_update_listeners = MagicMock()
+    for update in ({}, {"ext": {}}, {"ext": {"unrelated": 1}}):
+        data.merge_mqtt_update("CAM001", update)
+    assert data.data is old
+    data.async_update_listeners.assert_not_called()
+    update = {"ext": {"image": "https://images.example.invalid/new"}}
+    data.merge_mqtt_update("CAM001", update)
+    assert data.data is not old and data.data["CAM001"] is not old["CAM001"]
+    assert old["CAM001"]["last_alarm_pic"].endswith("alarm")
+    assert data.data["OTHER"] is old["OTHER"]
+    data.merge_mqtt_update("CAM001", update)
+    data.async_update_listeners.assert_called_once()
     await data.async_close()

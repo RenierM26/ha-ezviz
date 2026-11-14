@@ -31,7 +31,13 @@ def async_add_inventory_entities(
     """Discover additions/observed properties without another network refresh."""
     seen: set[str] = set()
 
+    accepted_snapshot = None
+
     def discover() -> None:
+        nonlocal accepted_snapshot
+        if coordinator.inventory_snapshot is accepted_snapshot:
+            return
+        accepted_snapshot = coordinator.inventory_snapshot
         entities = []
         for serial, state in coordinator.devices_of_kind(kind).items():
             for entity in factory(coordinator, serial, state):

@@ -1,5 +1,6 @@
 """Support EZVIZ last motion image."""
 
+import asyncio
 from collections.abc import Mapping
 import logging
 from typing import Any, override
@@ -28,6 +29,7 @@ from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS, SIGNAL_PICTURE_CAPTURED
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
+from .workers import create_critical_task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +120,8 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         EzvizEntity.__init__(self, coordinator, serial)
         ImageEntity.__init__(self, hass)
         self._image_generation = 0
+        self._image_task: asyncio.Task[Image | None] | None = None
+        self._image_task_generation = -1
         self._lens_index = max(1, lens_index)
         self._lens_total = max(1, lens_total)
         unique_suffix = (
@@ -162,12 +166,22 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         """Fetch asynchronously and process immutable image inputs off the loop."""
         if self.coordinator.shutting_down:
             return None
-        if response := await self._fetch_url(url):
+        password = self.alarm_image_password
+        key = (
+            self._serial,
+            self.entity_description.key,
+            url,
+            password,
+            self._image_generation,
+        )
+        if response := await self.coordinator.async_image_download(
+            key, lambda: self._fetch_url(url)
+        ):
             try:
                 image_data = await self.coordinator.async_execute(
                     _process_image_bytes,
                     response.content,
-                    self.alarm_image_password,
+                    password,
                     self._lens_index,
                     self._lens_total,
                 )
@@ -204,7 +218,24 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         if not isinstance(url, str) or not url:
             return None
         generation = self._image_generation
-        image = await self._async_load_image_from_url(url)
+        if self._image_task is None or self._image_task_generation != generation:
+            # Register the full request with coordinator shutdown ownership. Shield
+            # shared work so cancellation of a viewer does not cancel other viewers.
+            self._image_task = create_critical_task(
+                self.hass,
+                self.coordinator.async_execute_owned(
+                    lambda: self._async_load_image_from_url(url)
+                ),
+                "EZVIZ image request",
+            )
+            self._image_task.add_done_callback(_retrieve_image_error)
+            self._image_task_generation = generation
+        task = self._image_task
+        try:
+            image = await asyncio.shield(task)
+        finally:
+            if task.done() and self._image_task is task:
+                self._image_task = None
         self._sync_encryption_key()
         if (
             self.coordinator.shutting_down
@@ -305,3 +336,9 @@ class EzvizSnapshot(EzvizLastMotion):
     @override
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
+
+
+def _retrieve_image_error(task: asyncio.Task) -> None:
+    """Retrieve errors even if every shared-request waiter was cancelled."""
+    if not task.cancelled():
+        task.exception()

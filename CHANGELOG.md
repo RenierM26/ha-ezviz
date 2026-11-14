@@ -26,6 +26,15 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Coalesce concurrent cold reads per image generation and share in-flight image
+  downloads across lenses. Viewer cancellation does not cancel other viewers;
+  stale URL/key/capture results stay uncached and shutdown owns the work.
+  SDK decoding remains per lens (no new SDK batch API or vendor parsing in HA).
+- Skip no-image/identical push updates and discovery on unchanged inventory;
+  detach only the affected camera row, preserving poll health and public events.
+- Materialize SDK inventory once off-loop per poll, with a detached camera
+  projection so SDK write adapters cannot mutate accepted inventory.
+
 - Bind media-proxy requests to bounded, account/camera-owned image references;
   reject caller URLs, private DNS/IP targets and redirects. Old proxy links must
   be refreshed by browsing again. Only direct public HTTPS image targets work.
