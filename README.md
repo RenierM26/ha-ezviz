@@ -1,250 +1,73 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+# EZVIZ Cloud for Home Assistant — Ezviz(Beta)
+
+[![HACS custom integration](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://www.hacs.xyz/docs/faq/custom_repositories/)
 [![Donate](https://img.shields.io/badge/donate-Coffee-yellow.svg)](https://www.buymeacoffee.com/renierm)
 
-Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
-https://www.home-assistant.io/integrations/ezviz/
+A custom Home Assistant integration using [pyEzvizApi](https://github.com/RenierM26/pyEzvizApi)
+for cloud inventory, optional channel-99 push, camera images and local RTSP sources.
+The HA integration is named **Ezviz(Beta)**; its domain is `ezviz_cloud`.
+It is separate from Home Assistant's built-in **EZVIZ** integration.
 
-Requires **Home Assistant 2026.10.4+ and Python 3.14.2+**. Development, lint/type
-checks and CI use Python 3.14, including its default deferred annotations.
+## Release status
+
+**This README describes unreleased `main`.** The latest published integration
+release checked on 2026-11-14 is `0.2.0.25`; `main` still carries that manifest
+version but includes subsequent, untagged changes. Installing that published tag
+does **not** install the overhaul described here. Use the selected release's own
+documentation for its behavior. A new manifest version/tag and explicit release
+approval are still required; no release is implied by merging these PRs.
+
+For this development line:
+
+| Requirement | Qualified baseline |
+| --- | --- |
+| Home Assistant | 2026.10.4 minimum; native CI also tests 2026.11.0 |
+| Python | 3.14.2+; HA manages Python on OS/Container installations |
+| SDK | Published `pyezvizapi>=2.2.0`; CI qualifies exactly 2.2.0 |
+| Built-in/custom coexistence | **Not supported/qualified:** built-in EZVIZ pins a conflicting SDK version |
+
+Cloud login and initial polling must succeed. Local RTSP requires a model that
+supports it and network reachability from HA. Push is optional and independent
+of the shared 30-second cloud poll; this is not a local-only integration.
+
+## Start here
+
+1. Read [installation and account/camera setup](docs/setup.md).
+2. Review [upgrade, credentials and rollback](docs/upgrading.md) before changing
+   an existing installation, especially the write-only encryption-key change.
+3. Use [troubleshooting and support](docs/troubleshooting.md) for permission,
+   timeout, push or RTSP problems. A transient cloud timeout is not automatically
+   a reason to restart or reauthenticate.
+
+## Features and limits
+
+- Existing camera platforms and stable entity/action identities are retained.
+- One SDK poll supplies cameras, detectors, light bulbs and plugs. Entity
+  availability requires successful polling, current/present device health and a
+  known online state; retained stale values are not current measurements.
+- Bulbs/plugs expose observed on/off controls, not inferred energy/color features.
+  Detector contact/water booleans remain unknown without qualified SDK semantics;
+  raw diagnostic readings are not converted to alarm truthiness.
+- Camera options select local RTSP credentials and path. This work adds no new
+  streaming protocol or universal battery-camera RTSP support.
+- [Capture-picture/snapshot images](docs/capture-picture.md) work independently
+  of RTSP; a requested capture may wake a battery device.
+- Cached, allowlisted diagnostics help distinguish polling, push, device health
+  and pending cleanup without making another cloud/device request.
+
+See [the detailed shared-inventory and persistence contract](docs/shared-inventory.md)
+for exact family, storage, migration and ownership limits. Offline tests do not
+establish live broker delivery, physical actions or browser/media compatibility.
 
 ## Development and maintenance
 
-See [development/check commands](docs/development.md),
-[architecture and ownership](docs/architecture.md),
-[test responsibilities](tests/README.md) and the
-[staged overhaul backlog](docs/overhaul-backlog.md).
-
-## Breaking change
-
-**Encryption-key text entities are now write-only** (unique-ID suffix
-`_camera_enc_key`). Their existing entity IDs and the `text.set_value` action are
-preserved, but their state is always empty and is no longer restored. Replace
-any automation, template or script that reads the old text state; do not use it
-as an RTSP password or image-decryption key. Configure the key in the camera's
-integration Options instead. Integrations reading keys internally now use those
-options directly. Existing recorder/history copies are not purged by this update.
-
-# EZVIZ account setup (doesn't require IE):
----
-
-1) Register your account here: https://i.ezvizlife.com/user/userAction!goRegister.action
-2) Take note of your **User Name**, you will need it to the EZVIZ Integration setup
-3) Login here: https://euauth.ezvizlife.com/signIn
-4) Logged in access the user account here: https://i.ezvizlife.com/user/userAction!displayUserInfo.action (to add/manage cameras) or use the EZVIZ App
-
-# Ezviz(Beta) — Configuration & Options
-
-This integration logs into **EZVIZ Cloud**, subscribes to **MQTT** events, and lets you configure **per-camera RTSP** settings with a simple UI.
-
-> **Heads up:** As of v4, all per-camera settings live under the cloud entry’s **Options**. Legacy per-camera entries are migrated automatically.
-
----
-
-## Add the integration
-
-1. **Settings → Devices & Services → Add Integration → _Ezviz(Beta)_**  
-2. Sign in with your EZVIZ account.  
-3. If EZVIZ requests a one-time 2FA, follow the prompt.  
-4. On success, the cloud tokens are stored; entities and MQTT will load.
-
----
-
-## Push service outages
-
-MQTT push starts in the background after entities load. If push registration or
-connection fails (for example, EZVIZ returns HTTP 503), the integration continues
-its normal 30-second cloud polling and retries push startup every five minutes.
-Fatal push failures do not retry the SDK's cached failed worker. Authentication
-failures open one HA reauthentication flow. Credential-save failures require
-checking storage permissions/free space and then reloading the integration;
-other fatal errors require correcting their cause and reloading. Polling remains
-active in these cases. Diagnostics retain the fatal error type without secrets.
-
-Real-time `ezviz_push_event` events are unavailable until push recovers; polling
-does not replace every push-only event. Cloud login and the initial camera fetch
-must still succeed. Push shutdown errors do not prevent unloading the integration.
-Unloading waits at most five seconds for push cleanup; if an SDK call is still
-pending, cleanup continues in the background when that call returns.
-Failed cleanup retains the client and retries every five minutes; a replacement
-push client is not created until the previous client has stopped successfully.
-
-## Configure per-camera options
-
-Open **Settings → Devices & Services → Ezviz(Beta) → Configure**, then select a camera to **Edit**.
-
-You’ll see the following fields:
-
-### Fields
-
-- **Camera Username**  
-  The local username used for RTSP on the device (often `admin`, or model-specific).
-
-- **RTSP Path**  
-  The path part of the RTSP URL.  
-  **Default:** `/Streaming/Channels/102` (the **sub-stream**)  
-  Common values:
-  - `/Streaming/Channels/101` → main stream
-  - `/Streaming/Channels/102` → sub-stream (lower bitrate; default)
-  - NVRs typically follow the same pattern per channel.
-
-- **Use Verification Code (VC) for RTSP** *(toggle)*  
-  Switch RTSP authentication between:
-  - **VC mode** (uses the **Verification Code**)  
-  - **ENC mode** (uses the **Encryption Key**)
-
-- **Verification Code**  
-  The **sticker/verification code** printed on the camera/NVR. Present on all devices.
-
-- **Encryption Key**  
-  The device **Encryption Key** (used when encryption is **enabled** on the device).  
-  > Encryption can be **disabled** on the device. If disabled, you can leave this as “fetch_my_key” or blank and use VC mode instead.
-
-- **Validate credentials now** *(checkbox)*  
-  One-time RTSP validation. When checked, the form will **test** the RTSP credentials before saving.  
-  This does **not** store anything by itself; it only validates the values you entered.
-
-> **Tip:** If you don’t know the VC or ENC, keep the default **`fetch_my_key`** value. The integration will fetch it from EZVIZ (you may be prompted for a one-time 2FA).
-
-### What gets saved
-
-- Per-camera settings are stored under the cloud entry’s **Options**.
-- The **RTSP Path**, **auth mode** (VC vs ENC), and whichever secret you used (VC or ENC) are saved per camera.
-- The **Validate** checkbox is **not** saved; it only runs a one-time check at submit time.
-
----
-
-## How VC vs ENC works
-
-- **Verification Code (VC)**  
-  Always present (printed on a sticker). When **VC mode** is enabled, the RTSP password is the **verification code**.
-
-- **Encryption Key (ENC)**  
-  Only relevant if **Encryption** is **enabled** on the device. When **VC mode** is **off**, RTSP uses the **encryption key**.
-
-- **Encryption disabled?**  
-  Then ENC may be unnecessary; use **VC mode** for RTSP.
-
-You can switch modes at any time with the toggle. After you save, entities reload to use the new settings.
-
----
-
-## One-time 2FA during edit
-
-When fetching VC or ENC from the cloud (because you left `fetch_my_key`), EZVIZ may require a **one-time 2FA**:
-
-1. You’ll be prompted for a **Verification Code 2FA** (for VC fetch) or **Encryption Key 2FA** (for ENC fetch).
-2. Enter the code you received; the integration fetches the value and returns to the edit form **prefilled** with the resolved secret.
-3. Click **Submit** to save.
-
-If validation fails (auth or connectivity), the form reopens with the **best-known values** so you can adjust and try again.
-
----
-
-## Examples
-
-**Typical main stream RTSP URL (VC mode):**
-`rtsp://<username>:<verification_code>@<camera-ip>:554/Streaming/Channels/101`
-
-**Typical sub-stream RTSP URL (ENC mode):**
-`rtsp://<username>:<encryption_key>@<camera-ip>:554/Streaming/Channels/102`
-
-
-
-> Only the **path** (`/Streaming/Channels/101` or `/Streaming/Channels/102`) is configured in Options; the integration composes the full URL for you.
-
----
-
-## Troubleshooting
-
-- **RTSP validation failed**
-  - Check the **auth mode** (VC vs ENC) matches what the device expects.
-  - Verify the **RTSP Path** (try `/Streaming/Channels/101` for main or `/Streaming/Channels/102` for sub).
-  - Ensure Home Assistant can reach the camera’s IP: `rtsp://<camera-ip>:554`.
-
-- **Keeps asking for 2FA**
-  - Codes expire quickly; request a new code and enter it promptly.
-  - Make sure you’re entering the code for the **action** you’re performing (VC fetch vs ENC fetch).
-
-- **No events/updates**
-  - Confirm the cloud login is still valid (reconfigure if needed).
-  - Reboot the camera/NVR if RTSP/MQTT seems stuck.
-
----
-
-## Migration (v4)
-
-- Legacy per-camera config entries are merged into the cloud entry’s **Options**.
-- Ignored legacy entries (`version < 4`) are cleaned up automatically.
-- Entity identifiers are preserved.
-
----
-
-## Shared inventory and channel-99 migration
-
-See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
-Requires **pyezvizapi >=2.2.0**, now published on PyPI, for inventory,
-channel-99, persisted client identity APIs and primary HTTP cause preservation
-through switch fallback; there are no old-SDK fallbacks. All CI runtime jobs qualify the published
-2.2.0 minimum, not a source checkout. Existing camera IDs and user-data migration
-are preserved. This PR supersedes the older channel-99 proposal #234.
-
-## Stable identity across container restarts
-
-Before the first cloud login, the integration atomically saves a private
-per-account installation identity using Home Assistant Store. Setup, MFA and
-reauthentication explicitly pass that same identity to the SDK. Existing trusted
-saved tokens supply their original identity on first adoption; credentials and
-push replay state are not rewritten to match a new container MAC.
-
-Keep HA's configuration volume persistent. Expired/revoked credentials can still
-require reauthentication, and concurrent cloned deployments must not share token
-or replay state. See [identity storage and recovery](docs/shared-inventory.md#persisted-installation-identity).
-
-## On-demand pictures
-
-See [capture-picture and snapshot behavior](docs/capture-picture.md) for the
-`ezviz_cloud.capture_picture` action, optional response and per-camera Snapshot
-image entity.
-
-## Supported HA baseline
-
-Requires **Home Assistant 2026.10.4 or newer**. CI retains the pinned 2026.10.4
-acceptance suite and separately checks native lifecycle/image/storage behavior
-on 2026.10.4 and 2026.11.0. See the shared-inventory contract for the precise
-synthetic-test boundaries and the built-in/custom EZVIZ coexistence limitation.
-
-## Downloading diagnostics
-
-Use **Download diagnostics** on the integration entry for an account-wide report,
-or on a device page for that device plus shared polling/push health. Reports use
-cached data only; downloading does not poll EZVIZ, wake a camera, read credentials
-from disk or test an RTSP stream.
-
-The report includes polling freshness and error types, per-device model/firmware,
-connectivity and freshness, observed capabilities, credential-configured booleans,
-enabled/disabled entity counts, push retries/recovery and pending cleanup. Device
-health is joined to anonymous `device_N` labels; labels are local to the report,
-not serial hashes or permanent identifiers. Missing devices remain visible when
-cached health or the device registry knows about them. Unknown is `null`, not
-proof that a feature is unsupported. `verified_binary_state_available` indicates
-whether the SDK has a qualified binary reading, **not** the door/leak state.
-
-Only allowlisted information is exported. Names, serials, account identifiers,
-addresses, passwords, encryption keys, tokens, media/RTSP URLs, raw vendor payloads
-and exception messages are omitted from the integration's JSON data. HA supplies
-its own system/manifest envelope and download filename (a device filename can
-contain its HA name). Review attachments before posting publicly.
-
-Freshness is expressed as age in seconds, not alarm/activity timestamps. A failed
-poll can retain an older snapshot: check both polling success and device
-`current`/`present`/`available` before treating cached values as current. Push
-failures distinguish authentication, storage and other fatal categories; polling
-can remain healthy while push is stopped. A failure to obtain push diagnostics
-is reported separately and does not discard the rest of the report. An unloaded
-entry returns minimal entry/runtime status without attempting setup.
-
-## Home Assistant Core development checks
-
-The component follows Core lint/formatting policy and has a separate moving-dev
-qualification job. See [development checks and compatibility exceptions](docs/core-development-checks.md)
-for repeatable commands, scope and the known built-in/custom SDK conflict.
+- [Development/check commands](docs/development.md)
+- [Architecture and ownership](docs/architecture.md)
+- [Test responsibilities and isolation](tests/README.md)
+- [Release checklist and source preflight](docs/releasing.md)
+- [Validation dependency pins](docs/validation-pins.md)
+- [Staged overhaul tracker](docs/overhaul-backlog.md)
+
+Report reproducible problems through [GitHub issues](https://github.com/RenierM26/ha-ezviz/issues)
+using the [support checklist](docs/troubleshooting.md#reporting-a-problem).
+Do not attach passwords, verification codes, keys, tokens or signed media URLs.

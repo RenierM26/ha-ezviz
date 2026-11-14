@@ -58,3 +58,11 @@ See [architecture](architecture.md), [test responsibilities](../tests/README.md)
 Do not install Core's complete optional integration requirement set: its built-in
 EZVIZ SDK pin conflicts with this custom integration. The explicit hassfest
 exception remains narrow and visible. No check command publishes or deploys.
+
+
+## Release maintenance
+
+See [the release checklist](releasing.md) for version/tag/source/SDK evidence and
+[the validation-pin audit](validation-pins.md) for immutable action/image inputs
+and intentionally moving Core policy. `tools/check_release.py` is a read-only
+source/metadata preflight, not a publisher or substitute for runtime tests.

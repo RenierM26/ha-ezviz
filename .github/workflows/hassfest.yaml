@@ -15,7 +15,7 @@ on:
       - "!docs/**"
   push:
     branches: [ main ]
-    tags: [ "v*" ]
+    tags: [ "*" ]
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -32,14 +32,14 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Run hassfest (one documented custom-only SDK exception)
         run: |
           docker run --rm \
             --workdir /usr/src/homeassistant \
             --volume "${GITHUB_WORKSPACE}:/github/workspace:ro" \
             --entrypoint python3 \
-            ghcr.io/home-assistant/hassfest \
+            ghcr.io/home-assistant/hassfest:latest@sha256:da6522993280166fe072704989a2b4c33e639e8ceb69c8ab6ad7ec5045c1a1e3 \
             /github/workspace/tools/check_hassfest.py \
             --action validate \
             --integration-path /github/workspace/custom_components/ezviz_cloud

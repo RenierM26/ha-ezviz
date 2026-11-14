@@ -1,6 +1,6 @@
 # Staged repository overhaul
 
-Baseline: merged state-boundary PR #242 (`8899da6`), 2026-11-14. Work proceeds in reviewable
+Baseline: merged behavioral-contract PR #243 (`77b3178`), 2026-11-14. Work proceeds in reviewable
 slices. This backlog records implementation status, not deployment approval.
 
 | ID | Priority / state | Deliverable and exit criteria |
@@ -9,8 +9,8 @@ slices. This backlog records implementation status, not deployment approval.
 | F02 | P1 / merged in PR #240 | Audit and regression matrix in [lifecycle-audit.md](lifecycle-audit.md). Close late-setup cleanup, transient private-file deletion and replacement-account identity gaps with real HA/Store controls; preserve existing lifetime anchors. |
 | F03 | P1 / merged in PR #241 | Extract account/options/camera-preparation/validation responsibilities from the 1,007-line monolith; canonical `config_flow.py` is now 400 lines. See [flow modularity](flow-modularity.md). Preserve form serialization, step IDs, MFA, options conflict handling, migrations and storage recovery. |
 | F04 | P1 / merged in PR #242 | Consolidate typed SDK state selectors, compatibility projections and shared availability; type family adapters; fence late shutdown cache merges. See [state boundary](state-boundary.md). Preserve SDK rendering/retention and camera push behavior; no inferred permissions. |
-| F05 | P1 / implemented in this PR; merge pending | Enforce separate pytest layers; qualify actual SDK transient-recovery/shutdown behavior; migrate the 13-case push module to strict Core test policy without dropping assertions. See [behavioral contracts](behavioral-tests.md). Other legacy modules remain an explicit incremental maintenance scope, not claimed migrated. |
-| F06 | P2 / backlog | Replace legacy user onboarding with verified setup/support/troubleshooting/migration docs; define HA version/tag/release and SDK adoption checks, audit floating validation images/actions and make release evidence reproducible. Publication/deployment remain separate actions. |
+| F05 | P1 / merged in PR #243 | Enforce separate pytest layers; qualify actual SDK transient-recovery/shutdown behavior; migrate the 13-case push module to strict Core test policy without dropping assertions. See [behavioral contracts](behavioral-tests.md). Other legacy modules remain an explicit incremental maintenance scope, not claimed migrated. |
+| F06 | P2 / implemented in this PR; merge pending | Replace legacy onboarding with code-audited setup/support/upgrade docs and an explicit unreleased-main status. Add release/source preflight and change notes; pin validation actions and actual images, fix bare-version tag triggers. See [release checklist](releasing.md) and [validation audit](validation-pins.md). No version bump, publication or deployment. |
 
 ## Audit observations
 
@@ -40,3 +40,16 @@ Every slice lists its intended contracts, evidence and remaining limits. Preserv
 entity/action identities, credential ownership and migration paths. Do not mix
 new device features with structural changes. Keep this file and the execution
 tracker consistent; an open PR is **review**, not merged or deployed work.
+
+## Remaining explicit limits / maintenance
+
+- Main still carries the old published `0.2.0.25` manifest version. A reviewed
+  version/tag/release step is required; completing these overhaul slices does
+  not publish them. Source-only downgrade is not a migration rollback.
+- The existing RTSP credential probe uses port 554/default test URI, not the
+  configured playback path/port. This is now documented accurately, not claimed
+  fixed or equivalent to a complete playback test.
+- Legacy test-policy migration remains incremental; the F05 push module is not
+  a claim that every historical test follows Core test policy.
+- Built-in/custom SDK coexistence, live cloud/push/device behavior and browser
+  compatibility remain outside the offline qualification claims.
