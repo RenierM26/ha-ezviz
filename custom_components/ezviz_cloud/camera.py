@@ -156,17 +156,12 @@ class EzvizCamera(EzvizEntity, Camera):
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Watch committed options as well as coordinator updates."""
+        """Refresh the source when added or re-added after an options reload."""
         self._removed = False
         await super().async_added_to_hass()
-        if entry := self.coordinator.config_entry:
-            self.async_on_remove(entry.add_update_listener(self._async_options_updated))
-        self._refresh_stream_source()
-
-    async def _async_options_updated(
-        self, hass: HomeAssistant, entry: EzvizConfigEntry
-    ) -> None:
-        """Refresh only after HA has committed the new options."""
+        # OptionsFlowWithReload owns form changes; entry update listeners are
+        # incompatible with it. Credential actions notify the coordinator after
+        # committing, so they still update an existing stream without a reload.
         self._refresh_stream_source()
 
     @callback

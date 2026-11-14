@@ -190,3 +190,18 @@ and refuses mixed/unscoped collection. The migrated
 and adds four actual SDK worker transient-recovery/shutdown controls. See
 [the F05 audit and evidence](../../docs/behavioral-tests.md). Other legacy modules
 are not claimed to have been migrated to strict Core test policy.
+
+## Options reload ownership
+
+`core_policy/test_options_reload.py` completes cloud and camera options through
+HA's real options manager with an attached camera. Changed values reload once;
+unchanged submissions do not reload. `OptionsFlowWithReload` cannot coexist with
+any config-entry update listener, including entity-local listeners. Older flow
+tests had no attached camera, while camera tests updated options outside the flow
+manager; neither exercised this combination.
+
+Form changes use HA's reload. Credential actions continue to commit and notify
+the coordinator directly, updating existing streams without reloading the account.
+The lifecycle tests retain selected-key, URL escaping, address-change and removed
+entity controls for this path. Reload itself is mocked in the options regression;
+this is not live browser or camera playback qualification.

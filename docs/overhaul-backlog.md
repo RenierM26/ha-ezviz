@@ -1,6 +1,6 @@
 # Staged repository overhaul
 
-Baseline: merged behavioral-contract PR #243 (`77b3178`), 2026-11-14. Work proceeds in reviewable
+Baseline: merged release-discipline PR #244 (`d4ac599`), 2026-11-14. Work proceeds in reviewable
 slices. This backlog records implementation status, not deployment approval.
 
 | ID | Priority / state | Deliverable and exit criteria |
@@ -10,7 +10,7 @@ slices. This backlog records implementation status, not deployment approval.
 | F03 | P1 / merged in PR #241 | Extract account/options/camera-preparation/validation responsibilities from the 1,007-line monolith; canonical `config_flow.py` is now 400 lines. See [flow modularity](flow-modularity.md). Preserve form serialization, step IDs, MFA, options conflict handling, migrations and storage recovery. |
 | F04 | P1 / merged in PR #242 | Consolidate typed SDK state selectors, compatibility projections and shared availability; type family adapters; fence late shutdown cache merges. See [state boundary](state-boundary.md). Preserve SDK rendering/retention and camera push behavior; no inferred permissions. |
 | F05 | P1 / merged in PR #243 | Enforce separate pytest layers; qualify actual SDK transient-recovery/shutdown behavior; migrate the 13-case push module to strict Core test policy without dropping assertions. See [behavioral contracts](behavioral-tests.md). Other legacy modules remain an explicit incremental maintenance scope, not claimed migrated. |
-| F06 | P2 / implemented in this PR; merge pending | Replace legacy onboarding with code-audited setup/support/upgrade docs and an explicit unreleased-main status. Add release/source preflight and change notes; pin validation actions and actual images, fix bare-version tag triggers. See [release checklist](releasing.md) and [validation audit](validation-pins.md). No version bump, publication or deployment. |
+| F06 | P2 / merged in PR #244 | Replace legacy onboarding with code-audited setup/support/upgrade docs and an explicit unreleased-main status. Add release/source preflight and change notes; pin validation actions and actual images, fix bare-version tag triggers. See [release checklist](releasing.md) and [validation audit](validation-pins.md). No version bump, publication or deployment. |
 
 ## Audit observations
 
@@ -53,3 +53,12 @@ tracker consistent; an open PR is **review**, not merged or deployed work.
   a claim that every historical test follows Core test policy.
 - Built-in/custom SDK coexistence, live cloud/push/device behavior and browser
   compatibility remain outside the offline qualification claims.
+
+## Post-overhaul regression follow-up
+
+Options saves with an attached camera exposed an incompatible config-entry
+listener. The follow-up removes that listener, leaving `OptionsFlowWithReload`
+in charge of form changes and coordinator notifications in charge of credential
+actions. Four real-manager controls cover changed/unchanged cloud and camera
+options. See [test evidence and limits](../tests/runtime/README.md#options-reload-ownership).
+Fix implemented in a follow-up PR; review/merge pending. No release or deployment.
