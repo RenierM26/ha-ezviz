@@ -204,8 +204,11 @@ class EzvizCamera(EzvizEntity, Camera):
             if self._removed or self.coordinator.shutting_down:
                 return None
             stream = await super().async_create_stream()
-            # Options may have changed while HA awaited stream settings.
-            if stream is not None and not self._removed:
+            # Removal may have started while HA awaited stream settings.
+            if self._removed or self.coordinator.shutting_down:
+                return None
+            # Options may have changed during the same await.
+            if stream is not None:
                 source = self._build_rtsp()
                 if stream.source != source:
                     stream.update_source(source)

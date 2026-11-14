@@ -148,7 +148,7 @@ async def test_stream_creation_serializes_with_commit_and_unload(
     await asyncio.sleep(0)
     assert not removal.done()
     finish.set()
-    await creation
+    assert await creation is None
     await removal
     stream.stop.assert_awaited_once()
     assert await cam.async_create_stream() is None
