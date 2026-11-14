@@ -69,10 +69,12 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         self._delay_listener: Callable[[], None] | None = None
         self._timer_generation = 0
         self._removed = False
+        self._removal_generation = 0
 
     @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
+        self._removed = False
         if not (last_state := await self.async_get_last_state()):
             return
         self._attr_is_on = last_state.state == STATE_ON
@@ -83,6 +85,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off camera siren."""
+        generation = self._removal_generation
         try:
             result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 1
@@ -91,7 +94,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn off siren", err) from err
 
-        if result and not self._removed:
+        if result and not self._removed and generation == self._removal_generation:
             self._cancel_off_delay()
 
             self._attr_is_on = False
@@ -100,6 +103,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on camera siren."""
+        generation = self._removal_generation
         try:
             result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.sound_alarm, self._serial, 2
@@ -108,7 +112,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn on siren", err) from err
 
-        if result and not self._removed:
+        if result and not self._removed and generation == self._removal_generation:
             self._attr_is_on = True
             self._schedule_off_delay()
             self.async_write_ha_state()
@@ -138,6 +142,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Prevent delayed callbacks or pending commands writing after removal."""
         self._removed = True
+        self._removal_generation += 1
         self._cancel_off_delay()
         await super().async_will_remove_from_hass()
 

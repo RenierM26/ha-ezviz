@@ -104,7 +104,13 @@ Older modules remain under the independent legacy test policy.
 callbacks, retrigger/manual-off/removal, committed RTSP credential selection and
 existing source refresh, creation/commit/unload ordering, real HA preloaded stream
 restart/stop with preserved preferences, and entry-scoped push device resolution.
-These controls use synthetic SDK IO and never contact cameras or the cloud.
+Actual registry/entity-platform renames re-add the same camera and siren objects
+on supported HA versions. Controls cover both restored-on and no-restored-state
+add hooks, fresh real HA stream creation with preload preferences preserved,
+coordinator source updates after rename, working siren state/timers, and pending
+siren command results fenced across removal/re-add. The stream boundary does not
+start a decoder worker. These controls use synthetic SDK IO and never contact
+cameras or the cloud.
 
 ## Request failure messages
 

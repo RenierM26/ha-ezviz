@@ -114,6 +114,7 @@ class EzvizCamera(EzvizEntity, Camera):
         """Initialize the camera entity."""
         super().__init__(coordinator, serial)
         Camera.__init__(self)
+        self.stream: Stream | None = None
 
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
@@ -156,6 +157,7 @@ class EzvizCamera(EzvizEntity, Camera):
     @override
     async def async_added_to_hass(self) -> None:
         """Watch committed options as well as coordinator updates."""
+        self._removed = False
         await super().async_added_to_hass()
         if entry := self.coordinator.config_entry:
             self.async_on_remove(entry.add_update_listener(self._async_options_updated))
@@ -196,6 +198,9 @@ class EzvizCamera(EzvizEntity, Camera):
                     self.stream.dynamic_stream_settings, preload_stream=False
                 )
                 await self.stream.stop()
+                # HA 2026.10 re-adds this object on registry rename. Recreate
+                # the stream with current preferences and the new state callback.
+                self.stream = None
         await super().async_will_remove_from_hass()
 
     @override
