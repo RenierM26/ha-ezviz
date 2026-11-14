@@ -67,9 +67,10 @@ ruff check --config tools/core_ruff.toml custom_components/ezviz_cloud
 ruff format --check --config tools/core_ruff.toml custom_components/ezviz_cloud
 ```
 
-The root Ruff configuration excludes component sources; plain `ruff check .`
-checks standalone tests/tools, while the explicit commands above enforce the
-component's Core policy. CI runs both scopes. There is deliberately no Ruff
+The root Ruff configuration now extends this Core snapshot, so plain `ruff check .`
+also checks component sources. Legacy standalone tests/tools have scoped configurations,
+and focused Core tests retain their own overlay. The explicit commands above remain
+useful for production-only checks. CI runs both scopes. There is deliberately no Ruff
 configuration inside the distributable integration: a copied component must not
 override its host Core checkout's policy or refer to absent repository tooling.
 The live Core job catches later policy drift; refresh the snapshot and provenance
@@ -121,6 +122,8 @@ not all been converted to Core test style.
 The focused package inherits `tools/core_tests_ruff.toml` (Core's test overlay at
 the same recorded baseline) and additionally enables Ruff `ANN` annotation checks.
 Normal lint and CI formatting cover the whole package, including future additions.
+Local/editor/CI commands are shared through `tools/check.py`; see
+[development setup](development.md) for the isolated environment profiles.
 The moving-Core checker copies it unchanged, loads **that checkout's** actual test
 policy (from Git when sparse checkout omits the file), logs its Python hashes, and
 runs test lint/format plus annotation checks separately from integration checks.

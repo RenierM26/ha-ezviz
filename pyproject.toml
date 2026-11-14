@@ -1,29 +1,5 @@
 [tool.ruff]
-line-length = 100
-target-version = "py314"
-src = ["custom_components"]
-# Component sources use Core's separate policy via explicit CI/developer commands.
-extend-exclude = ["custom_components/ezviz_cloud"]
-
-[tool.ruff.lint]
-select = ["E","F","I","UP","B","SIM","PL","RUF","TID251"]
-ignore = ["E501"]  # HA allows long URLs etc.
-
-[tool.ruff.lint.flake8-tidy-imports.banned-api]
-"__future__.annotations".msg = "Home Assistant requires Python 3.14+; annotations are deferred by default."
-
-[tool.ruff.lint.isort]
-known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests", "config"]
-known-third-party = ["aiohttp", "pytest", "voluptuous", "yarl", "pyezvizapi"]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
-combine-as-imports = true
-force-sort-within-sections = true
-
-# Optionally relax PLR2004 for strings/ints in integrations:
-[tool.ruff.lint.pylint]
-allow-magic-value-types = ["int", "str", "bytes"]
-max-args = 8        # instead of 5
-max-returns = 10    # instead of 6
+extend = "tools/core_ruff.toml"
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]

@@ -2,10 +2,19 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Attach: Home Assistant",
-      "type": "python",
-      "request": "attach",
-      "connect": { "host": "localhost", "port": 5678 },
+      "name": "Launch: Home Assistant (manual)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "homeassistant",
+      "args": [
+        "-c",
+        "${workspaceFolder}/_devconfig"
+      ],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
       "justMyCode": true
     }
   ]

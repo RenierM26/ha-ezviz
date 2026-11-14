@@ -8,7 +8,7 @@ on:
       - "custom_components/**"
       - "hacs.json"
       - "manifest.json"
-      - ".github/workflows/hacs.yaml"
+      - ".github/workflows/HACS.yaml"
       - "!**/*.md"
       - "!docs/**"
   push:
