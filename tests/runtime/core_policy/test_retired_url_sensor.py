@@ -119,6 +119,22 @@ async def test_removal_is_account_platform_and_domain_scoped_and_keeps_siblings(
             "sensor", DOMAIN, "CAM001_last_alarm_pic_extra", config_entry=entry
         ),
     ]
+    keep.extend(
+        [
+            registry.async_get_or_create(
+                "sensor",
+                DOMAIN,
+                "CAM001_Synthetic.not_last_alarm_pic",
+                config_entry=entry,
+            ),
+            registry.async_get_or_create(
+                "sensor",
+                DOMAIN,
+                "CAM001_Synthetic.last_alarm_pic_extra",
+                config_entry=entry,
+            ),
+        ]
+    )
     sibling = registry.async_get_or_create(
         "sensor", DOMAIN, "CAM001_Synthetic.last_alarm_time", config_entry=entry
     )

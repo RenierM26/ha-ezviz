@@ -188,8 +188,12 @@ def _async_remove_retired_image_url_sensors(
         if (
             entity.platform == DOMAIN
             and entity.domain == "sensor"
-            and entity.unique_id.lower().endswith(
-                ("_last_alarm_pic", ".last_alarm_pic")
+            and (
+                entity.unique_id.lower().endswith(".last_alarm_pic")
+                or (
+                    "." not in entity.unique_id
+                    and entity.unique_id.lower().endswith("_last_alarm_pic")
+                )
             )
         ):
             registry.async_remove(entity.entity_id)
