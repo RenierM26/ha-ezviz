@@ -124,6 +124,9 @@
             },
             "night_vision_luminance": {
                 "name": "Warm light brightness"
+            },
+            "alarm_volume": {
+                "name": "Alarm volume"
             }
         },
         "select": {

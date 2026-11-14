@@ -335,6 +335,9 @@
       },
       "microphone_volume": {
         "name": "Microphone volume"
+      },
+      "alarm_volume": {
+        "name": "Alarm volume"
       }
     },
     "sensor": {
