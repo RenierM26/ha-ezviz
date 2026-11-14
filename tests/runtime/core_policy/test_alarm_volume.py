@@ -47,6 +47,8 @@ def camera_data(value: object) -> dict[str, Any]:
     """Keep vendor fields synthetic and include an independent microphone config."""
     return {
         "channelNo": 2,
+        "supportExt": {"185": "1"},
+        "device_category": "IPC",
         "STATUS": {
             "optionals": {
                 "ChimeMusic": value,
@@ -102,7 +104,7 @@ def test_unsupported_or_malformed_volume_never_creates_or_writes_a_control(
     api = MagicMock(spec=EzvizClient)
     assert DESCRIPTION.get_value(data) is None
     assert not number._is_desc_supported(data, DESCRIPTION)
-    with pytest.raises(PyEzvizError, match="valid alarm chime volume"):
+    with pytest.raises(PyEzvizError, match="supported alarm chime volume"):
         DESCRIPTION.set_value(api, "CAM001", 50, data)
     api.set_dev_config_kv.assert_not_called()
 
@@ -256,26 +258,38 @@ async def test_real_number_service_uses_owned_executor_and_refreshes_observed_st
 
 
 @pytest.mark.parametrize("encoded", [False, True])
+@pytest.mark.parametrize(("category", "current"), [("IPC", 25), ("DBScreen", 4)])
 async def test_real_sdk_inventory_retains_the_volume_configuration(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, encoded: bool
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    encoded: bool,
+    category: str,
+    current: int,
 ) -> None:
     """Test the real SDK poll/projection rather than assuming raw STATUS is exposed."""
     api = EzvizClient(token={"session_id": "synthetic", "api_url": "private.invalid"})
-    config = deepcopy(CHIME)
+    config = {**deepcopy(CHIME), "volume": current}
     raw = {
         "deviceInfos": {
             "deviceSerial": "CAM001",
-            "deviceCategory": "IPC",
+            "deviceCategory": category,
             "deviceSubCategory": "Synthetic",
             "name": "Synthetic",
             "version": "1",
             "status": 1,
-            "supportExt": {},
+            "supportExt": {"185": "1", "203": "1"},
         },
         "WIFI": {},
         "SWITCH": {},
         "STATUS": {
-            "optionals": {"ChimeMusic": json.dumps(config) if encoded else config}
+            "optionals": {
+                "ChimeMusic": json.dumps(config) if encoded else config,
+                "CustomVoice_Volume": json.dumps(
+                    {"volume": 60, "microphone_volume": 15}
+                )
+                if encoded
+                else {"volume": 60, "microphone_volume": 15},
+            }
         },
     }
     monkeypatch.setattr(
@@ -291,8 +305,16 @@ async def test_real_sdk_inventory_retains_the_volume_configuration(
         await coordinator.async_refresh()
         assert coordinator.last_update_success
         data = coordinator.device_data("CAM001")
+        if category == "DBScreen":
+            # SDK 2.2.0 filters this category from the accepted camera projection.
+            # HA range controls elsewhere are defensive, not new discovery support.
+            assert data == {}
+            assert not number._is_desc_supported(data, DESCRIPTION)
+            return
         assert number._is_desc_supported(data, DESCRIPTION)
-        assert DESCRIPTION.get_value(data) == 25
-        assert number._alarm_volume_config(data) == CHIME
+        assert DESCRIPTION.get_value(data) == current
+        assert number._alarm_volume_config(data) == config
+        assert number._alarm_voice_volume_getter(data) == 60
+        assert number._alarm_volume_max(data) == (7 if category == "DBScreen" else 100)
     finally:
         await coordinator.async_close()

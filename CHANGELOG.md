@@ -19,6 +19,16 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Gate the existing chime/Alarm volume number on enabled `SupportDeviceRing` (185)
+  plus valid observed metadata, including write-time checks and the app-backed
+  0–7 DBScreen scale guard instead of a universal 0–100 range. Published SDK 2.2.0
+  still filters DBScreen from camera inventory; this is not new discovery support.
+- Add a separate **Alarm voice volume** number for `SupportChangeVolume` (203 == 1)
+  and observed `CustomVoice_Volume.volume`, with the app's 10–100 selectable range.
+  Preserve microphone/unknown fields and report an observed muted zero without
+  changing modes. Keep chime and voice settings independent; no ID/version/SDK
+  minimum changes, full arm/disarm-profile restoration or live qualification.
+
 - Add a per-camera **Alarm volume** configuration number (0–100) only when the
   camera reports a valid integer `ChimeMusic.volume`. Preserve the complete
   reported chime payload while changing its volume, using the normal owned
