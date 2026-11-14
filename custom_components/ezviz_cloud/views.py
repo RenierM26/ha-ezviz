@@ -4,6 +4,7 @@ from http import HTTPStatus
 from ipaddress import ip_address
 import logging
 import socket
+from typing import override
 from urllib.parse import urlsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
@@ -27,7 +28,10 @@ _LOGGER = logging.getLogger(__name__)
 class PublicImageResolver(ThreadedResolver):
     """Reject non-public DNS results at the actual connection boundary."""
 
-    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET):
+    @override
+    async def resolve(
+        self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_INET
+    ):
         """Use only globally routable addresses, including after DNS changes."""
         addresses = await super().resolve(host, port, family)
         if not addresses or any(
@@ -54,7 +58,11 @@ def _public_image_url(url: str) -> bool:
         try:
             return ip_address(parsed.hostname).is_global
         except ValueError:
-            return True
+            # aiohttp bypasses the resolver for all-numeric/dotted hosts,
+            # including legacy IPv4 forms such as 127.1 and integer literals.
+            return not (
+                ":" in parsed.hostname or parsed.hostname.replace(".", "").isdigit()
+            )
     except ValueError:
         return False
 

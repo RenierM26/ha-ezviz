@@ -18,6 +18,7 @@ import pytest
 
 from custom_components.ezviz_cloud import light, siren, switch, views
 from custom_components.ezviz_cloud.image import EzvizLastMotion
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import EntityPlatform
 
 from .test_hardening import entities
@@ -38,7 +39,7 @@ def proxy_fixture(hass, monkeypatch, body):
     return entry, data, views.ImageProxyView(hass), session, response
 
 
-@pytest.mark.parametrize("target", ["http://127.0.0.1/a", "https://127.0.0.1/a", "https://192.168.1.1/a", "https://[::1]/a", "https://untrusted.example/a"])
+@pytest.mark.parametrize("target", ["http://127.0.0.1/a", "https://127.0.0.1/a", "https://192.168.1.1/a", "https://[::1]/a", "https://127.1/a", "https://2130706433/a", "https://untrusted.example/a"])
 async def test_caller_urls_and_unknown_camera_never_fetch(hass, monkeypatch, target):
     entry, data, proxy, session, _ = proxy_fixture(hass, monkeypatch, jpeg())
     supplied = urlsafe_b64encode(target.encode()).decode()
@@ -126,7 +127,7 @@ async def test_registered_siren_publishes_failure_recovery_and_removes_listener(
 @pytest.mark.parametrize("push_serial", ["CAM001", "OTHER"])
 async def test_control_awaits_observation_through_partial_push(hass, monkeypatch, kind, on, push_serial):
     _, _api, data, *_ = entities(hass)
-    data.data["CAM001"].update(switches={1: 0}, alarm_light_luminance=10)
+    data.data["CAM001"].update(switches={1: int(not on)}, alarm_light_luminance=10)
     data.data["OTHER"] = deepcopy(data.data["CAM001"])
     if kind == "light":
         desc = light.EzvizLightEntityDescription(key="synthetic", is_on_value=lambda row: row["switches"][1], brightness_value=lambda row: row["alarm_light_luminance"], power_on=lambda *_: True, power_off=lambda *_: True, set_brightness=lambda *_: True)
@@ -149,7 +150,7 @@ async def test_control_awaits_observation_through_partial_push(hass, monkeypatch
     await entered.wait()
     data.merge_mqtt_update(push_serial, {"ext": {"image": "https://images.example.invalid/new"}})
     entity._handle_coordinator_update()
-    assert not entity.is_on
+    assert entity.is_on is (not on)
     release.set()
     await task
     assert entity.is_on is on
@@ -196,7 +197,7 @@ async def test_image_cold_requests_coalesce_and_fence_all_waiters(hass, monkeypa
     await data.async_close()
 
 
-async def test_two_lenses_share_concurrent_download_not_accounts(hass, monkeypatch):
+async def test_two_lenses_share_concurrent_download(hass, monkeypatch):
     _, _, data, _, _, second = entities(hass, lens_total=2)
     first = EzvizLastMotion(hass, data, "CAM001", {}, lens_index=1, lens_total=2)
     first.hass = hass
@@ -233,3 +234,33 @@ async def test_push_noops_skip_fanout_and_affected_row_is_detached(hass):
     data.merge_mqtt_update("CAM001", update)
     data.async_update_listeners.assert_called_once()
     await data.async_close()
+
+
+@pytest.mark.parametrize("kind", ["switch", "light"])
+@pytest.mark.parametrize("failure", [False, OSError("synthetic")])
+async def test_failed_controls_do_not_publish_or_refresh(hass, monkeypatch, kind, failure):
+    _, _, data, *_ = entities(hass)
+    def command(*args):
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+    if kind == "switch":
+        desc = switch.EzvizSwitchEntityDescription(key="test", value_fn=lambda row: False, method=command)
+        entity = switch.EzvizSwitch(data, "CAM001", desc)
+    else:
+        desc = light.EzvizLightEntityDescription(key="test", is_on_value=lambda row: False, brightness_value=lambda row: 10, power_on=command, power_off=command)
+        entity = light.EzvizLight(data, "CAM001", desc)
+    refresh = AsyncMock()
+    monkeypatch.setattr(data, "async_request_refresh", refresh)
+    with pytest.raises(HomeAssistantError):
+        await entity.async_turn_on()
+    assert not entity.is_on
+    refresh.assert_not_called()
+    await data.async_close()
+
+
+async def test_proxy_owns_actual_connector_until_ha_close(hass):
+    proxy = views.ImageProxyView(hass)
+    assert not proxy.session.closed
+    await hass.async_stop()
+    assert proxy.session.closed

@@ -66,3 +66,26 @@ See [the release checklist](releasing.md) for version/tag/source/SDK evidence an
 [the validation-pin audit](validation-pins.md) for immutable action/image inputs
 and intentionally moving Core policy. `tools/check_release.py` is a read-only
 source/metadata preflight, not a publisher or substitute for runtime tests.
+
+### Whole-integration audit regressions
+
+`tests/runtime/test_integration_audit.py` exercises the media proxy's server-owned
+reference boundary, private literal/DNS targets (including noncanonical numeric
+IPv4), redirect rejection, published-SDK keyless/encrypted multi-image decoding,
+decoded MIME types, registered siren failure/recovery, and camera control writes
+across unrelated alarm pushes. All transport is synthetic; these are not live
+camera or vendor-CDN validation claims. Existing registry rename/timer/unload
+controls continue to run.
+
+Cold image concurrency tests cover viewer cancellation, URL/key/capture generation
+changes, shutdown and concurrent lens downloads. Each entity coalesces download
+and decoding; lenses share in-flight downloads but SDK 2.4.0 still decodes each
+lens independently. A future SDK batch-selection API can optimize that remaining
+CPU duplication without moving channel/framing rules into this integration.
+
+The media proxy accepts only direct public HTTPS sources registered while browsing
+SDK-backed camera/alarm records, never a URL supplied by the HTTP caller. Its
+resolver rejects private targets at connection time and it does not follow
+redirects. Old proxy references expire on unload/restart or bounded-registry
+eviction; browse again to obtain a current reference. A redirecting vendor image
+will fail closed rather than being fetched. No new SDK/HA minimum or migration.
