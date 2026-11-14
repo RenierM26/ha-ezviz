@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 from PIL import Image as PILImage
 from pyezvizapi import DeviceSnapshot
-from pyezvizapi.devices.snapshot import DeviceHealth
+from pyezvizapi.devices.snapshot import CameraState, DeviceHealth
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -55,7 +55,10 @@ def make(hass):
     }
     observed_at = datetime.now(UTC)
     data.inventory_snapshot = DeviceSnapshot(
-        1, observed_at, {}, {"CAM001": DeviceHealth(True, True, observed_at)}
+        1,
+        observed_at,
+        {"CAM001": CameraState("CAM001", "camera", data.data["CAM001"])},
+        {"CAM001": DeviceHealth(True, True, observed_at)},
     )
     hass.data[DATA_FFMPEG] = SimpleNamespace(binary="/usr/bin/ffmpeg")
     cam = camera.EzvizCamera(hass, data, "CAM001", "synthetic", "synthetic", "/stream")

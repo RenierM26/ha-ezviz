@@ -281,7 +281,9 @@ async def test_real_sdk_switch_fallback_through_action_adapters(
     else:
         coordinator.inventory_snapshot = replace(
             coordinator.inventory_snapshot,
-            devices={"CAM001": PlugState("CAM001", "plug", {"is_on": initial})},
+            devices={
+                "CAM001": PlugState("CAM001", "plug", {"status": 1, "is_on": initial})
+            },
         )
         entity = switch.EzvizInventoryPlug(coordinator, "CAM001")
     entity.hass = hass

@@ -30,7 +30,7 @@ def coordinator_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "contract_test", package)
     monkeypatch.setitem(sys.modules, "contract_test.const", SimpleNamespace(DOMAIN="ezviz_cloud", CONF_ENC_KEY="enc_key", OPTIONS_KEY_CAMERAS="cameras"))
     monkeypatch.setitem(sys.modules, "homeassistant.const", SimpleNamespace(EVENT_HOMEASSISTANT_STOP="homeassistant_stop"))
-    class Base:
+    class Base[T]:
         def __init__(self, hass, *args, **kwargs):
             self.hass = hass
             self.data = {}
@@ -57,13 +57,15 @@ def coordinator_module(monkeypatch):
     (None, False), (True, False), (False, False), (99, False), ("bad", False), (0, False)])
 def test_availability_requires_poll_success_and_known_online(monkeypatch, status, expected):
     module = load(monkeypatch, "availability_test", "availability.py")
-    coordinator = SimpleNamespace(last_update_success=True, data={"ONE": {"status": status}})
+    states = {"ONE": DeviceState("ONE", "camera", {"status": status})}
+    coordinator = SimpleNamespace(last_update_success=True, shutting_down=False,
+        device_is_current=lambda serial: serial in states, device_state=states.get)
     assert module.device_available(coordinator, "ONE") is expected
     coordinator.last_update_success = False
     assert not module.device_available(coordinator, "ONE")
     coordinator.last_update_success = True
     assert not module.device_available(coordinator, "MISSING")
-    coordinator.data = None
+    states.clear()
     assert not module.device_available(coordinator, "ONE")
 
 

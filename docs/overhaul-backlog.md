@@ -1,14 +1,14 @@
 # Staged repository overhaul
 
-Baseline: merged ownership PR #240 (`cf0ee87`), 2026-11-14. Work proceeds in reviewable
+Baseline: merged flow modularity PR #241 (`26a7dd9`), 2026-11-14. Work proceeds in reviewable
 slices. This backlog records implementation status, not deployment approval.
 
 | ID | Priority / state | Deliverable and exit criteria |
 | --- | --- | --- |
 | F01 | P0 / merged in PR #239 | Shared check entry points; pinned fast-check requirements and published SDK profile; isolated native/tooling dev environments; default component Ruff discovery; VS Code/CI alignment; architecture and test responsibility docs. Production integration files remain unchanged. |
 | F02 | P1 / merged in PR #240 | Audit and regression matrix in [lifecycle-audit.md](lifecycle-audit.md). Close late-setup cleanup, transient private-file deletion and replacement-account identity gaps with real HA/Store controls; preserve existing lifetime anchors. |
-| F03 | P1 / implemented in this PR; merge pending | Extract account/options/camera-preparation/validation responsibilities from the 1,007-line monolith; canonical `config_flow.py` is now 400 lines. See [flow modularity](flow-modularity.md). Preserve form serialization, step IDs, MFA, options conflict handling, migrations and storage recovery. |
-| F04 | P1 / backlog; after F02 | Inventory raw camera dictionaries vs typed SDK snapshots; define accepted state and availability boundaries, then consolidate adapters without copying SDK vendor logic or inventing permission/capability conclusions. |
+| F03 | P1 / merged in PR #241 | Extract account/options/camera-preparation/validation responsibilities from the 1,007-line monolith; canonical `config_flow.py` is now 400 lines. See [flow modularity](flow-modularity.md). Preserve form serialization, step IDs, MFA, options conflict handling, migrations and storage recovery. |
+| F04 | P1 / implemented in this PR; merge pending | Consolidate typed SDK state selectors, compatibility projections and shared availability; type family adapters; fence late shutdown cache merges. See [state boundary](state-boundary.md). Preserve SDK rendering/retention and camera push behavior; no inferred permissions. |
 | F05 | P1 / backlog; cross-cutting | Expand real producer, registry/restoration and outage/recovery contracts. Migrate legacy tests to Core test style incrementally; retain lightweight fake-HA controls only for their stated scope. No coverage-number-only goal. |
 | F06 | P2 / backlog | Replace legacy user onboarding with verified setup/support/troubleshooting/migration docs; define HA version/tag/release and SDK adoption checks, audit floating validation images/actions and make release evidence reproducible. Publication/deployment remain separate actions. |
 

@@ -14,7 +14,7 @@ import atomicwrites
 import httpx
 from PIL import Image as PILImage
 from pyezvizapi import DeviceSnapshot
-from pyezvizapi.devices.snapshot import DeviceHealth
+from pyezvizapi.devices.snapshot import CameraState, DeviceHealth
 import pytest
 
 from custom_components import ezviz_cloud
@@ -102,7 +102,12 @@ def entities(hass, *, lens_total=1):
         }
     }
     now = datetime.now(UTC)
-    data.inventory_snapshot = DeviceSnapshot(1, now, {}, {"CAM001": DeviceHealth(True, True, now)})
+    data.inventory_snapshot = DeviceSnapshot(
+        1,
+        now,
+        {"CAM001": CameraState("CAM001", "camera", data.data["CAM001"])},
+        {"CAM001": DeviceHealth(True, True, now)},
+    )
     hass.data[DATA_FFMPEG] = SimpleNamespace(binary="/usr/bin/ffmpeg")
     cam = camera.EzvizCamera(hass, data, "CAM001", "synthetic", "synthetic", "/stream")
     snap = image.EzvizSnapshot(hass, data, "CAM001", {})

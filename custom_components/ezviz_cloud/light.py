@@ -6,6 +6,7 @@ from typing import Any, ClassVar, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
+from pyezvizapi.devices.snapshot import DeviceState, LightState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.light import (
@@ -233,7 +234,7 @@ class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
     _attr_color_mode = ColorMode.ONOFF
     _attr_name = None
 
-    def __init__(self, coordinator: Any, serial: str) -> None:
+    def __init__(self, coordinator: EzvizDataUpdateCoordinator, serial: str) -> None:
         """Initialize the owner and its cached dependencies."""
         super().__init__(coordinator, serial)
         self._attr_supported_color_modes = {ColorMode.ONOFF}
@@ -243,7 +244,8 @@ class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
     @override
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
-        return self.device_state.is_on if self.device_state is not None else None
+        state = self.device_state
+        return state.is_on if isinstance(state, LightState) else None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -256,11 +258,14 @@ class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
         await async_set_power(self, False)
 
 
-def light_entities(coordinator: Any, serial: str, state: Any) -> list:
+def light_entities(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizInventoryLight]:
     """Create an on/off light only with observed command metadata."""
     items = state.values.get("featureItems", ())
     if (
-        state.is_on is not None
+        isinstance(state, LightState)
+        and state.is_on is not None
         and state.values.get("productId")
         and any(item.get("itemKey") == "light_switch" for item in items)
     ):
