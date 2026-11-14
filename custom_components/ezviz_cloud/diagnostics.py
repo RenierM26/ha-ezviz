@@ -18,6 +18,7 @@ from .const import (
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
 )
+from .coordinator import EzvizDataUpdateCoordinator
 from .runtime import EzvizConfigEntry
 
 # Values are deliberately selected, never copied from entry.as_dict()/SDK payloads.
@@ -76,30 +77,25 @@ def _pending(items: Any) -> int | None:
 def _device_record(
     serial: str,
     label: str,
-    coordinator: Any,
+    coordinator: EzvizDataUpdateCoordinator,
     options: Mapping,
     entities: list,
     now: datetime,
 ) -> dict[str, Any]:
     snapshot = coordinator.inventory_snapshot
-    state = snapshot.devices.get(serial) if snapshot else None
+    state = coordinator.device_state(serial)
     health = snapshot.health.get(serial) if snapshot else None
     # Camera push updates live in data; other device families use inventory_data.
-    values = (coordinator.data or {}).get(
-        serial, coordinator.inventory_data.get(serial, {})
-    )
+    values = coordinator.device_data(serial)
     capabilities = state.capabilities if state else None
     camera_options = options.get(OPTIONS_KEY_CAMERAS, {}).get(serial, {})
-    status = values.get("status")
     return {
         "device": label,
         "kind": state.kind if state else None,
         "details": {
             key: _scalar(values[key]) for key in sorted(SAFE_FIELDS) if key in values
         },
-        "online": status in (1, "1")
-        if type(status) in (int, str) and status in (1, "1", 2, "2")
-        else None,
+        "online": state.online if state else None,
         "available": device_available(coordinator, serial),
         "health": {
             "present": health.present if health else None,

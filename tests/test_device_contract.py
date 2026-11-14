@@ -57,13 +57,15 @@ def coordinator_module(monkeypatch):
     (None, False), (True, False), (False, False), (99, False), ("bad", False), (0, False)])
 def test_availability_requires_poll_success_and_known_online(monkeypatch, status, expected):
     module = load(monkeypatch, "availability_test", "availability.py")
-    coordinator = SimpleNamespace(last_update_success=True, data={"ONE": {"status": status}})
+    states = {"ONE": DeviceState("ONE", "camera", {"status": status})}
+    coordinator = SimpleNamespace(last_update_success=True, shutting_down=False,
+        device_is_current=lambda serial: serial in states, device_state=states.get)
     assert module.device_available(coordinator, "ONE") is expected
     coordinator.last_update_success = False
     assert not module.device_available(coordinator, "ONE")
     coordinator.last_update_success = True
     assert not module.device_available(coordinator, "MISSING")
-    coordinator.data = None
+    states.clear()
     assert not module.device_available(coordinator, "ONE")
 
 

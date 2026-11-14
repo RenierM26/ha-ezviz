@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components import ezviz_cloud
 from custom_components.ezviz_cloud import diagnostics, mqtt, runtime, tokens
 from custom_components.ezviz_cloud.const import DOMAIN
+from custom_components.ezviz_cloud.coordinator import EzvizDataUpdateCoordinator
 from custom_components.ezviz_cloud.tokens import TokenPersistence
 from homeassistant.core import CoreState
 
@@ -160,21 +161,16 @@ async def test_diagnostics_are_cached_and_allowlisted(hass):
     client = SimpleNamespace(
         get_device_infos=MagicMock(side_effect=AssertionError("no extra query"))
     )
-    data = SimpleNamespace(
-        inventory_snapshot=None,
-        inventory_data={},
-        last_update_success=True,
-        data={
-            "PRIVATE_SERIAL": {
-                "status": 1,
-                "name": "PRIVATE_NAME",
-                "session_id": "PRIVATE_TOKEN",
-                "last_alarm_pic": "PRIVATE_URL",
-                "push_state": "PRIVATE_KEYS",
-            }
-        },
-        ezviz_client=client,
-    )
+    data = EzvizDataUpdateCoordinator(hass, config_entry=entry, api=client, api_timeout=5)
+    data.data = {
+        "PRIVATE_SERIAL": {
+            "status": 1,
+            "name": "PRIVATE_NAME",
+            "session_id": "PRIVATE_TOKEN",
+            "last_alarm_pic": "PRIVATE_URL",
+            "push_state": "PRIVATE_KEYS",
+        }
+    }
     sdk = SimpleNamespace(
         get_push_diagnostics=lambda: {
             "state": "online",

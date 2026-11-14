@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
-from pyezvizapi.devices.snapshot import DeviceKind
+from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
     EzvizAuthVerificationCode,
@@ -32,10 +32,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
+class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Class to manage fetching EZVIZ data."""
 
-    data: dict[str, Any]
+    data: dict[str, dict[str, Any]]
 
     def __init__(
         self,
@@ -49,9 +49,9 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         self.ezviz_client = api
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
-        self._poll_future: asyncio.Future | None = None
+        self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
-        self.inventory_data: dict = {}
+        self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
@@ -67,7 +67,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     @override
-    async def _async_update_data(self) -> dict:
+    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Fetch data from EZVIZ."""
         try:
             if self._closing:
@@ -100,15 +100,21 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
             DevicePollOptions(timeout=self._api_timeout)
         )
 
-    def device_data(self, serial: str) -> dict:
+    def device_data(self, serial: str) -> dict[str, Any]:
         """Use the camera push projection, otherwise the detached inventory view."""
         return (self.data or {}).get(serial, self.inventory_data.get(serial, {}))
 
-    def devices_of_kind(self, kind: DeviceKind) -> dict:
+    def devices_of_kind(self, kind: DeviceKind) -> dict[str, DeviceState]:
         """Selectors are cached views, not additional SDK/network calls."""
         if self.inventory_snapshot is None:
             return {}
         return self.inventory_snapshot.select(kind)
+
+    def device_state(self, serial: str) -> DeviceState | None:
+        """Return accepted SDK state, never the partial camera push overlay."""
+        if self.inventory_snapshot is None:
+            return None
+        return self.inventory_snapshot.devices.get(serial)
 
     def device_is_current(self, serial: str) -> bool:
         """Missing or failed device rendering never inherits stale online state."""
@@ -179,7 +185,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator):
         """Merge MQTT update data into the coordinator."""
 
         # Push cannot invent inventory entries or mutate an earlier snapshot.
-        if not self.data or serial not in self.data:
+        if self._closing or not self.data or serial not in self.data:
             return
         snapshot = deepcopy(self.data)
         ext = mqtt_data.get("ext")

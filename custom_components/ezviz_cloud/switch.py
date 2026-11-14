@@ -6,6 +6,7 @@ from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
+from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
     has_osd_overlay,
@@ -576,7 +577,7 @@ class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
     _attr_device_class = SwitchDeviceClass.OUTLET
     _attr_name = None
 
-    def __init__(self, coordinator: Any, serial: str) -> None:
+    def __init__(self, coordinator: EzvizDataUpdateCoordinator, serial: str) -> None:
         """Initialize the owner and its cached dependencies."""
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_power"
@@ -585,7 +586,8 @@ class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
     @override
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
-        return self.device_state.is_on if self.device_state is not None else None
+        state = self.device_state
+        return state.is_on if isinstance(state, PlugState) else None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -598,6 +600,12 @@ class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
         await async_set_power(self, False)
 
 
-def plug_entities(coordinator: Any, serial: str, state: Any) -> list:
+def plug_entities(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizInventoryPlug]:
     """Create an on/off plug only with a known power state."""
-    return [EzvizInventoryPlug(coordinator, serial)] if state.is_on is not None else []
+    return (
+        [EzvizInventoryPlug(coordinator, serial)]
+        if isinstance(state, PlugState) and state.is_on is not None
+        else []
+    )

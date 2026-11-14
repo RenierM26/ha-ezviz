@@ -306,7 +306,8 @@ async def test_empty_and_legacy_cache_without_runtime_owner_fields(
     result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
     assert result["polling"]["snapshot_age_seconds"] is None
     assert result["lifecycle"]["pending_setup_workers"] is None
-    assert result["devices"][0]["online"] is False
+    assert result["devices"][0]["online"] is None
+    assert result["devices"][0]["available"] is False
     assert result["devices"][0]["details"] == {
         "status": 2,
         "version": None,

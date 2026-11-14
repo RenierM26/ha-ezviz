@@ -4,6 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, override
 
+from pyezvizapi.devices.snapshot import DetectorState, DeviceState
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -142,7 +144,9 @@ DETECTOR_BINARY_SENSORS = (
 )
 
 
-def detector_binary_sensors(coordinator: Any, serial: str, state: Any) -> list:
+def detector_binary_sensors(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizDetectorBinarySensor]:
     """Create only observed detector binary readings."""
     return [
         EzvizDetectorBinarySensor(coordinator, serial, desc)
@@ -155,7 +159,10 @@ class EzvizDetectorBinarySensor(EzvizInventoryEntity, BinarySensorEntity):
     """No truthiness conversion of vendor contact/water enums."""
 
     def __init__(
-        self, coordinator: Any, serial: str, desc: BinarySensorEntityDescription
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        desc: BinarySensorEntityDescription,
     ) -> None:
         """Initialize the owner and its cached dependencies."""
         super().__init__(coordinator, serial)
@@ -167,8 +174,10 @@ class EzvizDetectorBinarySensor(EzvizInventoryEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
         state = self.device_state
-        return (
-            getattr(state, self.entity_description.key, None)
-            if state is not None
-            else None
-        )
+        if not isinstance(state, DetectorState):
+            return None
+        if self.entity_description.key == "door_open":
+            return state.door_open
+        if self.entity_description.key == "water_leak":
+            return state.water_leak
+        return None

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, cast, override
 
 from pyezvizapi.constants import SupportExt
+from pyezvizapi.devices.snapshot import DeviceState
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -258,7 +259,9 @@ DETECTOR_SENSORS = (
 )
 
 
-def detector_sensors(coordinator: Any, serial: str, state: Any) -> list:
+def detector_sensors(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizDetectorSensor]:
     """Create only observed detector sensor readings."""
     return [
         EzvizDetectorSensor(coordinator, serial, desc)
@@ -271,7 +274,10 @@ class EzvizDetectorSensor(EzvizInventoryEntity, SensorEntity):
     """Diagnostics share inventory freshness and preserve zero/false/unknown."""
 
     def __init__(
-        self, coordinator: Any, serial: str, desc: SensorEntityDescription
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        desc: SensorEntityDescription,
     ) -> None:
         """Initialize the owner and its cached dependencies."""
         super().__init__(coordinator, serial)

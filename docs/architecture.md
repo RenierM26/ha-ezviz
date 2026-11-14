@@ -1,6 +1,6 @@
 # Integration architecture and ownership
 
-Baseline: merged ownership PR #240 (`cf0ee87`), HA 2026.10.4+, published SDK 2.2.0+.
+Baseline: merged flow modularity PR #241 (`26a7dd9`), HA 2026.10.4+, published SDK 2.2.0+.
 This describes current contracts; it is not a proposal to replace working owners.
 
 ## Boundaries
@@ -62,4 +62,4 @@ callbacks and commands from a prior lifetime must not write to re-added entities
 - Report configured, SDK-accepted, HA-reported and physically observed outcomes
   separately. Offline qualification does not establish live cloud/device behavior.
 
-See [flow module boundaries](flow-modularity.md), [lifecycle audit and evidence](lifecycle-audit.md), [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).
+See [SDK/HA state boundary](state-boundary.md), [flow module boundaries](flow-modularity.md), [lifecycle audit and evidence](lifecycle-audit.md), [overhaul backlog](overhaul-backlog.md) and [test responsibilities](../tests/README.md).

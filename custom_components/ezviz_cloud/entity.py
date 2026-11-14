@@ -4,6 +4,8 @@ from collections.abc import Mapping
 import re
 from typing import Any, override
 
+from pyezvizapi.devices.snapshot import DeviceState
+
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import (
     CONNECTION_NETWORK_MAC,
@@ -104,9 +106,9 @@ class EzvizEntity(
         return self._serial
 
     @property
-    def data(self) -> Any:
+    def data(self) -> dict[str, Any]:
         """Return coordinator data for this entity."""
-        return (self.coordinator.data or {}).get(self._serial, {})
+        return self.coordinator.device_data(self._serial)
 
     @property
     @override
@@ -133,9 +135,9 @@ class EzvizBaseEntity(EzvizEntityIdMixin, Entity):
         self._attr_device_info = _build_device_info(device, serial)
 
     @property
-    def data(self) -> Any:
+    def data(self) -> dict[str, Any]:
         """Return coordinator data for this entity."""
-        return (self.coordinator.data or {}).get(self._serial, {})
+        return self.coordinator.device_data(self._serial)
 
     @property
     @override
@@ -148,13 +150,6 @@ class EzvizInventoryEntity(EzvizEntity):
     """Non-camera entities share the same poll and registry identity policy."""
 
     @property
-    @override
-    def data(self) -> Any:
-        """Return this device cached coordinator projection."""
-        return self.coordinator.device_data(self._serial)
-
-    @property
-    def device_state(self) -> Any:
+    def device_state(self) -> DeviceState | None:
         """Return the typed device view from the accepted inventory."""
-        snapshot = self.coordinator.inventory_snapshot
-        return snapshot.devices.get(self._serial) if snapshot is not None else None
+        return self.coordinator.device_state(self._serial)
