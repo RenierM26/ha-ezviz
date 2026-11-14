@@ -113,14 +113,32 @@ neither the recovery fix nor the compact layout bypasses the SDK's host binding.
   setup/reload boundaries are synthetic. Both supported published runtimes pass;
   the disconnected VS Code container itself has not been executed here.
 
-### Separate lifecycle follow-ups (not part of this patch)
+### Lifecycle follow-up after merged PR236
 
-- [ ] Siren: retain restored/new timer cancellation handles, cancel on retrigger
+- [x] Siren: retain restored/new timer cancellation handles, cancel on retrigger
   and entity removal; prove an old timer cannot end a newer activation.
-- [ ] Camera: refresh selected RTSP credentials and existing stream source after
+- [x] Camera: refresh selected RTSP credentials and existing stream source after
   a committed key/options change; cover active-stream and unload ordering.
-- [ ] MQTT device lookup: replace deprecated global lookup with an entry-scoped
+- [x] MQTT device lookup: replace deprecated global lookup with an entry-scoped
   API before HA 2027.8, preserving HA 2026.10.4 support and event identity.
+
+The follow-up cancels restored and new siren timers, fences already queued callbacks
+by activation generation, and cancels on entity removal. RTSP sources read committed
+camera options, refresh existing streams on selected credential/path/address changes,
+and serialize creation with removal. Removal stops preloaded workers without changing
+the saved/shared preload preference. Unselected encryption keys do not restart streams
+using verification credentials. RTSP userinfo is percent-encoded.
+
+Push now resolves `(DOMAIN, serial)` using the owning entry ID with
+`async_get_device_by_identifier`, available on both supported releases. Unknown or
+other-account devices retain `device_id: null`; event names and identifiers are unchanged.
+
+Eight offline regressions fail against merged PR236 and pass with these fixes.
+Native suites: **395 tests each** on HA 2026.10.4, 2026.11.0 and the local Core dev
+checkout; config-flow/diagnostics coverage remains 100% on both published versions.
+Core lint/format/Pylint/mypy, translations and scoped hassfest pass; the documented
+custom SDK dependency exception remains. Acceptance: 52 tests; standalone: 44 tests.
+No live cloud/device calls, deployment, or entity/action identity changes.
 
 ### PR structure
 

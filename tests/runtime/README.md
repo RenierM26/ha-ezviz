@@ -97,3 +97,11 @@ The focused `core_policy/` package also follows Core’s **test-specific** Ruff
 policy and enforces complete parameter/return annotations with `ANN`. It is
 checked both by normal lint/format CI and the actual moving-Core policy runner.
 Older modules remain under the independent legacy test policy.
+
+## Lifecycle follow-up
+
+`core_policy/test_lifecycle.py` covers restored/new siren timers, queued stale
+callbacks, retrigger/manual-off/removal, committed RTSP credential selection and
+existing source refresh, creation/commit/unload ordering, real HA preloaded stream
+restart/stop with preserved preferences, and entry-scoped push device resolution.
+These controls use synthetic SDK IO and never contact cameras or the cloud.

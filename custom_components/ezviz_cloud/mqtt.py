@@ -311,7 +311,9 @@ class EzvizMqttHandler:
             device_registry = dr.async_get(self._hass)
 
             # Look up the device by identifiers (DOMAIN, serial)
-            device = device_registry.async_get_device({(DOMAIN, serial)})
+            device = device_registry.async_get_device_by_identifier(
+                (DOMAIN, serial), self._entry
+            )
             if device:
                 ha_device_id = device.id
 

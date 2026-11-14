@@ -66,7 +66,9 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self.entity_description = description
         self._attr_is_on = False
-        self._delay_listener: Callable | None = None
+        self._delay_listener: Callable[[], None] | None = None
+        self._timer_generation = 0
+        self._removed = False
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -76,7 +78,7 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
         self._attr_is_on = last_state.state == STATE_ON
 
         if self._attr_is_on:
-            evt.async_call_later(self.hass, OFF_DELAY, self.off_delay_listener)
+            self._schedule_off_delay()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -91,10 +93,8 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
                 f"Failed to turn siren off for {self.name}"
             ) from err
 
-        if result:
-            if self._delay_listener is not None:
-                self._delay_listener()
-                self._delay_listener = None
+        if result and not self._removed:
+            self._cancel_off_delay()
 
             self._attr_is_on = False
             self.async_write_ha_state()
@@ -112,16 +112,38 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
                 f"Failed to turn siren on for {self.name}"
             ) from err
 
-        if result:
-            if self._delay_listener is not None:
-                self._delay_listener()
-                self._delay_listener = None
-
+        if result and not self._removed:
             self._attr_is_on = True
-            self._delay_listener = evt.async_call_later(
-                self.hass, OFF_DELAY, self.off_delay_listener
-            )
+            self._schedule_off_delay()
             self.async_write_ha_state()
+
+    @callback
+    def _cancel_off_delay(self) -> None:
+        """Invalidate even an already queued callback before cancelling the timer."""
+        self._timer_generation += 1
+        if self._delay_listener is not None:
+            self._delay_listener()
+            self._delay_listener = None
+
+    @callback
+    def _schedule_off_delay(self) -> None:
+        """Give each activation its own cancellable, generation-checked timer."""
+        self._cancel_off_delay()
+        generation = self._timer_generation
+
+        @callback
+        def expire(now: datetime) -> None:
+            if not self._removed and generation == self._timer_generation:
+                self.off_delay_listener(now)
+
+        self._delay_listener = evt.async_call_later(self.hass, OFF_DELAY, expire)
+
+    @override
+    async def async_will_remove_from_hass(self) -> None:
+        """Prevent delayed callbacks or pending commands writing after removal."""
+        self._removed = True
+        self._cancel_off_delay()
+        await super().async_will_remove_from_hass()
 
     @callback
     def off_delay_listener(self, now: datetime) -> None:
