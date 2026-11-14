@@ -1,0 +1,24 @@
+# Legacy standalone test/tool policy; production defaults to Core policy.
+line-length = 100
+target-version = "py314"
+src = ["../custom_components"]
+
+[lint]
+select = ["E","F","I","UP","B","SIM","PL","RUF","TID251"]
+ignore = ["E501"]  # HA allows long URLs etc.
+
+[lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "Home Assistant requires Python 3.14+; annotations are deferred by default."
+
+[lint.isort]
+known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests", "config"]
+known-third-party = ["aiohttp", "pytest", "voluptuous", "yarl", "pyezvizapi"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+# Optionally relax PLR2004 for strings/ints in integrations:
+[lint.pylint]
+allow-magic-value-types = ["int", "str", "bytes"]
+max-args = 8        # instead of 5
+max-returns = 10    # instead of 6

@@ -2,4 +2,4 @@ default_config:
 logger:
   default: warning
   logs:
-    custom_components.your_integration: debug
+    custom_components.ezviz_cloud: debug

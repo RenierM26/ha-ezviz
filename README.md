@@ -7,6 +7,13 @@ https://www.home-assistant.io/integrations/ezviz/
 Requires **Home Assistant 2026.10.4+ and Python 3.14.2+**. Development, lint/type
 checks and CI use Python 3.14, including its default deferred annotations.
 
+## Development and maintenance
+
+See [development/check commands](docs/development.md),
+[architecture and ownership](docs/architecture.md),
+[test responsibilities](tests/README.md) and the
+[staged overhaul backlog](docs/overhaul-backlog.md).
+
 ## Breaking change
 
 **Encryption-key text entities are now write-only** (unique-ID suffix

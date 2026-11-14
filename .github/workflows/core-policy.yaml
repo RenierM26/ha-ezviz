@@ -8,6 +8,10 @@ on:
       - 'custom_components/**'
       - 'tests/runtime/**'
       - 'tools/**'
+      - 'requirements/**'
+      - 'pyproject.toml'
+      - '.vscode/**'
+      - '.devcontainer/**'
       - '.github/workflows/core-policy.yaml'
   workflow_dispatch:
     inputs:
@@ -57,8 +61,8 @@ jobs:
           python -m pip install -U pip
           python -m pip install -e core -e core/packages/hassfest \
             -r core/requirements_test.txt \
-            -r integration/tests/runtime/requirements.txt 'pyezvizapi==2.2.0'
+            -r integration/tests/runtime/requirements.txt -r integration/requirements/sdk.txt
           python -m pip check
       - name: Core policy, translations, hassfest and dev runtime
         working-directory: integration
-        run: python tools/check_core_policy.py --core ../core --runtime-tests
+        run: python tools/check.py core --core ../core --runtime-tests

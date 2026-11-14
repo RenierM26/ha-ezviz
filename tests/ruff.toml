@@ -1,0 +1,2 @@
+# Preserve the legacy suite policy; focused Core tests override it locally.
+extend = "../tools/repository_ruff.toml"

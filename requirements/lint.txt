@@ -1,0 +1,2 @@
+-r tooling.txt
+-r sdk.txt

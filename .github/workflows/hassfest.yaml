@@ -10,6 +10,7 @@ on:
       - "manifest.json"
       - ".github/workflows/hassfest.yaml"
       - "tools/check_hassfest.py"
+      - "requirements/**"
       - "!**/*.md"
       - "!docs/**"
   push:
