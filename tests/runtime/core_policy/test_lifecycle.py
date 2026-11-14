@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
+from importlib.metadata import version
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
@@ -344,3 +345,76 @@ async def test_siren_old_command_cannot_write_after_readd(
     assert entity._delay_listener is None
     await entity.async_will_remove_from_hass()
     await data.async_close()
+
+
+@pytest.mark.parametrize("elapsed", [20, 61])
+async def test_active_siren_rename_preserves_remaining_expiry(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, elapsed: int
+) -> None:
+    """A real rename has no restored record at the new ID; keep the old deadline."""
+    entry, api, data, *_ = entities(hass)
+    api.sound_alarm = MagicMock(return_value=True)
+    entity = siren.EzvizSirenEntity(data, "CAM001", siren.SIREN_ENTITY_TYPE)
+    scheduled = []
+    cancels = []
+    clock = [1000.0]
+    monkeypatch.setattr(siren, "monotonic", lambda: clock[0], raising=False)
+
+    def schedule(*args: object) -> MagicMock:
+        scheduled.append((args[1], args[2]))
+        cancel = MagicMock()
+        cancels.append(cancel)
+        return cancel
+
+    monkeypatch.setattr(siren.evt, "async_call_later", schedule)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="siren",
+        platform_name=DOMAIN,
+        platform=None,
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = entry
+    await platform.async_add_entities([entity])
+    try:
+        assert not entity.is_on
+        assert not scheduled
+        await entity.async_turn_on()
+        assert entity.is_on
+        assert len(scheduled) == 1
+        clock[0] += elapsed
+        er.async_get(hass).async_update_entity(
+            entity.entity_id, new_entity_id="siren.renamed_active"
+        )
+        await hass.async_block_till_done()
+        assert platform.entities["siren.renamed_active"] is entity
+        if version("homeassistant") == "2026.10.4":
+            assert await entity.async_get_last_state() is None
+        if elapsed >= 60:
+            assert not entity.is_on
+            assert entity._delay_listener is None
+            assert len(scheduled) == 1
+            assert hass.states.get(entity.entity_id).state == "off"
+            return
+        assert entity.is_on
+        assert entity._delay_listener is not None
+        assert len(scheduled) == 2
+        assert scheduled[-1][0] == 40
+        cancels[0].assert_called_once()
+        scheduled[0][1](datetime.now(UTC))
+        assert entity.is_on
+        clock[0] += 10
+        er.async_get(hass).async_update_entity(
+            entity.entity_id, new_entity_id="siren.renamed_again"
+        )
+        await hass.async_block_till_done()
+        assert scheduled[-1][0] == 30
+        clock[0] += 30
+        scheduled[-1][1](datetime.now(UTC))
+        assert not entity.is_on
+        assert hass.states.get(entity.entity_id).state == "off"
+    finally:
+        await platform.async_reset()
+        await data.async_close()

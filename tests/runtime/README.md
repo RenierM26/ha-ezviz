@@ -131,3 +131,30 @@ Actions raise translated `HomeAssistantError` once and retain their exception
 cause; they do not also log the same failure. Shared polling retains HA's
 `UpdateFailed` suppression/recovery behavior. Image/media/push workers keep their
 separate failure and lifecycle policies; no verbose payload logging is enabled.
+
+
+### Active siren rename and SDK fallback qualification
+
+Active siren renames use the real restore lookup (which returns no state at the
+new ID) and a controlled monotonic clock. A rename after 20 seconds retains the
+remaining 40 seconds, a second rename retains 30, and re-add after the deadline
+reports off immediately. No extra firmware minute is added by renaming.
+
+SDK 2.1.0's switch fallback erases the primary HTTP cause when both endpoints
+fail. This cannot be safely recovered by following `__context__`: mixed HTTP
+403/504 responses would identify the wrong endpoint. The [SDK-boundary correction](https://github.com/RenierM26/pyEzvizApi/pull/436)
+must be released before its guarantee can be required by the integration's
+minimum dependency. No SDK release or minimum-version bump is part of this fix.
+
+Qualify a corrected SDK wheel in an isolated native HA environment, from this
+repository root:
+
+```sh
+python -m tools.qualify_switch_errors
+```
+
+The tool runs real SDK switch fallback and HA classification for PUT/POST status
+pairs 403/403, 504/504, 403/504 and 504/403. Only requests transport is mocked;
+no account/device requests occur. All four pass against the corrected built
+wheel. Published 2.1.0 is the intentional negative control and fails; this is a
+candidate qualification tool, not a claim that the existing minimum was fixed.
