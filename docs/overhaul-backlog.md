@@ -1,12 +1,12 @@
 # Staged repository overhaul
 
-Baseline: merged PR #238 (`651460a`), 2026-11-14. Work proceeds in reviewable
+Baseline: merged foundations PR #239 (`7ef0caa`), 2026-11-14. Work proceeds in reviewable
 slices. This backlog records implementation status, not deployment approval.
 
 | ID | Priority / state | Deliverable and exit criteria |
 | --- | --- | --- |
-| F01 | P0 / implementation in this PR; merge pending | Shared check entry points; pinned fast-check requirements and published SDK profile; isolated native/tooling dev environments; default component Ruff discovery; VS Code/CI alignment; architecture and test responsibility docs. Production integration files remain unchanged. |
-| F02 | P1 / backlog | Verify startup/failure/unload/reload/removal/reauth ownership against the architecture map. Add producer-backed race regressions for actual gaps before changing retained registries or cleanup. |
+| F01 | P0 / merged in PR #239 | Shared check entry points; pinned fast-check requirements and published SDK profile; isolated native/tooling dev environments; default component Ruff discovery; VS Code/CI alignment; architecture and test responsibility docs. Production integration files remain unchanged. |
+| F02 | P1 / implemented in this PR; merge pending | Audit and regression matrix in [lifecycle-audit.md](lifecycle-audit.md). Close late-setup cleanup, transient private-file deletion and replacement-account identity gaps with real HA/Store controls; preserve existing lifetime anchors. |
 | F03 | P1 / backlog; after F01/F02 | Extract configuration/credential-flow helpers from the 1,007-line `config_flow.py`, one cohesive responsibility per PR. Preserve form serialization, step IDs, MFA, options conflict handling, migrations and storage recovery. |
 | F04 | P1 / backlog; after F02 | Inventory raw camera dictionaries vs typed SDK snapshots; define accepted state and availability boundaries, then consolidate adapters without copying SDK vendor logic or inventing permission/capability conclusions. |
 | F05 | P1 / backlog; cross-cutting | Expand real producer, registry/restoration and outage/recovery contracts. Migrate legacy tests to Core test style incrementally; retain lightweight fake-HA controls only for their stated scope. No coverage-number-only goal. |
