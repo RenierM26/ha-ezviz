@@ -205,3 +205,21 @@ the coordinator directly, updating existing streams without reloading the accoun
 The lifecycle tests retain selected-key, URL escaping, address-change and removed
 entity controls for this path. Reload itself is mocked in the options regression;
 this is not live browser or camera playback qualification.
+
+## Clear-image and HTTP privacy regressions
+
+`core_policy/test_image_decode_failure.py` uses generated JPEGs containing the
+vendor marker in legal COM/APP metadata, both freshly fetched and pre-cached,
+for Last motion and Snapshot. A content signature takes precedence over marker
+substrings; this is not full image validation or vendor-frame parsing. HA's
+four-byte magic table alone misses COM-first JPEGs, so the guard also recognizes
+the standard three-byte JPEG signature. Residual cipher and decode-failure
+recovery tests remain in place.
+
+HTTP privacy tests patch the HA-owned client's `get`, not `_fetch_url`, so timeout,
+request and HTTP-status failures exercise the real error-logging boundary. They
+assert that synthetic private paths, signatures and exception text are absent,
+and that a later success is fetched/cached normally. The override preserves HA's
+client, timeout and redirect policy. The exact `httpx` lint exception retains the
+client exception types used by the supported HA releases; it is not an HTTP stack
+migration. These are offline tests, not camera or deployment qualification.

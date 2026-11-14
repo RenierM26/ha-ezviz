@@ -4,12 +4,20 @@ from collections.abc import Mapping
 import logging
 from typing import Any, override
 
+# Supported HA image clients still use httpx, not httpx2.
+import httpx  # noqa: TID251
 from propcache.api import cached_property
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 from pyezvizapi.devices.images import process_image_bytes as _process_image_bytes
 from pyezvizapi.exceptions import PyEzvizError
 
-from homeassistant.components.image import Image, ImageEntity, ImageEntityDescription
+from homeassistant.components.image import (
+    GET_IMAGE_TIMEOUT,
+    Image,
+    ImageEntity,
+    ImageEntityDescription,
+    infer_image_type,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -33,6 +41,16 @@ SNAPSHOT_TYPE = ImageEntityDescription(
 )
 
 MAX_MULTI_LENS_IMAGES = 4
+
+
+def _has_residual_encryption(content: bytes) -> bool:
+    """Recognize clear images before searching for an opaque vendor marker."""
+    # HA's four-byte JPEG table omits legal COM-first JPEGs (FF D8 FF FE).
+    return (
+        not content.startswith(b"\xff\xd8\xff")
+        and infer_image_type(content) is None
+        and HIK_ENCRYPTION_HEADER in content
+    )
 
 
 async def async_setup_entry(
@@ -124,6 +142,22 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
         return True
 
     @override
+    async def _fetch_url(self, url: str) -> httpx.Response | None:
+        """Fetch private cloud URLs without logging URLs or exception messages."""
+        try:
+            response = await self._client.get(
+                url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException:
+            _LOGGER.error("%s: Timeout getting camera image", self.entity_id)
+            return None
+        except httpx.RequestError, httpx.HTTPStatusError:
+            _LOGGER.error("%s: Error getting camera image", self.entity_id)
+            return None
+        return response
+
+    @override
     async def _async_load_image_from_url(self, url: str) -> Image | None:
         """Fetch asynchronously and process immutable image inputs off the loop."""
         if self.coordinator.shutting_down:
@@ -147,7 +181,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
                     self.entity_id,
                 )
                 return None
-            if HIK_ENCRYPTION_HEADER in image_data:
+            if _has_residual_encryption(image_data):
                 _LOGGER.warning(
                     "%s: Camera image remains encrypted; image not cached",
                     self.entity_id,
@@ -163,7 +197,7 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             return None
         self._sync_encryption_key()
         if self._cached_image is not None:
-            if HIK_ENCRYPTION_HEADER not in self._cached_image.content:
+            if not _has_residual_encryption(self._cached_image.content):
                 return self._cached_image.content
             self._invalidate_image()
         url = self.image_url

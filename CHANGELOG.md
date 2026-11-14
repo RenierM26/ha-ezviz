@@ -26,6 +26,12 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Recognize clear image signatures before rejecting embedded encryption markers,
+  including legal JPEG metadata in fresh/cached Last motion and Snapshot images.
+  Keep residual ciphertext rejection and recovery. Image fetch failures no longer
+  include private cloud URLs or raw exception messages in integration error logs.
+
+
 - Require published SDK 2.4.0 for length-delimited cloud image decryption and
   clear multi-image selection. CI qualifies the exact PyPI artifact. JPEG-only
   splitting/cropping preserves non-JPEG bytes without PNG transcoding.
