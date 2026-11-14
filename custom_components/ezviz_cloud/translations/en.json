@@ -487,6 +487,24 @@
         },
         "saved_login_invalid": {
             "message": "The saved EZVIZ login does not match this installation identity. Reauthenticate to create a fresh login."
+        },
+        "request_forbidden": {
+            "message": "{operation} failed: EZVIZ denied permission ({detail}). For a shared device, ask the owner to review Account → Family & Guests and test the same action in the EZVIZ app with this account. Some devices or shared accounts may not support this operation."
+        },
+        "request_timeout": {
+            "message": "{operation} failed: the EZVIZ request timed out ({detail}). This may be temporary; a timeout alone does not require a restart or reauthentication."
+        },
+        "request_http": {
+            "message": "{operation} failed: EZVIZ returned {detail}."
+        },
+        "request_api": {
+            "message": "{operation} failed: EZVIZ rejected the request ({detail})."
+        },
+        "request_connection": {
+            "message": "{operation} failed: could not connect to EZVIZ ({detail})."
+        },
+        "request_failed": {
+            "message": "{operation} failed: EZVIZ request error ({detail})."
         }
     },
     "issues": {

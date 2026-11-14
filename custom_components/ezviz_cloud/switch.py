@@ -19,11 +19,11 @@ from homeassistant.components.switch import (
     SwitchEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
+from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
@@ -540,8 +540,8 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
                 self._serial,
                 1,
             )
-        except (HTTPError, PyEzvizError, InvalidHost) as err:
-            raise HomeAssistantError(f"Failed to turn on switch {self.name}") from err
+        except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
+            raise request_error("Turn on switch", err) from err
 
         self._attr_is_on = True
         self.async_write_ha_state()
@@ -556,8 +556,8 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
                 self._serial,
                 0,
             )
-        except (HTTPError, PyEzvizError, InvalidHost) as err:
-            raise HomeAssistantError(f"Failed to turn off switch {self.name}") from err
+        except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
+            raise request_error("Turn off switch", err) from err
 
         self._attr_is_on = False
         self.async_write_ha_state()

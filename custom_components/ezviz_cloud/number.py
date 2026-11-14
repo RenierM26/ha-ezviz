@@ -23,11 +23,11 @@ from pyezvizapi.feature import (
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
@@ -328,8 +328,8 @@ class EzvizNumber(EzvizEntity, NumberEntity):
                 value,
                 self.data,
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot set value for {self.entity_id}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Set numeric value", err) from err
 
         self._attr_native_value = value
         await self.coordinator.async_request_refresh()

@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 from threading import RLock
-from typing import Any, TypeGuard, override
+from typing import TYPE_CHECKING, Any, TypeGuard, override
 from uuid import uuid4
 
 from homeassistant.const import CONF_TYPE, CONF_URL, CONF_USERNAME
@@ -17,6 +17,10 @@ from homeassistant.helpers.storage import Store
 
 from .const import ATTR_TYPE_CLOUD, CONF_AUTH_REF, CONF_SDK_TOKEN, DOMAIN
 from .workers import create_critical_task
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 PERSIST_TIMEOUT = 30
 
@@ -56,7 +60,7 @@ class _IdentityState:
     needs_ack: bool = False
 
 
-def _identity_state(hass: Any, account: str) -> _IdentityState:
+def _identity_state(hass: HomeAssistant, account: str) -> _IdentityState:
     # Initial flows have no entry/runtime_data; retain their shared lock through
     # setup, reauth and unload so competing first logins cannot select two IDs.
     registry = hass.data.setdefault(DOMAIN, {}).setdefault("_identity_stores", {})  # pylint: disable=home-assistant-use-runtime-data
@@ -77,7 +81,9 @@ def _valid_identity(value: Any) -> TypeGuard[str]:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
 
 
-async def _async_identity(hass: Any, account: str, token: Mapping | None) -> str:
+async def _async_identity(
+    hass: HomeAssistant, account: str, token: Mapping | None
+) -> str:
     async def resolve() -> str:
         state = _identity_state(hass, account)
         async with state.lock:
@@ -108,7 +114,7 @@ async def _async_identity(hass: Any, account: str, token: Mapping | None) -> str
     return await asyncio.shield(task)
 
 
-async def async_login_identity(hass: Any, account: str) -> str:
+async def async_login_identity(hass: HomeAssistant, account: str) -> str:
     """Durably choose an account's installation identity before its first login."""
     return await _async_identity(
         hass, hashlib.sha256(account.encode()).hexdigest(), None
@@ -125,13 +131,13 @@ def credential_login(client: Any, code: str | None = None) -> dict:
         client.close_session()
 
 
-def _account(entry: Any) -> str:
+def _account(entry: ConfigEntry) -> str:
     identity = getattr(entry, "unique_id", None) or entry.entry_id
     return hashlib.sha256(str(identity).encode()).hexdigest()
 
 
 def compact_entry_data(
-    entry: Any, api_url: str | None = None, login_name: str | None = None
+    entry: ConfigEntry, api_url: str | None = None, login_name: str | None = None
 ) -> dict[str, Any]:
     """Public routing metadata only; retain a legacy login name only when necessary."""
     data = {
@@ -155,13 +161,13 @@ class _TokenState:
     revision: str | None = None
 
 
-def _pending_store(hass: Any, reference: str) -> AcknowledgedStore:
+def _pending_store(hass: HomeAssistant, reference: str) -> AcknowledgedStore:
     return AcknowledgedStore(
         hass, 1, f"{DOMAIN}.pending_auth.{reference}", private=True, atomic_writes=True
     )
 
 
-async def stage_login(hass: Any, account: str, token: dict) -> str:
+async def stage_login(hass: HomeAssistant, account: str, token: dict) -> str:
     """Fsync a new login before HA has allocated its config-entry ID."""
     reference = uuid4().hex
     store = _pending_store(hass, reference)
@@ -193,7 +199,7 @@ async def stage_login(hass: Any, account: str, token: dict) -> str:
 class TokenPersistence:
     """One authoritative SDK snapshot, with shared locking and stale-owner rejection."""
 
-    def __init__(self, hass: Any, entry: Any) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the owner and its cached dependencies."""
         self._hass = hass
         self._entry = entry

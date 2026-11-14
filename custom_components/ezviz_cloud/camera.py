@@ -11,19 +11,21 @@ option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 "/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
 """
 
+import asyncio
 from collections.abc import Mapping
+from dataclasses import replace
 import logging
 from typing import Any, override
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
-from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS
+from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.core import HomeAssistant, ServiceResponse, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -39,6 +41,7 @@ from .const import (
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,6 +114,7 @@ class EzvizCamera(EzvizEntity, Camera):
         """Initialize the camera entity."""
         super().__init__(coordinator, serial)
         Camera.__init__(self)
+        self.stream: Stream | None = None
 
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
@@ -119,6 +123,8 @@ class EzvizCamera(EzvizEntity, Camera):
         self._rtsp_path: str = rtsp_path
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
+        self._stream_lifecycle_lock = asyncio.Lock()
+        self._removed = False
         self._rtsp_stream: str = self._build_rtsp()
 
     def _build_rtsp(self) -> str:
@@ -128,10 +134,92 @@ class EzvizCamera(EzvizEntity, Camera):
             str
             RTSP URL in the form:'rtsp://<user>:<pass>@<ip>:<port><path>'
         """
+        if entry := self.coordinator.config_entry:
+            options = entry.options.get(OPTIONS_KEY_CAMERAS, {}).get(self._serial)
+            if options is not None:
+                self._username = options.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME)
+                field = (
+                    CONF_PASSWORD
+                    if options.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
+                    else CONF_ENC_KEY
+                )
+                self._password = options.get(field, "")
+                self._rtsp_path = options.get(
+                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                )
         ip = self.data["local_ip"]
         port = self.data["local_rtsp_port"]
         path = self._rtsp_path or ""
-        return f"rtsp://{self._username}:{self._password}@{ip}:{port}{path}"
+        if path and not path.startswith("/"):
+            path = "/" + path
+        return f"rtsp://{quote(self._username, safe='')}:{quote(self._password, safe='')}@{ip}:{port}{path}"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Watch committed options as well as coordinator updates."""
+        self._removed = False
+        await super().async_added_to_hass()
+        if entry := self.coordinator.config_entry:
+            self.async_on_remove(entry.add_update_listener(self._async_options_updated))
+        self._refresh_stream_source()
+
+    async def _async_options_updated(
+        self, hass: HomeAssistant, entry: EzvizConfigEntry
+    ) -> None:
+        """Refresh only after HA has committed the new options."""
+        self._refresh_stream_source()
+
+    @callback
+    def _refresh_stream_source(self) -> None:
+        """Restart an existing stream only when its selected source changes."""
+        if self._removed or self.coordinator.shutting_down:
+            return
+        source = self._build_rtsp()
+        if source != self._rtsp_stream:
+            self._rtsp_stream = source
+            if self.stream is not None:
+                self.stream.update_source(source)
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Apply key commits and address changes to an already created stream."""
+        if not self._removed:
+            self._refresh_stream_source()
+            super()._handle_coordinator_update()
+
+    @override
+    async def async_will_remove_from_hass(self) -> None:
+        """Fence queued updates before stopping the owned stream."""
+        self._removed = True
+        async with self._stream_lifecycle_lock:
+            if self.stream is not None:
+                self.stream.dynamic_stream_settings = replace(
+                    self.stream.dynamic_stream_settings, preload_stream=False
+                )
+                await self.stream.stop()
+                # HA 2026.10 re-adds this object on registry rename. Recreate
+                # the stream with current preferences and the new state callback.
+                self.stream = None
+        await super().async_will_remove_from_hass()
+
+    @override
+    async def async_create_stream(self) -> Stream | None:
+        """Serialize stream creation with removal and refresh after creation awaits."""
+        async with self._stream_lifecycle_lock:
+            if self._removed or self.coordinator.shutting_down:
+                return None
+            stream = await super().async_create_stream()
+            # Removal may have started while HA awaited stream settings.
+            if self._removed or self.coordinator.shutting_down:
+                return None
+            # Options may have changed during the same await.
+            if stream is not None:
+                source = self._build_rtsp()
+                if stream.source != source:
+                    stream.update_source(source)
+                self._rtsp_stream = source
+            return stream
 
     @property
     @override
@@ -194,8 +282,8 @@ class EzvizCamera(EzvizEntity, Camera):
             await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.get_detection_sensibility, self._serial
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise PyEzvizError("Cannot wake device") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Wake camera", err) from err
 
     async def async_capture_picture(self) -> ServiceResponse:
         """Take a new picture through the EZVIZ cloud.
@@ -207,8 +295,8 @@ class EzvizCamera(EzvizEntity, Camera):
             result = await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.capture_picture, self._serial, 1
             )
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot capture picture: {err}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Capture picture", err) from err
 
         capture_info = (
             result.get("captureInfo") if isinstance(result, Mapping) else None

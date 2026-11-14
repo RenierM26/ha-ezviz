@@ -33,7 +33,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py` and `diag
 versions. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.1.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.2.0'
 python -m coverage run --branch --source=custom_components.ezviz_cloud.config_flow,custom_components.ezviz_cloud.diagnostics -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 python -m coverage report --show-missing --fail-under=100
 ```
@@ -97,3 +97,66 @@ The focused `core_policy/` package also follows Core’s **test-specific** Ruff
 policy and enforces complete parameter/return annotations with `ANN`. It is
 checked both by normal lint/format CI and the actual moving-Core policy runner.
 Older modules remain under the independent legacy test policy.
+
+## Lifecycle follow-up
+
+`core_policy/test_lifecycle.py` covers restored/new siren timers, queued stale
+callbacks, retrigger/manual-off/removal, committed RTSP credential selection and
+existing source refresh, creation/commit/unload ordering, real HA preloaded stream
+restart/stop with preserved preferences, and entry-scoped push device resolution.
+Actual registry/entity-platform renames re-add the same camera and siren objects
+on supported HA versions. Controls cover both restored-on and no-restored-state
+add hooks, fresh real HA stream creation with preload preferences preserved,
+coordinator source updates after rename, working siren state/timers, and pending
+siren command results fenced across removal/re-add. The stream boundary does not
+start a decoder worker. These controls use synthetic SDK IO and never contact
+cameras or the cloud.
+
+## Request failure messages
+
+`core_policy/test_errors.py` exercises the published SDK's empty `HTTPError`
+chained to a real `requests.HTTPError`, API response-summary codes, transport
+failures, actual HA exception translation loading, malformed cause cycles,
+secret-bearing payload omission, alarm recovery without reauth and permission
+failures across camera action platforms. Network access remains prohibited.
+
+Messages retain HTTP vs API numeric codes without forwarding arbitrary SDK text,
+URLs, response bodies, account names or credentials. A 403 indicates a permission
+rejection, not proof that a device is shared or unsupported; the owner/app check
+is guidance, not an automatic capability change. A 504 is a request timeout, not
+a reason to clear credentials, restart HA or initiate reauthentication. Existing
+coordinator handling for explicit SDK authentication exceptions is unchanged.
+
+Actions raise translated `HomeAssistantError` once and retain their exception
+cause; they do not also log the same failure. Shared polling retains HA's
+`UpdateFailed` suppression/recovery behavior. Image/media/push workers keep their
+separate failure and lifecycle policies; no verbose payload logging is enabled.
+
+
+### Active siren rename and SDK fallback qualification
+
+Active siren renames use the real restore lookup (which returns no state at the
+new ID on HA 2026.10.4) and a controlled monotonic clock. A rename after 20 seconds retains the
+remaining 40 seconds, a second rename retains 30, and re-add after the deadline
+reports off immediately. No extra firmware minute is added by renaming.
+
+Published SDK 2.2.0 retains the primary HTTP cause when both switch endpoints
+fail ([SDK #436](https://github.com/RenierM26/pyEzvizApi/pull/436)); it is now the
+manifest and CI minimum. No `__context__` guessing is needed for mixed statuses.
+
+`core_policy/test_errors.py` now exercises real SDK PUT/POST fallback through HA
+light, camera-switch and inventory-plug adapters, in both directions. The 24
+cases cover 403/403, 504/504, 403/504 and 504/403, preserving the primary status,
+HA/SDK cached states, safe translated errors and no refresh/reauthentication on
+failure. Only requests transport is mocked. All 24 fail with SDK 2.1.0 and pass
+with published 2.2.0; no editable SDK or live account/device requests are used.
+
+The standalone cross-check remains available from the repository root:
+
+```sh
+python -m tools.qualify_switch_errors
+```
+
+It checks all four primary/fallback HTTP pairs using real SDK wrapping/fallback
+and HA classification. Run with SDK 2.2.0 or newer in a native HA environment.
+SDK 2.1.0 remains an intentional negative control, not a supported minimum.

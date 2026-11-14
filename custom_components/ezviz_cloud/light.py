@@ -15,7 +15,6 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
@@ -24,6 +23,7 @@ from homeassistant.util.percentage import (
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
+from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
@@ -188,8 +188,8 @@ class EzvizLight(EzvizEntity, LightEntity):
                 self._attr_is_on = True
                 self.async_write_ha_state()
 
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Failed to turn on light {self.name}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Turn on light", err) from err
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -204,8 +204,8 @@ class EzvizLight(EzvizEntity, LightEntity):
                 self._attr_is_on = False
                 self.async_write_ha_state()
 
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Failed to turn off light {self.name}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Turn off light", err) from err
 
     @callback
     @override

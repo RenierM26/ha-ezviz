@@ -57,7 +57,7 @@ jobs:
           python -m pip install -U pip
           python -m pip install -e core -e core/packages/hassfest \
             -r core/requirements_test.txt \
-            -r integration/tests/runtime/requirements.txt 'pyezvizapi==2.1.0'
+            -r integration/tests/runtime/requirements.txt 'pyezvizapi==2.2.0'
           python -m pip check
       - name: Core policy, translations, hassfest and dev runtime
         working-directory: integration

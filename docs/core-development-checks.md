@@ -3,7 +3,7 @@
 The integration stays compatible with HA **2026.10.4+ / Python 3.14.2+**, while
 checking the current Core development policy. First qualified against Core
 `462fe2cc3549abf05b91d00e205447b9521a5c75` (`2026.12.0.dev0`), Python 3.14.10,
-and the published SDK minimum `pyezvizapi==2.1.0`.
+and the published SDK minimum `pyezvizapi==2.2.0`.
 
 ## Repeatable checks
 
@@ -15,7 +15,7 @@ isolated venv (not the running HA environment):
 ```sh
 python3 -m pip install -e /path/to/core -e /path/to/core/packages/hassfest \
   -r /path/to/core/requirements_test.txt -r tests/runtime/requirements.txt \
-  'pyezvizapi==2.1.0'
+  'pyezvizapi==2.2.0'
 python3 -m pip check
 python3 tools/check_core_policy.py --core /path/to/core --runtime-tests
 ```
@@ -37,6 +37,11 @@ namespace configuration:
 - Generate English translations with Core's translation tool and compare content.
 - Ruff lint and formatter.
 - Pylint including HA-specific checks, one worker, scoped to this integration.
+  Common-argument checks are strict (`--ignore-missing-annotations=n`), including
+  `hass: HomeAssistant`. An ephemeral `hass: Any` negative control must emit
+  exactly E7402 before production lint runs; it is removed before mypy/tests.
+  The former `y` override also skipped annotated common arguments, not merely
+  missing annotations, and therefore masked eight token/worker annotations.
 - Mypy in the Core integration namespace, with Core's plugin and import policy.
 - Hassfest on the **custom** integration path, using the existing exact-conflict
   wrapper. Every other validator failure remains fatal.
@@ -83,7 +88,7 @@ when adopting a new baseline, rather than weakening Core's configuration.
   other cached diagnostics when a getter fails, have local explained Ruff exceptions.
   They are not blanket disabled and are covered by failure/cancellation tests.
 - Stock hassfest's exact built-in/custom SDK conflict remains unresolved:
-  `pyezvizapi>=2.1.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
+  `pyezvizapi>=2.2.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
   demotes only that conflict. This is not a claim of unmodified hassfest success,
   built-in/custom coexistence, upstream Core acceptance, or production deployment.
 

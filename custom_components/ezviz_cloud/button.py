@@ -14,11 +14,11 @@ from homeassistant.components.button import (
     ButtonEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .errors import request_error
 from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
@@ -150,5 +150,5 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
                 self._serial,
             )
 
-        except (HTTPError, PyEzvizError) as err:
-            raise HomeAssistantError(f"Cannot perform action on {self.name}") from err
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Press button", err) from err
