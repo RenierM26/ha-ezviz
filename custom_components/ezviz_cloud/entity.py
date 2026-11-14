@@ -1,11 +1,10 @@
 """An abstract class common to all EZVIZ entities."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 import re
-from typing import Any
+from typing import Any, override
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import (
     CONNECTION_NETWORK_MAC,
     DeviceInfo,
@@ -14,6 +13,7 @@ from homeassistant.helpers.device_registry import (
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .availability import device_available
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
 
@@ -69,7 +69,19 @@ def _build_device_info(device: Mapping[str, Any], serial: str) -> DeviceInfo:
     )
 
 
-class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
+class EzvizEntityIdMixin:
+    """Subscriptions are keyed by serial, so renames need no resubscription."""
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Opt into HA 2026.11 in-place renaming, preserving base bookkeeping."""
+        if parent_hook := getattr(super(), "async_entity_id_changed", None):
+            parent_hook(old_entity_id)
+
+
+class EzvizEntity(
+    EzvizEntityIdMixin, CoordinatorEntity[EzvizDataUpdateCoordinator], Entity
+):
     """Generic entity encapsulating common features of EZVIZ device."""
 
     _attr_has_entity_name = True
@@ -87,17 +99,23 @@ class EzvizEntity(CoordinatorEntity[EzvizDataUpdateCoordinator], Entity):
         self._attr_device_info = _build_device_info(device, serial)
 
     @property
-    def data(self) -> Any:
-        """Return coordinator data for this entity."""
-        return self.coordinator.data[self._serial]
+    def serial(self) -> str:
+        """Return the canonical identifier used for device commands."""
+        return self._serial
 
     @property
+    def data(self) -> Any:
+        """Return coordinator data for this entity."""
+        return (self.coordinator.data or {}).get(self._serial, {})
+
+    @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.data["status"] != 2)
+        return device_available(self.coordinator, self._serial)
 
 
-class EzvizBaseEntity(Entity):
+class EzvizBaseEntity(EzvizEntityIdMixin, Entity):
     """Generic entity for EZVIZ individual poll entities."""
 
     _attr_has_entity_name = True
@@ -117,9 +135,26 @@ class EzvizBaseEntity(Entity):
     @property
     def data(self) -> Any:
         """Return coordinator data for this entity."""
-        return self.coordinator.data[self._serial]
+        return (self.coordinator.data or {}).get(self._serial, {})
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.data["status"] != 2)
+        return device_available(self.coordinator, self._serial)
+
+
+class EzvizInventoryEntity(EzvizEntity):
+    """Non-camera entities share the same poll and registry identity policy."""
+
+    @property
+    @override
+    def data(self) -> Any:
+        """Return this device cached coordinator projection."""
+        return self.coordinator.device_data(self._serial)
+
+    @property
+    def device_state(self) -> Any:
+        """Return the typed device view from the accepted inventory."""
+        snapshot = self.coordinator.inventory_snapshot
+        return snapshot.devices.get(self._serial) if snapshot is not None else None

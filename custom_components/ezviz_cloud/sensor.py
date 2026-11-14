@@ -1,10 +1,8 @@
 """Support for EZVIZ sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, override
 
 from pyezvizapi.constants import SupportExt
 
@@ -13,15 +11,16 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
+from .inventory import async_add_inventory_entities
 from .migration import migrate_unique_ids_with_coordinator
+from .runtime import EzvizConfigEntry
 from .utility import (
     network_type_value,
     passes_description_gates,
@@ -184,12 +183,12 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     await migrate_unique_ids_with_coordinator(
         hass,
@@ -197,6 +196,10 @@ async def async_setup_entry(
         coordinator,
         platform_domain="sensor",
         allowed_keys=tuple(desc.key for desc in SENSORS),
+    )
+
+    async_add_inventory_entities(
+        coordinator, entry, async_add_entities, "detector", detector_sensors
     )
 
     async_add_entities(
@@ -225,6 +228,64 @@ class EzvizSensor(EzvizEntity, SensorEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
-    def native_value(self) -> Any:
+    @override
+    def native_value(self) -> StateType:
         """Return the sensor's value from the coordinator snapshot."""
         return self.entity_description.value_fn(self.data)
+
+
+DETECTOR_SENSORS = (
+    SensorEntityDescription(
+        key="battery_level",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+    ),
+    *(
+        SensorEntityDescription(
+            key=key,
+            translation_key=key,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        )
+        for key in (
+            "door_status",
+            "water_leak_status",
+            "siren_work_state",
+            "zigbee_signal",
+            "power_mode",
+        )
+    ),
+)
+
+
+def detector_sensors(coordinator: Any, serial: str, state: Any) -> list:
+    """Create only observed detector sensor readings."""
+    return [
+        EzvizDetectorSensor(coordinator, serial, desc)
+        for desc in DETECTOR_SENSORS
+        if state.capabilities.has(desc.key) is True
+    ]
+
+
+class EzvizDetectorSensor(EzvizInventoryEntity, SensorEntity):
+    """Diagnostics share inventory freshness and preserve zero/false/unknown."""
+
+    def __init__(
+        self, coordinator: Any, serial: str, desc: SensorEntityDescription
+    ) -> None:
+        """Initialize the owner and its cached dependencies."""
+        super().__init__(coordinator, serial)
+        self.entity_description = desc
+        self._attr_unique_id = f"{serial}_{desc.key}"
+
+    @property
+    @override
+    def native_value(self) -> StateType:
+        """Return the cached reading without inventing enum semantics."""
+        state = self.device_state
+        if state is None:
+            return None
+        if self.entity_description.key == "battery_level":
+            return state.battery_level
+        value = state.values.get(self.entity_description.key)
+        return value if isinstance(value, (str, int, float, bool)) else None

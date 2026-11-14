@@ -1,25 +1,23 @@
 """Support for EZVIZ binary sensors."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
+from .inventory import async_add_inventory_entities
 from .migration import migrate_unique_ids_with_coordinator
+from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -73,12 +71,12 @@ BINARY_SENSORS: tuple[EzvizBinarySensorEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ binary sensors from coordinator data."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     await migrate_unique_ids_with_coordinator(
         hass=hass,
@@ -86,6 +84,10 @@ async def async_setup_entry(
         coordinator=coordinator,
         platform_domain="binary_sensor",
         allowed_keys=tuple(desc.key for desc in BINARY_SENSORS),
+    )
+
+    async_add_inventory_entities(
+        coordinator, entry, async_add_entities, "detector", detector_binary_sensors
     )
 
     async_add_entities(
@@ -114,6 +116,59 @@ class EzvizBinarySensor(EzvizEntity, BinarySensorEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
 
     @property
+    @override
     def is_on(self) -> bool:
         """Return the sensor state."""
         return self.entity_description.value_fn(self.data)
+
+
+DETECTOR_BINARY_SENSORS = (
+    (
+        "door_status",
+        BinarySensorEntityDescription(
+            key="door_open",
+            device_class=BinarySensorDeviceClass.DOOR,
+            entity_registry_enabled_default=False,
+        ),
+    ),
+    (
+        "water_leak_status",
+        BinarySensorEntityDescription(
+            key="water_leak",
+            device_class=BinarySensorDeviceClass.MOISTURE,
+            entity_registry_enabled_default=False,
+        ),
+    ),
+)
+
+
+def detector_binary_sensors(coordinator: Any, serial: str, state: Any) -> list:
+    """Create only observed detector binary readings."""
+    return [
+        EzvizDetectorBinarySensor(coordinator, serial, desc)
+        for raw, desc in DETECTOR_BINARY_SENSORS
+        if state.capabilities.has(raw) is True
+    ]
+
+
+class EzvizDetectorBinarySensor(EzvizInventoryEntity, BinarySensorEntity):
+    """No truthiness conversion of vendor contact/water enums."""
+
+    def __init__(
+        self, coordinator: Any, serial: str, desc: BinarySensorEntityDescription
+    ) -> None:
+        """Initialize the owner and its cached dependencies."""
+        super().__init__(coordinator, serial)
+        self.entity_description = desc
+        self._attr_unique_id = f"{serial}_{desc.key}"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the known power state, or unknown when unavailable."""
+        state = self.device_state
+        return (
+            getattr(state, self.entity_description.key, None)
+            if state is not None
+            else None
+        )

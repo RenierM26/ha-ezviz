@@ -1,10 +1,8 @@
 """Support for EZVIZ button controls."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
@@ -15,14 +13,13 @@ from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -112,12 +109,12 @@ BUTTON_ENTITIES: tuple[EzvizButtonEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ button based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     async_add_entities(
         EzvizButtonEntity(coordinator, serial, description)
@@ -143,10 +140,15 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self.entity_description = description
 
-    def press(self) -> None:
+    @override
+    async def async_press(self) -> None:
         """Execute the button action."""
         try:
-            self.entity_description.method(self.coordinator.ezviz_client, self._serial)
+            await self.coordinator.async_execute(
+                self.entity_description.method,
+                self.coordinator.ezviz_client,
+                self._serial,
+            )
 
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot perform action on {self.name}") from err

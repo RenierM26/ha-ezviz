@@ -1,0 +1,39 @@
+{
+  "entries": [
+    {
+      "version": 4,
+      "data": {
+        "type": "EZVIZ_CLOUD_ACCOUNT",
+        "username": "fixture@example.invalid",
+        "session_id": "synthetic-session",
+        "rf_session_id": "synthetic-refresh",
+        "user_id": "fixture-user",
+        "url": "api.example.invalid"
+      },
+      "options": {
+        "timeout": 41,
+        "cameras": {
+          "SERIAL001": {
+            "username": "admin",
+            "password": "synthetic-verification",
+            "enc_key": "synthetic-encryption",
+            "rtsp_uses_verification_code": false,
+            "ffmpeg_arguments": "/Streaming/Channels/101"
+          }
+        }
+      },
+      "title": "Fixture account",
+      "unique_id": null,
+      "source": "user"
+    }
+  ],
+  "expected_cameras": {
+    "SERIAL001": {
+      "username": "admin",
+      "password": "synthetic-verification",
+      "enc_key": "synthetic-encryption",
+      "rtsp_uses_verification_code": false,
+      "ffmpeg_arguments": "/Streaming/Channels/101"
+    }
+  }
+}

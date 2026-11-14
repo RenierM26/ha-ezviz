@@ -1,538 +1,645 @@
 {
-  "title": "EZVIZ Cloud",
-  "config": {
-    "step": {
-      "user": {
-        "title": "Connect EZVIZ Cloud",
-        "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the host (without https://).",
-        "data": {
-          "username": "Username",
-          "password": "Password",
-          "region": "Region",
-          "url": "Url",
-          "timeout": "Timeout"
+    "config": {
+        "abort": {
+            "already_configured_account": "Account is already configured",
+            "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure Ezviz cloud account",
+            "no_cameras": "No cameras were found for this account.",
+            "reauth_successful": "Re-authentication was successful",
+            "unknown": "Unexpected error"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "cannot_save_credentials": "The login could not be saved safely. Check storage and try again.",
+            "device_exception": "Device exception, couldn't fetch key",
+            "invalid_auth": "Invalid authentication",
+            "invalid_host": "Invalid hostname or IP address",
+            "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+            "invalid_url": "Custom API host is invalid. Enter a hostname without https:// or trailing slash.",
+            "mfa_required": "Multi-factor authentication required, please enter the code",
+            "unknown": "Unexpected error",
+            "verification_required": "Verification code required or invalid. Please try again."
+        },
+        "step": {
+            "reauth_confirm": {
+                "data": {
+                    "password": "Password",
+                    "username": "Username"
+                },
+                "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for an SMS code next.",
+                "title": "Authentication expired for {name}"
+            },
+            "reauth_mfa": {
+                "data": {
+                    "sms_code": "Verification code"
+                },
+                "description": "Enter the SMS verification code to finish re-authentication.",
+                "title": "Re-authenticate: SMS code"
+            },
+            "user": {
+                "data": {
+                    "password": "Password",
+                    "region": "Region",
+                    "timeout": "Timeout (seconds)",
+                    "url": "URL",
+                    "username": "Username"
+                },
+                "description": "Sign in to your EZVIZ Cloud account and choose the API region. If you select Custom, enter the url (without https://).",
+                "title": "Connect EZVIZ Cloud"
+            },
+            "user_mfa_confirm": {
+                "data": {
+                    "sms_code": "Verification code"
+                },
+                "description": "Enter the SMS verification code sent by EZVIZ.",
+                "title": "Two-factor verification required"
+            }
         }
-      },
-      "user_mfa_confirm": {
-        "title": "Two-factor verification required",
-        "description": "Enter the SMS verification code sent by EZVIZ.",
-        "data": {
-          "sms_code": "Code"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Re-authenticate",
-        "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for an SMS code next.",
-        "data": {
-          "username": "Username",
-          "password": "Password"
-        }
-      },
-      "reauth_mfa": {
-        "title": "Re-authenticate: SMS code",
-        "description": "Enter the SMS verification code to finish re-authentication.",
-        "data": {
-          "sms_code": "Code"
-        }
-      }
     },
-    "error": {
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
-      "invalid_host": "Invalid host",
-      "invalid_url": "Custom API host is invalid. Enter a hostname without https:// or trailing slash.",
-      "mfa_required": "Multi-factor authentication required, please enter the code",
-      "device_exception": "Device exception, couldn't fetch key",
-      "verification_required": "Verification code required or invalid. Please try again.",
-      "unknown": "Unknown error"
+    "entity": {
+        "binary_sensor": {
+            "alarm_schedules_enabled": {
+                "name": "Alarm schedules enabled"
+            },
+            "encrypted": {
+                "name": "Encryption"
+            }
+        },
+        "button": {
+            "flip_image": {
+                "name": "Flip camera image"
+            },
+            "ptz_down": {
+                "name": "PTZ down"
+            },
+            "ptz_left": {
+                "name": "PTZ left"
+            },
+            "ptz_right": {
+                "name": "PTZ right"
+            },
+            "ptz_up": {
+                "name": "PTZ up"
+            },
+            "restart_device": {
+                "name": "Restart"
+            }
+        },
+        "image": {
+            "last_motion_image": {
+                "name": "Last motion image"
+            },
+            "snapshot": {
+                "name": "Snapshot"
+            }
+        },
+        "light": {
+            "light": {
+                "name": "Light"
+            }
+        },
+        "number": {
+            "algorithm_param_human": {
+                "name": "Human detection sensitivity"
+            },
+            "algorithm_param_image_change": {
+                "name": "Image change sensitivity"
+            },
+            "algorithm_param_pir": {
+                "name": "PIR detection sensitivity"
+            },
+            "algorithm_param_wave": {
+                "name": "Wave recognition sensitivity"
+            },
+            "algorithm_sensitivity": {
+                "name": "Detection sensitivity"
+            },
+            "detection_sensibility": {
+                "name": "Detection sensitivity"
+            },
+            "microphone_volume": {
+                "name": "Microphone volume"
+            },
+            "night_vision_duration": {
+                "name": "Night vision duration"
+            },
+            "night_vision_luminance": {
+                "name": "Warm light brightness"
+            }
+        },
+        "select": {
+            "advanced_detect_human_car": {
+                "name": "Detection mode",
+                "state": {
+                    "advanced_detect_human_shape": "Human shape",
+                    "advanced_detect_image_change": "Image change"
+                }
+            },
+            "advanced_detect_human_car_pir": {
+                "name": "Detection mode",
+                "state": {
+                    "advanced_detect_human_shape": "Human shape",
+                    "advanced_detect_pir": "Pir"
+                }
+            },
+            "alarm_sound_mode": {
+                "name": "Warning sound",
+                "state": {
+                    "intensive": "Intensive",
+                    "silent": "Silent",
+                    "soft": "Soft"
+                }
+            },
+            "battery_camera_work_mode": {
+                "name": "Battery work mode",
+                "state": {
+                    "custom": "Custom",
+                    "hibernate": "Hibernate",
+                    "high_performance": "High performance",
+                    "plugged_in": "Plugged in",
+                    "power_save": "Power save",
+                    "super_power_save": "Super power saving"
+                }
+            },
+            "battery_camera_work_mode_aov": {
+                "name": "Battery work mode",
+                "state": {
+                    "aov_mode": "Always on video",
+                    "custom": "Custom",
+                    "plugged_in": "Plugged in",
+                    "power_save": "Power saving",
+                    "standard": "Standard"
+                }
+            },
+            "blc_region": {
+                "name": "Backlight compensation",
+                "state": {
+                    "blc_center": "Center",
+                    "blc_down": "Down",
+                    "blc_left": "Left",
+                    "blc_off": "Off",
+                    "blc_right": "Right",
+                    "blc_up": "Up"
+                }
+            },
+            "day_night_mode": {
+                "name": "Day/night mode",
+                "state": {
+                    "day_night_auto": "Auto",
+                    "day_night_day": "Day",
+                    "day_night_night": "Night"
+                }
+            },
+            "day_night_sensitivity": {
+                "name": "Day/night sensitivity",
+                "state": {
+                    "day_night_sensitivity_high": "High",
+                    "day_night_sensitivity_low": "Low",
+                    "day_night_sensitivity_medium": "Medium"
+                }
+            },
+            "image_style_setting": {
+                "name": "Image style",
+                "state": {
+                    "image_style_original": "Original",
+                    "image_style_soft": "Soft",
+                    "image_style_vivid": "Vivid"
+                }
+            },
+            "lens_defog": {
+                "name": "Lens defogging",
+                "state": {
+                    "lens_defog_auto": "Auto",
+                    "lens_defog_off": "Always off",
+                    "lens_defog_on": "Always on"
+                }
+            },
+            "night_vision_mode": {
+                "name": "Night vision mode",
+                "state": {
+                    "night_vision_b_w": "Black and white",
+                    "night_vision_colour": "Colour",
+                    "night_vision_smart": "Smart mode",
+                    "night_vision_super": "Super night view"
+                }
+            },
+            "night_vision_model": {
+                "name": "Night vision mode",
+                "state": {
+                    "night_vision_b_w": "Black and white",
+                    "night_vision_colour": "Colour"
+                }
+            },
+            "ptz_linked_tracking_range": {
+                "name": "PTZ linked tracking range",
+                "state": {
+                    "ptz_tracking_range_full_priority": "Full picture tracking (wide-angle priority)",
+                    "ptz_tracking_range_wide": "Wide-angle picture tracking"
+                }
+            },
+            "smart_night_vision_model": {
+                "name": "Night vision mode",
+                "state": {
+                    "night_vision_b_w": "Black and white",
+                    "night_vision_colour": "Colour",
+                    "night_vision_smart": "Smart mode"
+                }
+            },
+            "smart_night_vision_model_battery": {
+                "name": "Night vision mode",
+                "state": {
+                    "night_vision_b_w": "Black and white",
+                    "night_vision_smart": "Smart mode"
+                }
+            },
+            "super_night_vision_model": {
+                "name": "Night vision mode",
+                "state": {
+                    "night_vision_b_w": "Black and white",
+                    "night_vision_colour": "Colour",
+                    "night_vision_smart": "Smart mode",
+                    "super_night_view": "Super night view"
+                }
+            }
+        },
+        "sensor": {
+            "alarm_sound_mod": {
+                "name": "Alarm sound level"
+            },
+            "battery_charge_state": {
+                "name": "Battery charge state",
+                "state": {
+                    "charging": "Charging",
+                    "fault": "Battery fault",
+                    "full": "Charged",
+                    "no_battery": "No battery",
+                    "not_charging": "Not charging"
+                }
+            },
+            "door_status": {
+                "name": "Contact status (raw)"
+            },
+            "last_alarm_pic": {
+                "name": "Last alarm picture URL"
+            },
+            "last_alarm_time": {
+                "name": "Last alarm time"
+            },
+            "last_alarm_type_code": {
+                "name": "Last alarm type code"
+            },
+            "last_alarm_type_name": {
+                "name": "Last alarm type name"
+            },
+            "last_offline_time": {
+                "name": "Last offline"
+            },
+            "local_ip": {
+                "name": "Local IP"
+            },
+            "network_type": {
+                "name": "Network type"
+            },
+            "pir_status": {
+                "name": "PIR status"
+            },
+            "power_mode": {
+                "name": "Power mode (raw)"
+            },
+            "sd_card_capacity": {
+                "name": "SD card capacity"
+            },
+            "seconds_last_trigger": {
+                "name": "Seconds since last trigger"
+            },
+            "siren_work_state": {
+                "name": "Siren state (raw)"
+            },
+            "supported_channels": {
+                "name": "Supported channels"
+            },
+            "wan_ip": {
+                "name": "WAN IP"
+            },
+            "water_leak_status": {
+                "name": "Water status (raw)"
+            },
+            "wifi_signal": {
+                "name": "Wi-Fi signal"
+            },
+            "wifi_ssid": {
+                "name": "Wi-Fi SSID"
+            },
+            "zigbee_signal": {
+                "name": "Zigbee signal (raw)"
+            }
+        },
+        "siren": {
+            "siren": {
+                "name": "Siren"
+            }
+        },
+        "switch": {
+            "all_day_video_recording": {
+                "name": "All day video recording"
+            },
+            "audio": {
+                "name": "Audio"
+            },
+            "auto_sleep": {
+                "name": "Auto sleep"
+            },
+            "auto_zoom_tracking": {
+                "name": "Auto zoom tracking"
+            },
+            "channel_offline_notify": {
+                "name": "Channel offline notification"
+            },
+            "defence_plan": {
+                "name": "Defence plan"
+            },
+            "distortion_correction": {
+                "name": "Distortion correction"
+            },
+            "encrypted": {
+                "name": "Encryption"
+            },
+            "flicker_light_on_movement": {
+                "name": "Flicker light on movement"
+            },
+            "follow_movement": {
+                "name": "Follow movement"
+            },
+            "infrared_light": {
+                "name": "Infrared light"
+            },
+            "intelligent_app_car_detect": {
+                "name": "Vehicle detection"
+            },
+            "intelligent_app_human_detect": {
+                "name": "AI human detection"
+            },
+            "intelligent_app_pir_detect": {
+                "name": "PIR detection"
+            },
+            "intelligent_app_video_change": {
+                "name": "Image change detection"
+            },
+            "intelligent_app_wave_recognize": {
+                "name": "Wave recognition"
+            },
+            "intelligent_fill_light": {
+                "name": "Intelligent fill light"
+            },
+            "intelligent_picture_quality": {
+                "name": "Intelligent picture quality"
+            },
+            "logo_watermark": {
+                "name": "Logo watermark"
+            },
+            "motion_detection": {
+                "name": "Motion detection"
+            },
+            "motion_tracking": {
+                "name": "Motion tracking"
+            },
+            "offline_notify": {
+                "name": "Offline notification"
+            },
+            "osd_overlay": {
+                "name": "On-screen display"
+            },
+            "outdoor_ringing_sound": {
+                "name": "Outdoor ringing sound"
+            },
+            "outlet_power_recover": {
+                "name": "Outlet power restore"
+            },
+            "partial_image_optimize": {
+                "name": "Partial image optimize"
+            },
+            "people_detection": {
+                "name": "People detection"
+            },
+            "people_detection_mode": {
+                "name": "People detection mode"
+            },
+            "pir_motion_activated_light": {
+                "name": "PIR motion activated light"
+            },
+            "port_security_50161": {
+                "name": "EZVIZ-Connect"
+            },
+            "port_security_client_mode": {
+                "name": "EZVIZ client compatibility mode"
+            },
+            "privacy": {
+                "name": "Privacy"
+            },
+            "push_notify_alarm": {
+                "name": "Alarm push notification"
+            },
+            "push_notify_call": {
+                "name": "Call push notification"
+            },
+            "sleep": {
+                "name": "Sleep"
+            },
+            "status_light": {
+                "name": "Status light"
+            },
+            "tamper_alarm": {
+                "name": "Tamper alarm"
+            },
+            "voice_prompt": {
+                "name": "Voice prompt"
+            },
+            "wdr": {
+                "name": "Wide dynamic range"
+            },
+            "wifi_status_light": {
+                "name": "Wi-Fi status light"
+            }
+        },
+        "text": {
+            "camera_enc_key": {
+                "name": "Camera encryption key"
+            },
+            "camera_name": {
+                "name": "Camera name"
+            }
+        }
     },
-    "abort": {
-      "already_configured_account": "Account already configured",
-      "reauth_successful": "Re-authentication successful",
-      "ezviz_cloud_account_missing": "Ezviz cloud account missing. Please reconfigure",
-      "no_cameras": "No cameras were found for this account.",
-      "unknown": "Unknown error"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "EZVIZ Options",
-        "description": "Configure cloud or camera options.",
-        "menu_options": {
-          "cloud": "Cloud Settings",
-          "camera_select": "Camera Settings"
+    "exceptions": {
+        "credential_storage_failed": {
+            "message": "EZVIZ credentials could not be read or saved safely. Check storage; setup or migration will retry."
+        },
+        "migration_ambiguous_accounts": {
+            "message": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry."
+        },
+        "migration_cleanup_failed": {
+            "message": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained."
+        },
+        "migration_future_version": {
+            "message": "This entry was created by a newer integration version. Install a version that supports it, then retry."
+        },
+        "migration_missing_serial": {
+            "message": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry."
+        },
+        "saved_login_invalid": {
+            "message": "The saved EZVIZ login does not match this installation identity. Reauthenticate to create a fresh login."
         }
-      },
-      "cloud": {
-        "title": "Cloud Settings",
-        "description": "Set default options for the EZVIZ cloud account.",
-        "data": {
-          "timeout": "Timeout"
-        }
-      },
-      "camera": {
-        "title": "Select Camera",
-        "description": "Choose a camera to configure.",
-        "data": {
-          "serial": "Camera"
-        }
-      },
-      "camera_select": {
-        "title": "Select a camera",
-        "description": "Choose a camera to edit."
-      },
-      "camera_edit": {
-        "title": "Camera settings",
-        "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
-        "data": {
-          "username": "Username",
-          "password": "Verification code (older cams) or leave “fetch_my_key”",
-          "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
-          "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
-          "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
-          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)"
-        }
-      },
-      "camera_edit_2fa": {
-        "title": "One-time codes",
-        "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
-        "data": {
-          "cam_verification_2fa_code": "Code (for sticker/verification key)",
-          "cam_encryption_2fa_code": "Code (for encryption key)"
-        }
-      }
     },
-    "error": {
-      "cannot_connect": "Failed to connect",
-      "device_exception": "Device exception, couldn't fetch key",
-      "verification_required": "Verification code required or invalid. Please try again.",
-      "unknown": "Unknown error",
-      "rtsp_auth_failed": "Invalid authentication"
-    }
-  },
-  "entity": {
-    "select": {
-      "alarm_sound_mode": {
-        "name": "Warning sound",
-        "state": {
-          "soft": "Soft",
-          "intensive": "Intensive",
-          "silent": "Silent"
+    "issues": {
+        "migration_ambiguous_accounts": {
+            "fix_flow": {
+                "error": {
+                    "entry_disabled": "Enable this integration entry before retrying migration.",
+                    "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying."
+                },
+                "step": {
+                    "confirm": {
+                        "description": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry. Retry only after correcting the problem.",
+                        "title": "Retry migration"
+                    }
+                }
+            },
+            "title": "EZVIZ migration needs attention: {title}"
+        },
+        "migration_cleanup_failed": {
+            "fix_flow": {
+                "error": {
+                    "entry_disabled": "Enable this integration entry before retrying migration.",
+                    "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying."
+                },
+                "step": {
+                    "confirm": {
+                        "description": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained. Retry only after correcting the problem.",
+                        "title": "Retry migration"
+                    }
+                }
+            },
+            "title": "EZVIZ migration needs attention: {title}"
+        },
+        "migration_future_version": {
+            "fix_flow": {
+                "error": {
+                    "entry_disabled": "Enable this integration entry before retrying migration.",
+                    "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying."
+                },
+                "step": {
+                    "confirm": {
+                        "description": "This entry was created by a newer integration version. Install a version that supports it, then retry. Retry only after correcting the problem.",
+                        "title": "Retry migration"
+                    }
+                }
+            },
+            "title": "EZVIZ migration needs attention: {title}"
+        },
+        "migration_missing_serial": {
+            "fix_flow": {
+                "error": {
+                    "entry_disabled": "Enable this integration entry before retrying migration.",
+                    "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying."
+                },
+                "step": {
+                    "confirm": {
+                        "description": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry. Retry only after correcting the problem.",
+                        "title": "Retry migration"
+                    }
+                }
+            },
+            "title": "EZVIZ migration needs attention: {title}"
+        },
+        "uid_migration_review": {
+            "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}",
+            "title": "Review skipped {platform} unique_id migrations"
         }
-      },
-      "battery_camera_work_mode": {
-        "name": "Battery work mode",
-        "state": {
-          "power_save": "Power save",
-          "high_performance": "High performance",
-          "plugged_in": "Plugged in",
-          "super_power_save": "Super power saving",
-          "custom": "Custom",
-          "hibernate": "Hibernate"
-        }
-      },
-      "battery_camera_work_mode_aov": {
-        "name": "Battery work mode",
-        "state": {
-          "standard": "Standard",
-          "plugged_in": "Plugged in",
-          "power_save": "Power saving",
-          "aov_mode": "Always on video",
-          "custom": "Custom"
-        }
-      },
-      "night_vision_model": {
-        "name": "Night vision mode",
-        "state": {
-          "night_vision_b_w": "Black and white",
-          "night_vision_colour": "Colour"
-        }
-      },
-      "smart_night_vision_model": {
-        "name": "Night vision mode",
-        "state": {
-          "night_vision_b_w": "Black and white",
-          "night_vision_colour": "Colour",
-          "night_vision_smart": "Smart mode"
-        }
-      },
-      "smart_night_vision_model_battery": {
-        "name": "Night vision mode",
-        "state": {
-          "night_vision_b_w": "Black and white",
-          "night_vision_smart": "Smart mode"
-        }
-      },
-      "super_night_vision_model": {
-        "name": "Night vision mode",
-        "state": {
-          "night_vision_b_w": "Black and white",
-          "night_vision_colour": "Colour",
-          "night_vision_smart": "Smart mode",
-          "super_night_view": "Super night view"
-        }
-      },
-      "advanced_detect_human_car_pir": {
-        "name": "Detection mode",
-        "state": {
-          "advanced_detect_human_shape": "Human shape",
-          "advanced_detect_pir": "Pir"
-        }
-      },
-      "advanced_detect_human_car": {
-        "name": "Detection mode",
-        "state": {
-          "advanced_detect_human_shape": "Human shape",
-          "advanced_detect_image_change": "Image change"
-        }
-      },
-      "image_style_setting": {
-        "name": "Image style",
-        "state": {
-          "image_style_original": "Original",
-          "image_style_soft": "Soft",
-          "image_style_vivid": "Vivid"
-        }
-      },
-      "blc_region": {
-        "name": "Backlight compensation",
-        "state": {
-          "blc_off": "Off",
-          "blc_up": "Up",
-          "blc_down": "Down",
-          "blc_left": "Left",
-          "blc_right": "Right",
-          "blc_center": "Center"
-        }
-      },
-      "night_vision_mode": {
-        "name": "Night vision mode",
-        "state": {
-          "night_vision_b_w": "Black and white",
-          "night_vision_colour": "Full color",
-          "night_vision_smart": "Smart mode",
-          "night_vision_super": "Super night view"
-        }
-      },
-      "day_night_mode": {
-        "name": "Day/night mode",
-        "state": {
-          "day_night_auto": "Auto",
-          "day_night_day": "Day",
-          "day_night_night": "Night"
-        }
-      },
-      "day_night_sensitivity": {
-        "name": "Day/night sensitivity",
-        "state": {
-          "day_night_sensitivity_low": "Low",
-          "day_night_sensitivity_medium": "Medium",
-          "day_night_sensitivity_high": "High"
-        }
-      },
-      "lens_defog": {
-        "name": "Lens defogging",
-        "state": {
-          "lens_defog_auto": "Auto",
-          "lens_defog_on": "Always on",
-          "lens_defog_off": "Always off"
-        }
-      },
-      "ptz_linked_tracking_range": {
-        "name": "PTZ linked tracking range",
-        "state": {
-          "ptz_tracking_range_wide": "Wide-angle picture tracking",
-          "ptz_tracking_range_full_priority": "Full picture tracking (wide-angle priority)"
-        }
-      }
     },
-    "image": {
-      "last_motion_image": {
-        "name": "Last motion image"
-      },
-      "snapshot": {
-        "name": "Snapshot"
-      }
-    },
-    "text": {
-      "camera_enc_key": {
-        "name": "Camera encryption key"
-      },
-      "camera_name": {
-        "name": "Camera name"
-      }
-    },
-    "button": {
-      "ptz_up": {
-        "name": "PTZ up"
-      },
-      "ptz_down": {
-        "name": "PTZ down"
-      },
-      "ptz_left": {
-        "name": "PTZ left"
-      },
-      "ptz_right": {
-        "name": "PTZ right"
-      },
-      "restart_device": {
-        "name": "Restart"
-      },
-      "flip_image": {
-        "name": "Flip camera image"
-      }
-    },
-    "binary_sensor": {
-      "alarm_schedules_enabled": {
-        "name": "Alarm schedules enabled"
-      },
-      "encrypted": {
-        "name": "Encryption"
-      }
-    },
-    "light": {
-      "light": {
-        "name": "Light"
-      }
-    },
-    "number": {
-      "detection_sensibility": {
-        "name": "Detection sensitivity"
-      },
-      "algorithm_sensitivity": {
-        "name": "Detection sensitivity"
-      },
-      "algorithm_param_human": {
-        "name": "Human detection sensitivity"
-      },
-      "algorithm_param_pir": {
-        "name": "PIR detection sensitivity"
-      },
-      "algorithm_param_image_change": {
-        "name": "Image change sensitivity"
-      },
-      "algorithm_param_wave": {
-        "name": "Wave recognition sensitivity"
-      },
-      "night_vision_luminance": {
-        "name": "Warm light brightness"
-      },
-      "night_vision_duration": {
-        "name": "Night vision duration"
-      },
-      "microphone_volume": {
-        "name": "Microphone volume"
-      }
-    },
-    "sensor": {
-      "battery_charge_state": {
-        "name": "Battery charge state",
-        "state": {
-          "not_charging": "Not charging",
-          "charging": "Charging",
-          "full": "Charged",
-          "no_battery": "No battery",
-          "fault": "Battery fault"
+    "options": {
+        "abort": {
+            "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "device_exception": "Device error while testing the camera's RTSP credentials.",
+            "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later.",
+            "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+            "options_changed": "Camera settings changed while this form was open. Review the current values and submit again.",
+            "rtsp_auth_failed": "RTSP authentication failed",
+            "unknown": "Unexpected error",
+            "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
+            "verification_required": "Verification code required or invalid. Please try again."
+        },
+        "step": {
+            "camera": {
+                "data": {
+                    "serial": "Camera"
+                },
+                "description": "Choose a camera to configure.",
+                "title": "Select Camera"
+            },
+            "camera_edit": {
+                "data": {
+                    "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+                    "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
+                    "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
+                    "password": "Verification code (older cams) or leave “fetch_my_key”",
+                    "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
+                    "username": "Username"
+                },
+                "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
+                "title": "Camera settings"
+            },
+            "camera_edit_2fa": {
+                "data": {
+                    "cam_encryption_2fa_code": "Verification code",
+                    "cam_verification_2fa_code": "Verification code"
+                },
+                "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
+                "title": "One-time codes"
+            },
+            "camera_select": {
+                "data": {
+                    "serial": "Camera"
+                },
+                "description": "Choose a camera to edit.",
+                "title": "Select a camera"
+            },
+            "cloud": {
+                "data": {
+                    "timeout": "Timeout (seconds)"
+                },
+                "description": "Set default options for the EZVIZ cloud account.",
+                "title": "Cloud Settings"
+            },
+            "init": {
+                "description": "Configure cloud or camera options.",
+                "menu_options": {
+                    "camera_select": "Camera Settings",
+                    "cloud": "Cloud Settings"
+                },
+                "title": "EZVIZ Options"
+            }
         }
-      },
-      "alarm_sound_mod": {
-        "name": "Alarm sound level"
-      },
-      "last_alarm_time": {
-        "name": "Last alarm time"
-      },
-      "seconds_last_trigger": {
-        "name": "Seconds since last trigger"
-      },
-      "last_alarm_pic": {
-        "name": "Last alarm picture URL"
-      },
-      "supported_channels": {
-        "name": "Supported channels"
-      },
-      "local_ip": {
-        "name": "Local IP"
-      },
-      "wan_ip": {
-        "name": "WAN IP"
-      },
-      "wifi_signal": {
-        "name": "Wi-Fi signal"
-      },
-      "wifi_ssid": {
-        "name": "Wi-Fi SSID"
-      },
-      "network_type": {
-        "name": "Network type"
-      },
-      "sd_card_capacity": {
-        "name": "SD card capacity"
-      },
-      "pir_status": {
-        "name": "PIR status"
-      },
-      "last_alarm_type_code": {
-        "name": "Last alarm type code"
-      },
-      "last_alarm_type_name": {
-        "name": "Last alarm type name"
-      },
-      "last_offline_time": {
-        "name": "Last offline"
-      }
     },
-    "switch": {
-      "voice_prompt": {
-        "name": "Voice prompt"
-      },
-      "status_light": {
-        "name": "Status light"
-      },
-      "privacy": {
-        "name": "Privacy"
-      },
-      "infrared_light": {
-        "name": "Infrared light"
-      },
-      "sleep": {
-        "name": "Sleep"
-      },
-      "audio": {
-        "name": "Audio"
-      },
-      "motion_tracking": {
-        "name": "Motion tracking"
-      },
-      "osd_overlay": {
-        "name": "On-screen display"
-      },
-      "wdr": {
-        "name": "Wide dynamic range"
-      },
-      "distortion_correction": {
-        "name": "Distortion correction"
-      },
-      "all_day_video_recording": {
-        "name": "All day video recording"
-      },
-      "auto_sleep": {
-        "name": "Auto sleep"
-      },
-      "flicker_light_on_movement": {
-        "name": "Flicker light on movement"
-      },
-      "pir_motion_activated_light": {
-        "name": "PIR motion activated light"
-      },
-      "tamper_alarm": {
-        "name": "Tamper alarm"
-      },
-      "follow_movement": {
-        "name": "Follow movement"
-      },
-      "logo_watermark": {
-        "name": "Logo watermark"
-      },
-      "partial_image_optimize": {
-        "name": "Partial image optimize"
-      },
-      "channel_offline_notify": {
-        "name": "Channel offline notification"
-      },
-      "wifi_status_light": {
-        "name": "Wi-Fi status light"
-      },
-      "outlet_power_recover": {
-        "name": "Outlet power restore"
-      },
-      "outdoor_ringing_sound": {
-        "name": "Outdoor ringing sound"
-      },
-      "intelligent_picture_quality": {
-        "name": "Intelligent picture quality"
-      },
-      "auto_zoom_tracking": {
-        "name": "Auto zoom tracking"
-      },
-      "intelligent_fill_light": {
-        "name": "Intelligent fill light"
-      },
-      "people_detection": {
-        "name": "People detection"
-      },
-      "defence_plan": {
-        "name": "Defence plan"
-      },
-      "encrypted": {
-        "name": "Encryption"
-      },
-      "push_notify_alarm": {
-        "name": "Alarm push notification"
-      },
-      "push_notify_call": {
-        "name": "Call push notification"
-      },
-      "offline_notify": {
-        "name": "Offline notification"
-      },
-      "motion_detection": {
-        "name": "Motion detection"
-      },
-      "port_security_client_mode": {
-        "name": "EZVIZ client compatibility mode"
-      },
-      "port_security_50161": {
-        "name": "EZVIZ-Connect"
-      },
-      "intelligent_app_human_detect": {
-        "name": "AI human detection"
-      },
-      "intelligent_app_car_detect": {
-        "name": "Vehicle detection"
-      },
-      "intelligent_app_video_change": {
-        "name": "Image change detection"
-      },
-      "intelligent_app_wave_recognize": {
-        "name": "Wave recognition"
-      },
-      "people_detection_mode": {
-        "name": "People detection mode"
-      },
-      "intelligent_app_pir_detect": {
-        "name": "PIR detection"
-      }
+    "selector": {
+        "region": {
+            "options": {
+                "custom": "Custom host",
+                "eu": "Europe",
+                "ru": "Russia"
+            }
+        }
     },
-    "siren": {
-      "siren": {
-        "name": "Siren"
-      }
-    }
-  },
-  "services": {
-    "wake_device": {
-      "name": "Wake camera",
-      "description": "This can be used to wake the camera/device from hibernation."
+    "services": {
+        "capture_picture": {
+            "description": "Take a new picture through the EZVIZ cloud and show it in the snapshot image entity. Works without RTSP and wakes battery devices from standby.",
+            "name": "Capture picture"
+        },
+        "wake_device": {
+            "description": "This can be used to wake the camera/device from hibernation.",
+            "name": "Wake camera"
+        }
     },
-    "capture_picture": {
-      "name": "Capture picture",
-      "description": "Take a new picture through the EZVIZ cloud and show it in the snapshot image entity. Works without RTSP and wakes battery devices from standby."
-    }
-  },
-  "selector": {
-    "region": {
-      "options": {
-        "eu": "Europe",
-        "ru": "Russia",
-        "custom": "Custom host"
-      }
-    }
-  },
-  "issues": {
-    "uid_migration_review": {
-      "title": "Review skipped {platform} unique_id migrations",
-      "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}"
-    }
-  }
+    "title": "EZVIZ Cloud"
 }

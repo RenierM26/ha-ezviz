@@ -4,6 +4,18 @@
 Updated Ezviz HA component making use of latest version of pyEzviz (API behind the integration). (**Basically Beta version of ha component with up to date changes)
 https://www.home-assistant.io/integrations/ezviz/
 
+Requires **Home Assistant 2026.10.4+ and Python 3.14.2+**. Development, lint/type
+checks and CI use Python 3.14, including its default deferred annotations.
+
+## Breaking change
+
+**Encryption-key text entities are now write-only** (unique-ID suffix
+`_camera_enc_key`). Their existing entity IDs and the `text.set_value` action are
+preserved, but their state is always empty and is no longer restored. Replace
+any automation, template or script that reads the old text state; do not use it
+as an RTSP password or image-decryption key. Configure the key in the camera's
+integration Options instead. Integrations reading keys internally now use those
+options directly. Existing recorder/history copies are not purged by this update.
 
 # EZVIZ account setup (doesn't require IE):
 ---
@@ -35,6 +47,12 @@ This integration logs into **EZVIZ Cloud**, subscribes to **MQTT** events, and l
 MQTT push starts in the background after entities load. If push registration or
 connection fails (for example, EZVIZ returns HTTP 503), the integration continues
 its normal 30-second cloud polling and retries push startup every five minutes.
+Fatal push failures do not retry the SDK's cached failed worker. Authentication
+failures open one HA reauthentication flow. Credential-save failures require
+checking storage permissions/free space and then reloading the integration;
+other fatal errors require correcting their cause and reloading. Polling remains
+active in these cases. Diagnostics retain the fatal error type without secrets.
+
 Real-time `ezviz_push_event` events are unavailable until push recovers; polling
 does not replace every push-only event. Cloud login and the initial camera fetch
 must still succeed. Push shutdown errors do not prevent unloading the integration.
@@ -154,8 +172,71 @@ If validation fails (auth or connectivity), the form reopens with the **best-kno
 
 ---
 
+## Shared inventory and channel-99 migration
+
+See [the device-family, availability, persistence and release contract](docs/shared-inventory.md).
+Requires **pyezvizapi >=2.1.0**, now published on PyPI, for inventory,
+channel-99 and persisted client identity APIs; there are no old-SDK fallbacks. All CI runtime jobs qualify the published
+2.1.0 minimum, not a source checkout. Existing camera IDs and user-data migration
+are preserved. This PR supersedes the older channel-99 proposal #234.
+
+## Stable identity across container restarts
+
+Before the first cloud login, the integration atomically saves a private
+per-account installation identity using Home Assistant Store. Setup, MFA and
+reauthentication explicitly pass that same identity to SDK 2.1.0. Existing trusted
+saved tokens supply their original identity on first adoption; credentials and
+push replay state are not rewritten to match a new container MAC.
+
+Keep HA's configuration volume persistent. Expired/revoked credentials can still
+require reauthentication, and concurrent cloned deployments must not share token
+or replay state. See [identity storage and recovery](docs/shared-inventory.md#persisted-installation-identity).
+
 ## On-demand pictures
 
 See [capture-picture and snapshot behavior](docs/capture-picture.md) for the
 `ezviz_cloud.capture_picture` action, optional response and per-camera Snapshot
 image entity.
+
+## Supported HA baseline
+
+Requires **Home Assistant 2026.10.4 or newer**. CI retains the pinned 2026.10.4
+acceptance suite and separately checks native lifecycle/image/storage behavior
+on 2026.10.4 and 2026.11.0. See the shared-inventory contract for the precise
+synthetic-test boundaries and the built-in/custom EZVIZ coexistence limitation.
+
+## Downloading diagnostics
+
+Use **Download diagnostics** on the integration entry for an account-wide report,
+or on a device page for that device plus shared polling/push health. Reports use
+cached data only; downloading does not poll EZVIZ, wake a camera, read credentials
+from disk or test an RTSP stream.
+
+The report includes polling freshness and error types, per-device model/firmware,
+connectivity and freshness, observed capabilities, credential-configured booleans,
+enabled/disabled entity counts, push retries/recovery and pending cleanup. Device
+health is joined to anonymous `device_N` labels; labels are local to the report,
+not serial hashes or permanent identifiers. Missing devices remain visible when
+cached health or the device registry knows about them. Unknown is `null`, not
+proof that a feature is unsupported. `verified_binary_state_available` indicates
+whether the SDK has a qualified binary reading, **not** the door/leak state.
+
+Only allowlisted information is exported. Names, serials, account identifiers,
+addresses, passwords, encryption keys, tokens, media/RTSP URLs, raw vendor payloads
+and exception messages are omitted from the integration's JSON data. HA supplies
+its own system/manifest envelope and download filename (a device filename can
+contain its HA name). Review attachments before posting publicly.
+
+Freshness is expressed as age in seconds, not alarm/activity timestamps. A failed
+poll can retain an older snapshot: check both polling success and device
+`current`/`present`/`available` before treating cached values as current. Push
+failures distinguish authentication, storage and other fatal categories; polling
+can remain healthy while push is stopped. A failure to obtain push diagnostics
+is reported separately and does not discard the rest of the report. An unloaded
+entry returns minimal entry/runtime status without attempting setup.
+
+## Home Assistant Core development checks
+
+The component follows Core lint/formatting policy and has a separate moving-dev
+qualification job. See [development checks and compatibility exceptions](docs/core-development-checks.md)
+for repeatable commands, scope and the known built-in/custom SDK conflict.

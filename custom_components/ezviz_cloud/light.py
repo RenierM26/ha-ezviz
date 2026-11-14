@@ -1,10 +1,8 @@
 """Support for EZVIZ light entity."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -16,18 +14,18 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
 )
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
+from .inventory import async_add_inventory_entities, async_set_power
+from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -100,12 +98,16 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ lights based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
+
+    async_add_inventory_entities(
+        coordinator, entry, async_add_entities, "light", light_entities
+    )
 
     async_add_entities(
         EzvizLight(coordinator, serial, desc)
@@ -124,6 +126,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     - actions routed through description callables (on/off/brightness)
     """
 
+    _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_has_entity_name = True
     _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
@@ -151,6 +154,7 @@ class EzvizLight(EzvizEntity, LightEntity):
             else None
         )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on light (optionally set brightness first)."""
         try:
@@ -165,7 +169,7 @@ class EzvizLight(EzvizEntity, LightEntity):
                         kwargs[ATTR_BRIGHTNESS],
                     )
                 )
-                ok = await self.hass.async_add_executor_job(
+                ok = await self.coordinator.async_execute(
                     self.entity_description.set_brightness,
                     self.coordinator.ezviz_client,
                     self._serial,
@@ -175,7 +179,7 @@ class EzvizLight(EzvizEntity, LightEntity):
                     self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
 
             # Then power on
-            ok = await self.hass.async_add_executor_job(
+            ok = await self.coordinator.async_execute(
                 self.entity_description.power_on,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -187,10 +191,11 @@ class EzvizLight(EzvizEntity, LightEntity):
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Failed to turn on light {self.name}") from err
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off light."""
         try:
-            ok = await self.hass.async_add_executor_job(
+            ok = await self.coordinator.async_execute(
                 self.entity_description.power_off,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -203,6 +208,7 @@ class EzvizLight(EzvizEntity, LightEntity):
             raise HomeAssistantError(f"Failed to turn off light {self.name}") from err
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
@@ -219,3 +225,44 @@ class EzvizLight(EzvizEntity, LightEntity):
         )
 
         super()._handle_coordinator_update()
+
+
+class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
+    """An actual light bulb, separate from the existing camera floodlight."""
+
+    _attr_color_mode = ColorMode.ONOFF
+    _attr_name = None
+
+    def __init__(self, coordinator: Any, serial: str) -> None:
+        """Initialize the owner and its cached dependencies."""
+        super().__init__(coordinator, serial)
+        self._attr_supported_color_modes = {ColorMode.ONOFF}
+        self._attr_unique_id = f"{serial}_power"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the known power state, or unknown when unavailable."""
+        return self.device_state.is_on if self.device_state is not None else None
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on power through the shared command owner."""
+        await async_set_power(self, True)
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off power through the shared command owner."""
+        await async_set_power(self, False)
+
+
+def light_entities(coordinator: Any, serial: str, state: Any) -> list:
+    """Create an on/off light only with observed command metadata."""
+    items = state.values.get("featureItems", ())
+    if (
+        state.is_on is not None
+        and state.values.get("productId")
+        and any(item.get("itemKey") == "light_switch" for item in items)
+    ):
+        return [EzvizInventoryLight(coordinator, serial)]
+    return []

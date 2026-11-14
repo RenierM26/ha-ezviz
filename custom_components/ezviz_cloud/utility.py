@@ -1,7 +1,5 @@
 """Integration-wide helper utilities."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -29,7 +27,7 @@ def coerce_int(value: Any) -> int | None:
         return int(value)
     try:
         return int(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

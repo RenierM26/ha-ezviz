@@ -1,10 +1,8 @@
 """Support for EZVIZ switches."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
@@ -20,15 +18,15 @@ from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
+from .inventory import async_add_inventory_entities, async_set_power
 from .migration import migrate_unique_ids_with_coordinator
+from .runtime import EzvizConfigEntry
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
@@ -469,9 +467,7 @@ INTELLIGENT_APP_DESCRIPTIONS: tuple[EzvizSwitchEntityDescription, ...] = tuple(
         value_fn=intelligent_app_value_fn(app_name),
         method=intelligent_app_method(app_name),
         supported_ext_key=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[0],
-        supported_ext_value=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[
-            1
-        ],
+        supported_ext_value=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[1],
         is_supported_fn=_combine_predicates(
             _has_intelligent_app(app_name),
             INTELLIGENT_APP_EXTRA_PREDICATES.get(app_name),
@@ -487,12 +483,12 @@ SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ switches based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     await migrate_unique_ids_with_coordinator(
         hass=hass,
@@ -508,6 +504,10 @@ async def async_setup_entry(
         for desc in SWITCHES
         if _is_desc_supported(camera_data, desc)
     ]
+
+    async_add_inventory_entities(
+        coordinator, entry, async_add_entities, "plug", plug_entities
+    )
 
     async_add_entities(entities)
 
@@ -530,10 +530,11 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         self._attr_unique_id = f"{serial}_{description.key}"
         self._attr_is_on = bool(description.value_fn(self.data))
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on on the device."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -545,10 +546,11 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         self._attr_is_on = True
         self.async_write_ha_state()
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off on the device."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -561,7 +563,41 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         self.async_write_ha_state()
 
     @callback
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._attr_is_on = bool(self.entity_description.value_fn(self.data))
         super()._handle_coordinator_update()
+
+
+class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
+    """An on/off plug sharing the account inventory and freshness policy."""
+
+    _attr_device_class = SwitchDeviceClass.OUTLET
+    _attr_name = None
+
+    def __init__(self, coordinator: Any, serial: str) -> None:
+        """Initialize the owner and its cached dependencies."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_power"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the known power state, or unknown when unavailable."""
+        return self.device_state.is_on if self.device_state is not None else None
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on power through the shared command owner."""
+        await async_set_power(self, True)
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off power through the shared command owner."""
+        await async_set_power(self, False)
+
+
+def plug_entities(coordinator: Any, serial: str, state: Any) -> list:
+    """Create an on/off plug only with a known power state."""
+    return [EzvizInventoryPlug(coordinator, serial)] if state.is_on is not None else []

@@ -1,0 +1,4 @@
+extend = "../../../tools/core_tests_ruff.toml"
+
+[lint]
+extend-select = ["ANN"]

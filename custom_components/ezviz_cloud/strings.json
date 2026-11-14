@@ -10,14 +10,14 @@
           "password": "[%key:common::config_flow::data::password%]",
           "region": "Region",
           "url": "[%key:common::config_flow::data::url%]",
-          "timeout": "[%key:common::config_flow::data::timeout%]"
+          "timeout": "Timeout (seconds)"
         }
       },
       "user_mfa_confirm": {
         "title": "Two-factor verification required",
         "description": "Enter the SMS verification code sent by EZVIZ.",
         "data": {
-          "sms_code": "[%key:common::config_flow::data::code%]"
+          "sms_code": "Verification code"
         }
       },
       "reauth_confirm": {
@@ -32,7 +32,7 @@
         "title": "Re-authenticate: SMS code",
         "description": "Enter the SMS verification code to finish re-authentication.",
         "data": {
-          "sms_code": "[%key:common::config_flow::data::code%]"
+          "sms_code": "Verification code"
         }
       }
     },
@@ -44,7 +44,9 @@
       "mfa_required": "Multi-factor authentication required, please enter the code",
       "device_exception": "Device exception, couldn't fetch key",
       "verification_required": "Verification code required or invalid. Please try again.",
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+      "cannot_save_credentials": "The login could not be saved safely. Check storage and try again."
     },
     "abort": {
       "already_configured_account": "[%key:common::config_flow::abort::already_configured_account%]",
@@ -68,7 +70,7 @@
         "title": "Cloud Settings",
         "description": "Set default options for the EZVIZ cloud account.",
         "data": {
-          "timeout": "[%key:common::config_flow::data::timeout%]"
+          "timeout": "Timeout (seconds)"
         }
       },
       "camera": {
@@ -80,7 +82,10 @@
       },
       "camera_select": {
         "title": "Select a camera",
-        "description": "Choose a camera to edit."
+        "description": "Choose a camera to edit.",
+        "data": {
+          "serial": "Camera"
+        }
       },
       "camera_edit": {
         "title": "Camera settings",
@@ -98,17 +103,24 @@
         "title": "One-time codes",
         "description": "Enter one-time codes for {serial} at {ip_address} to fetch verification/encryption keys.",
         "data": {
-          "cam_verification_2fa_code": "[%key:common::config_flow::data::code%]",
-          "cam_encryption_2fa_code": "[%key:common::config_flow::data::code%]"
+          "cam_verification_2fa_code": "Verification code",
+          "cam_encryption_2fa_code": "Verification code"
         }
       }
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "device_exception": "Device exception, couldn't fetch key",
+      "device_exception": "Device error while testing the camera's RTSP credentials.",
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "[%key:common::config_flow::error::unknown%]",
-      "rtsp_auth_failed": "[%key:common::config_flow::error::rtsp_auth_failed%]"
+      "rtsp_auth_failed": "RTSP authentication failed",
+      "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
+      "options_changed": "Camera settings changed while this form was open. Review the current values and submit again.",
+      "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
+      "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later."
+    },
+    "abort": {
+      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
     }
   },
   "entity": {
@@ -380,6 +392,21 @@
       },
       "last_offline_time": {
         "name": "Last offline"
+      },
+      "door_status": {
+        "name": "Contact status (raw)"
+      },
+      "water_leak_status": {
+        "name": "Water status (raw)"
+      },
+      "siren_work_state": {
+        "name": "Siren state (raw)"
+      },
+      "zigbee_signal": {
+        "name": "Zigbee signal (raw)"
+      },
+      "power_mode": {
+        "name": "Power mode (raw)"
       }
     },
     "switch": {
@@ -533,6 +560,86 @@
     "uid_migration_review": {
       "title": "Review skipped {platform} unique_id migrations",
       "description": "Some legacy entities could not be migrated to the new unique_id format and were left unchanged.\n\nExamined: {examined}\nMigrated: {migrated}\nSkipped (bad format): {count_bad_format}\nSkipped (unknown serial): {count_unknown_serial}\nSkipped (camera name mismatch): {count_name_mismatch}\nSkipped (key not allowed): {count_key_not_allowed}\nSkipped (key not present): {count_key_not_present}\nSkipped (collision): {count_collision}\n\n{examples}"
+    },
+    "migration_future_version": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "This entry was created by a newer integration version. Install a version that supports it, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_ambiguous_accounts": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_missing_serial": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    },
+    "migration_cleanup_failed": {
+      "title": "EZVIZ migration needs attention: {title}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Retry migration",
+            "description": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained. Retry only after correcting the problem."
+          }
+        },
+        "error": {
+          "retry_failed": "Migration is still blocked or retrying. Review the integration error and resolve the cause before retrying.",
+          "entry_disabled": "Enable this integration entry before retrying migration."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "migration_future_version": {
+      "message": "This entry was created by a newer integration version. Install a version that supports it, then retry."
+    },
+    "migration_ambiguous_accounts": {
+      "message": "Legacy cameras cannot safely be assigned to one of several accounts. Resolve the duplicate/restored account configuration without guessing ownership, then retry."
+    },
+    "migration_missing_serial": {
+      "message": "A legacy camera entry has no serial number. Restore its correct configuration from a known backup, then retry."
+    },
+    "migration_cleanup_failed": {
+      "message": "Legacy entry cleanup did not finish. Resolve the entry removal problem, then retry. The transferred camera settings have been retained."
+    },
+    "saved_login_invalid": {
+      "message": "The saved EZVIZ login does not match this installation identity. Reauthenticate to create a fresh login."
+    },
+    "credential_storage_failed": {
+      "message": "EZVIZ credentials could not be read or saved safely. Check storage; setup or migration will retry."
     }
   }
 }

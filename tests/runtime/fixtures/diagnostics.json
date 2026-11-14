@@ -1,0 +1,354 @@
+{
+  "schema_version": 2,
+  "entry": {
+    "state": "not_loaded",
+    "version": 4,
+    "minor_version": 1
+  },
+  "runtime_available": true,
+  "devices": [
+    {
+      "device": "device_1",
+      "kind": "camera",
+      "details": {
+        "battery_level": 51,
+        "device_category": "IPC",
+        "device_sub_category": "CP8",
+        "status": 1,
+        "version": "1.2.3"
+      },
+      "online": true,
+      "available": true,
+      "health": {
+        "present": true,
+        "current": true,
+        "last_success_age_seconds": 30.0,
+        "error_type": null
+      },
+      "capabilities": {
+        "observed": {
+          "status": true,
+          "battery_level": true,
+          "supported_channels": null,
+          "encrypted": true,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": true,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": true,
+        "rtsp_password_configured": true,
+        "encryption_key_configured": true,
+        "rtsp_uses_verification_code": true
+      },
+      "entities": {
+        "enabled": 1,
+        "disabled": 1
+      }
+    },
+    {
+      "device": "device_2",
+      "kind": "detector",
+      "details": {
+        "status": 2
+      },
+      "online": false,
+      "available": false,
+      "health": {
+        "present": true,
+        "current": false,
+        "last_success_age_seconds": 120.0,
+        "error_type": "PyEzvizError"
+      },
+      "capabilities": {
+        "observed": {
+          "status": null,
+          "battery_level": null,
+          "supported_channels": null,
+          "encrypted": null,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": null,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": false,
+        "rtsp_password_configured": false,
+        "encryption_key_configured": false,
+        "rtsp_uses_verification_code": false
+      },
+      "entities": {
+        "enabled": 0,
+        "disabled": 0
+      }
+    },
+    {
+      "device": "device_3",
+      "kind": "light",
+      "details": {
+        "status": true
+      },
+      "online": null,
+      "available": false,
+      "health": {
+        "present": null,
+        "current": null,
+        "last_success_age_seconds": null,
+        "error_type": null
+      },
+      "capabilities": {
+        "observed": {
+          "status": null,
+          "battery_level": null,
+          "supported_channels": null,
+          "encrypted": null,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": null,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": false,
+        "rtsp_password_configured": false,
+        "encryption_key_configured": false,
+        "rtsp_uses_verification_code": false
+      },
+      "entities": {
+        "enabled": 0,
+        "disabled": 0
+      }
+    },
+    {
+      "device": "device_4",
+      "kind": null,
+      "details": {},
+      "online": null,
+      "available": false,
+      "health": {
+        "present": false,
+        "current": false,
+        "last_success_age_seconds": null,
+        "error_type": "MissingFromInventory"
+      },
+      "capabilities": {
+        "observed": {
+          "status": null,
+          "battery_level": null,
+          "supported_channels": null,
+          "encrypted": null,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": null,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": false,
+        "rtsp_password_configured": false,
+        "encryption_key_configured": false,
+        "rtsp_uses_verification_code": false
+      },
+      "entities": {
+        "enabled": 0,
+        "disabled": 0
+      }
+    },
+    {
+      "device": "device_5",
+      "kind": "plug",
+      "details": {
+        "status": "1"
+      },
+      "online": true,
+      "available": false,
+      "health": {
+        "present": null,
+        "current": null,
+        "last_success_age_seconds": null,
+        "error_type": null
+      },
+      "capabilities": {
+        "observed": {
+          "status": null,
+          "battery_level": null,
+          "supported_channels": null,
+          "encrypted": null,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": null,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": false,
+        "rtsp_password_configured": false,
+        "encryption_key_configured": false,
+        "rtsp_uses_verification_code": false
+      },
+      "entities": {
+        "enabled": 0,
+        "disabled": 0
+      }
+    },
+    {
+      "device": "device_6",
+      "kind": null,
+      "details": {},
+      "online": null,
+      "available": false,
+      "health": {
+        "present": null,
+        "current": null,
+        "last_success_age_seconds": null,
+        "error_type": null
+      },
+      "capabilities": {
+        "observed": {
+          "status": null,
+          "battery_level": null,
+          "supported_channels": null,
+          "encrypted": null,
+          "alarm_notify": null,
+          "PIR_Status": null,
+          "push_notify_alarm": null,
+          "push_notify_call": null,
+          "is_on": null,
+          "brightness": null,
+          "color_temperature": null,
+          "alarm_light_luminance": null,
+          "door_status": null,
+          "water_leak_status": null,
+          "siren_work_state": null,
+          "zigbee_signal": null,
+          "power_mode": null,
+          "upgrade_available": null,
+          "upgrade_in_progress": null,
+          "upgrade_status": null,
+          "upgrade_phase": null
+        },
+        "verified_binary_state_available": {
+          "door_open": null,
+          "water_leak": null
+        }
+      },
+      "configuration": {
+        "rtsp_username_configured": false,
+        "rtsp_password_configured": false,
+        "encryption_key_configured": false,
+        "rtsp_uses_verification_code": false
+      },
+      "entities": {
+        "enabled": 0,
+        "disabled": 0
+      }
+    }
+  ],
+  "polling": {
+    "success": true,
+    "last_exception_type": null,
+    "snapshot_age_seconds": 30.0,
+    "snapshot_revision": 7,
+    "interval_seconds": 30.0,
+    "timeout_seconds": 42,
+    "in_flight": false
+  },
+  "lifecycle": {
+    "shutting_down": false,
+    "pending_actions": 0,
+    "pending_setup_workers": 0,
+    "cleanup_complete": false,
+    "cleanup_error_type": null
+  },
+  "push": {
+    "state": "not_started"
+  }
+}

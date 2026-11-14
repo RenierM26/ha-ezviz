@@ -1,7 +1,7 @@
 """Snapshot service, response and cache-generation controls using real HA."""
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 import logging
 from types import SimpleNamespace
@@ -9,11 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 from PIL import Image as PILImage
+from pyezvizapi import DeviceSnapshot
+from pyezvizapi.devices.snapshot import DeviceHealth
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ezviz_cloud import camera, coordinator, image
-from custom_components.ezviz_cloud.const import DATA_COORDINATOR, DOMAIN, SERVICE_CAPTURE_PICTURE
+from custom_components.ezviz_cloud import camera, coordinator, image, services
+from custom_components.ezviz_cloud.const import DOMAIN, SERVICE_CAPTURE_PICTURE
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import current_entry
 from homeassistant.core import SupportsResponse
@@ -33,7 +35,9 @@ def make(hass):
     entry.add_to_hass(hass)
     context = current_entry.set(entry)
     try:
-        data = coordinator.EzvizDataUpdateCoordinator(hass, api=api, api_timeout=5)
+        data = coordinator.EzvizDataUpdateCoordinator(
+            hass, config_entry=entry, api=api, api_timeout=5
+        )
     finally:
         current_entry.reset(context)
     data.data = {
@@ -49,6 +53,10 @@ def make(hass):
             "last_alarm_time": "2026-11-08T12:00:00+00:00",
         }
     }
+    observed_at = datetime.now(UTC)
+    data.inventory_snapshot = DeviceSnapshot(
+        1, observed_at, {}, {"CAM001": DeviceHealth(True, True, observed_at)}
+    )
     hass.data[DATA_FFMPEG] = SimpleNamespace(binary="/usr/bin/ffmpeg")
     cam = camera.EzvizCamera(hass, data, "CAM001", "synthetic", "synthetic", "/stream")
     cam.hass = hass
@@ -204,10 +212,10 @@ async def test_fetch_failure_is_not_cached_and_does_not_retry(hass, monkeypatch)
     fetch.assert_awaited_once()
 
 
-async def test_registered_capture_entity_service_returns_optional_response(hass, monkeypatch):
+async def test_registered_capture_entity_service_returns_optional_response(hass):
     api, cam, _ = make(hass)
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    hass.data[DOMAIN] = {entry.entry_id: {DATA_COORDINATOR: cam.coordinator}}
+    entry.runtime_data = SimpleNamespace(coordinator=cam.coordinator)
     platform = EntityPlatform(
         hass=hass,
         logger=logging.getLogger(__name__),
@@ -217,7 +225,7 @@ async def test_registered_capture_entity_service_returns_optional_response(hass,
         scan_interval=timedelta(seconds=30),
         entity_namespace=None,
     )
-    monkeypatch.setattr(camera, "async_get_current_platform", lambda: platform)
+    services.async_setup_services(hass)
     entities = []
     await camera.async_setup_entry(hass, entry, entities.extend)
     captured_cam = entities[0]

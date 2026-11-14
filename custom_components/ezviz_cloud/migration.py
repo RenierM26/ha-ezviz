@@ -12,14 +12,11 @@ Strategy:
 Idempotent, no persistent stats; uses Repairs issues (translation_key) for skipped items.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 import logging
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.issue_registry import (
@@ -30,6 +27,7 @@ from homeassistant.helpers.issue_registry import (
 
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
+from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,9 +42,7 @@ class MigrationStats:
     skipped_collision: int = 0  # target UID already taken
 
 
-def _has_legacy_ids(
-    entity_registry: er.EntityRegistry, platform_domain: str
-) -> bool:
+def _has_legacy_ids(entity_registry: er.EntityRegistry, platform_domain: str) -> bool:
     """Return True if any entity for this platform still uses the legacy UID."""
 
     return any(
@@ -95,7 +91,7 @@ def _build_legacy_map(
 
 def _create_or_clear_issue(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     platform_domain: str,
     stats: MigrationStats,
     skipped_entity_ids: list[str],
@@ -190,7 +186,7 @@ def _compute_change_for_entry(
 
 async def migrate_unique_ids_with_coordinator(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: EzvizConfigEntry,
     coordinator: EzvizDataUpdateCoordinator,
     *,
     platform_domain: str,  # "sensor", "binary_sensor", "switch"
@@ -218,6 +214,7 @@ async def migrate_unique_ids_with_coordinator(
 
     if not _has_legacy_ids(entity_registry, platform_domain):
         _LOGGER.debug("[%s] UID migration: no legacy IDs found", platform_domain)
+        _create_or_clear_issue(hass, entry, platform_domain, stats, [])
         return stats
 
     legacy_to_target = _build_legacy_map(
@@ -238,9 +235,7 @@ async def migrate_unique_ids_with_coordinator(
     # Perform migration across all entities for this config entry
     await er.async_migrate_entries(hass, entry.entry_id, compute_change)
 
-    _create_or_clear_issue(
-        hass, entry, platform_domain, stats, skipped_entity_ids
-    )
+    _create_or_clear_issue(hass, entry, platform_domain, stats, skipped_entity_ids)
 
     # Concise log
     log_fn = _LOGGER.info if stats.migrated else _LOGGER.debug

@@ -1,10 +1,8 @@
 """Support for EZVIZ firmware updates."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from pyezvizapi import HTTPError, PyEzvizError
 
@@ -14,16 +12,16 @@ from homeassistant.components.update import (
     UpdateEntityDescription,
     UpdateEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
+from .runtime import EzvizConfigEntry
 
 PARALLEL_UPDATES = 1
+
 
 @dataclass(frozen=True, kw_only=True)
 class EzvizUpdateEntityDescription(UpdateEntityDescription):
@@ -46,19 +44,20 @@ UPDATE_ENTITY_DESCRIPTIONS: tuple[EzvizUpdateEntityDescription, ...] = (
     EzvizUpdateEntityDescription(
         key="version",
         device_class=UpdateDeviceClass.FIRMWARE,
-        is_supported_fn=lambda data: isinstance(data.get("version"), str)
-        and bool(data.get("version")),
+        is_supported_fn=lambda data: (
+            isinstance(data.get("version"), str) and bool(data.get("version"))
+        ),
     ),
 )
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: EzvizConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up EZVIZ update entities based on a config entry."""
-    coordinator: EzvizDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        DATA_COORDINATOR
-    ]
+    coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
 
     entities = [
         EzvizUpdateEntity(coordinator, serial, description)
@@ -91,6 +90,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         self.entity_description = description
 
     @property
+    @override
     def installed_version(self) -> str | None:
         """Version installed and in use."""
         version = self.data.get("version")
@@ -99,11 +99,22 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         return None
 
     @property
+    @override
     def in_progress(self) -> bool:
         """Update installation progress."""
-        return bool(self.data["upgrade_in_progress"])
+        return bool(self.data.get("upgrade_in_progress"))
 
     @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Keep the SDK's phase visible rather than hiding active reboot/download."""
+        return {
+            "upgrade_status": self.data.get("upgrade_status"),
+            "upgrade_phase": self.data.get("upgrade_phase"),
+        }
+
+    @property
+    @override
     def latest_version(self) -> str | None:
         """Latest version available for install."""
         if self.data.get("upgrade_available"):
@@ -115,6 +126,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
 
         return self.installed_version
 
+    @override
     def release_notes(self) -> str | None:
         """Return full release notes."""
         latest_info = self.data.get("latest_firmware_info")
@@ -125,6 +137,7 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
         return None
 
     @property
+    @override
     def update_percentage(self) -> int | None:
         """Update installation progress."""
         if self.data.get("upgrade_in_progress"):
@@ -135,12 +148,13 @@ class EzvizUpdateEntity(EzvizEntity, UpdateEntity):
                 return int(percent)
         return None
 
+    @override
     async def async_install(
         self, version: str | None, backup: bool, **kwargs: Any
     ) -> None:
         """Install an update."""
         try:
-            await self.hass.async_add_executor_job(
+            await self.coordinator.async_execute(
                 self.coordinator.ezviz_client.upgrade_device, self._serial
             )
 

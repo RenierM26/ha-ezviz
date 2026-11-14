@@ -1,11 +1,16 @@
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 src = ["custom_components"]
+# Component sources use Core's separate policy via explicit CI/developer commands.
+extend-exclude = ["custom_components/ezviz_cloud"]
 
 [tool.ruff.lint]
-select = ["E","F","I","UP","B","SIM","PL","RUF"]
+select = ["E","F","I","UP","B","SIM","PL","RUF","TID251"]
 ignore = ["E501"]  # HA allows long URLs etc.
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "Home Assistant requires Python 3.14+; annotations are deferred by default."
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components", "custom_components.ezviz_cloud", "homeassistant", "tests", "config"]
@@ -22,9 +27,9 @@ max-returns = 10    # instead of 6
 
 # mypy: point at the integration; keep imports lenient (no HA install needed)
 [tool.mypy]
-# Actual-HA acceptance has its separately pinned runtime.
-exclude = ["^tests/acceptance/"]
-python_version = "3.12"
+# Real-HA tests use their separately pinned runtime and published SDK minimum.
+exclude = ["^tests/acceptance/", "^tests/runtime/"]
+python_version = "3.14"
 files = ["custom_components"]
 ignore_missing_imports = true
 strict_optional = true

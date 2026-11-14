@@ -1,0 +1,64 @@
+name: Home Assistant Core policy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'custom_components/**'
+      - 'tests/runtime/**'
+      - 'tools/**'
+      - '.github/workflows/core-policy.yaml'
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: Core branch, tag or commit to qualify
+        default: dev
+        required: true
+  schedule:
+    - cron: '23 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-policy:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: integration
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: home-assistant/core
+          ref: ${{ inputs.core_ref || 'dev' }}
+          path: core
+          persist-credentials: false
+          sparse-checkout: |
+            homeassistant
+            script
+            packages
+            mypy_plugins
+            stubs
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Install scoped Core runtime and its pinned development tools
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e core -e core/packages/hassfest \
+            -r core/requirements_test.txt \
+            -r integration/tests/runtime/requirements.txt 'pyezvizapi==2.1.0'
+          python -m pip check
+      - name: Core policy, translations, hassfest and dev runtime
+        working-directory: integration
+        run: python tools/check_core_policy.py --core ../core --runtime-tests
