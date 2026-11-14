@@ -35,7 +35,9 @@ review/admin policies are retained; this is not a promise administrators cannot
 bypass protection. Do not add individual path-filtered required checks.
 
 CI calls the existing validators as reusable workflows, avoiding duplicate PR
-runs; their standalone manual/scheduled paths remain. Their logs still record
+runs; their standalone manual/scheduled paths remain. Each reusable validator
+has a distinct concurrency prefix because `github.workflow` inherits the caller
+name; otherwise HACS and hassfest could cancel one another. Their logs still record
 actual HA/SDK/Core/tool versions. Release qualification calls the same CI against
 an explicit candidate SHA and full Core SHA, not a newer main revision.
 

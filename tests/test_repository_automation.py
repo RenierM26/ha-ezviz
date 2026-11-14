@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -155,3 +156,17 @@ def test_actual_merge_gate_refuses_failures_and_unexpected_skips(full: bool, fai
     process = subprocess.run([sys.executable, "-c", code],
         env={**os.environ, "RESULTS": json.dumps(results)}, capture_output=True, text=True, check=False)
     assert (process.returncode == 0) is (failed is None), process.stderr
+
+
+def test_reusable_validators_do_not_cancel_each_other_or_the_caller() -> None:
+    """Called workflows inherit github.workflow; only explicit prefixes separate them."""
+    groups = []
+    for name in ("ci.yaml", "HACS.yaml", "hassfest.yaml", "core-policy.yaml"):
+        workflow = (ROOT / ".github/workflows" / name).read_text()
+        group = re.search(r"^  group: (.+)$", workflow, re.M)
+        assert group is not None
+        rendered = group[1].replace("${{ github.workflow }}", "CI").replace(
+            "${{ github.ref }}", "refs/pull/1/merge"
+        ).replace("${{ inputs.checkout_ref }}", "a" * 40)
+        groups.append(rendered)
+    assert len(groups) == len(set(groups)), groups
