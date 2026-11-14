@@ -1,0 +1,96 @@
+name: Bug report
+description: Report a reproducible problem with the custom integration.
+title: '[Bug] '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the custom **Ezviz(Beta)** integration, not built-in EZVIZ.
+        Never attach passwords, tokens, verification/encryption keys, serials,
+        signed media/RTSP URLs or raw account responses. Review diagnostics and logs first.
+  - type: input
+    id: integration-version
+    attributes:
+      label: Installed integration tag or full commit
+      description: If testing main, give the exact commit; the manifest version alone can be ambiguous.
+      placeholder: Published tag, or main plus full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model and firmware
+      description: Use N/A for account-only problems. Do not include a serial number.
+    validations:
+      required: true
+  - type: dropdown
+    id: account-role
+    attributes:
+      label: Account role
+      options:
+        - Owner
+        - Shared / guest
+        - Not applicable
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: builtin
+    attributes:
+      label: Is built-in EZVIZ also configured?
+      description: Built-in/custom coexistence is not qualified because of conflicting SDK requirements.
+      options:
+        - 'No'
+        - 'Yes'
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Login / credentials
+        - Polling / availability
+        - Push / events
+        - Local RTSP / streaming
+        - Snapshots / images
+        - Device control / entities
+        - Setup / options / migration
+        - Other / unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction, expected and actual behavior
+      description: Give numbered steps, the exact action, time/timezone, whether it recovered, and app/physical observations separately from HA state.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Reviewed diagnostics and minimal log excerpt
+      description: Download cached integration diagnostics via Settings → Devices & services → Ezviz(Beta). Review the complete HA envelope and filename before attaching. Include safe error codes/types, not raw payloads. If unavailable, explain why.
+    validations:
+      required: true
+  - type: input
+    id: sdk
+    attributes:
+      label: SDK version (if known)
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and reviewed the troubleshooting guide.
+          required: true
+        - label: I reviewed attachments and removed credentials, identifiers and private URLs.
+          required: true

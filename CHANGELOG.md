@@ -36,6 +36,11 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Repository maintenance
 
+- Structured issue forms, contributor/support/security guides, path labels and
+  grouped dependency PRs. Always-running merge gate handles docs-only changes;
+  manually dispatched release preparation qualifies exact source and creates
+  drafts only, without tagging, publishing or deploying.
+
 - Shared development/editor/CI checks; audited ownership and modular flow/state
   boundaries; behavioral recovery tests.
 - Current setup, support, migration and release guides; immutable validation pins,

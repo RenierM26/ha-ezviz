@@ -1,19 +1,14 @@
 name: Home Assistant Core policy
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'custom_components/**'
-      - 'tests/runtime/**'
-      - 'tools/**'
-      - 'requirements/**'
-      - 'pyproject.toml'
-      - 'conftest.py'
-      - '.vscode/**'
-      - '.devcontainer/**'
-      - '.github/workflows/core-policy.yaml'
+  workflow_call:
+    inputs:
+      checkout_ref:
+        type: string
+        default: ''
+      core_ref:
+        type: string
+        default: dev
   workflow_dispatch:
     inputs:
       core_ref:
@@ -27,19 +22,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: core-policy-${{ github.ref }}
+  group: core-policy-${{ github.workflow }}-${{ github.ref }}-${{ inputs.checkout_ref }}
   cancel-in-progress: true
 
 jobs:
   core-policy:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
           path: integration
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

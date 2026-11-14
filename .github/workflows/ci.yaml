@@ -3,28 +3,23 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
-    types: [ opened, synchronize, reopened, ready_for_review ]
-    paths:
-      - "custom_components/**"
-      - "tests/**"
-      - "tools/**"
-      - "requirements/**"
-      - ".vscode/**"
-      - ".devcontainer/**"
-      - "pyproject.toml"
-      - "conftest.py"
-      - ".ruff.toml"
-      - ".github/workflows/**"
-      - "!**/*.md"
-      - "!docs/**"
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [ main ]         # run after merge
-    tags: [ "*" ]             # run on releases
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
+    branches: [main]
+    tags: ['*']
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        type: string
+        default: ''
+      core_ref:
+        type: string
+        default: dev
+
+permissions:
+  contents: read
 
 # Kill older runs for the same ref (stops “double running” on rapid pushes)
 concurrency:
@@ -32,12 +27,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select full qualification or documentation-only checks
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            python3 tools/check_ci_scope.py --base "$BASE" --head "$HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo 'full=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  repository:
+    name: Repository configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -r requirements/repository.txt
+      - run: python tools/check_repository.py
+      - name: Validate workflow expressions, jobs, permissions and reusable calls
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -shellcheck= -pyflakes=
+
   lint-test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
@@ -64,10 +105,14 @@ jobs:
 
   real-ha:
     name: Real HA inventory and push contract (2026.10.4)
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
@@ -80,7 +125,8 @@ jobs:
 
   native-ha:
     name: Native HA hardening (${{ matrix.ha-version }})
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -89,6 +135,9 @@ jobs:
         ha-version: ["2026.10.4", "2026.11.0"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
@@ -98,3 +147,52 @@ jobs:
           python -m pip check
       - name: Native runtime, plugin isolation and coverage contract
         run: python tools/check.py native
+
+  core-policy:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
+    uses: ./.github/workflows/core-policy.yaml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref || github.sha }}
+      core_ref: ${{ inputs.core_ref || 'dev' }}
+
+  hacs:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
+    uses: ./.github/workflows/HACS.yaml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref || github.sha }}
+
+  hassfest:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
+    uses: ./.github/workflows/hassfest.yaml
+    with:
+      checkout_ref: ${{ inputs.checkout_ref || github.sha }}
+
+  merge-gate:
+    name: Merge gate
+    if: always()
+    needs: [scope, repository, lint-test, real-ha, native-ha, core-policy, hacs, hassfest]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require successful checks; only docs-only runtime skips are allowed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          for name in ('scope', 'repository'):
+              if results[name]['result'] != 'success':
+                  raise SystemExit(f'{name} failed or did not run')
+          full = results['scope']['outputs'].get('full')
+          if full not in ('true', 'false'):
+              raise SystemExit('Missing qualification scope')
+          expected = 'success' if full == 'true' else 'skipped'
+          for name in ('lint-test', 'real-ha', 'native-ha', 'core-policy', 'hacs', 'hassfest'):
+              if results[name]['result'] != expected:
+                  raise SystemExit(f"{name}: {results[name]['result']}; expected {expected}")
+          print('PASS: full qualification' if full == 'true' else 'PASS: documentation-only checks')
+          PYCODE

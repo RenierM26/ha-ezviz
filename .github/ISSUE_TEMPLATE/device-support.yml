@@ -1,0 +1,77 @@
+name: Device support request
+description: Request support for a model or a specific device capability.
+title: '[Device] '
+labels: [enhancement, device-support, needs-device-testing]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the custom **Ezviz(Beta)** integration, not built-in EZVIZ.
+        Never attach passwords, tokens, verification/encryption keys, serials,
+        signed media/RTSP URLs or raw account responses. Review diagnostics and logs first.
+  - type: input
+    id: integration-version
+    attributes:
+      label: Installed integration tag or full commit
+      description: If testing main, give the exact commit; the manifest version alone can be ambiguous.
+      placeholder: Published tag, or main plus full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model and firmware
+      description: Use N/A for account-only problems. Do not include a serial number.
+    validations:
+      required: true
+  - type: dropdown
+    id: account-role
+    attributes:
+      label: Account role
+      options:
+        - Owner
+        - Shared / guest
+        - Not applicable
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: builtin
+    attributes:
+      label: Is built-in EZVIZ also configured?
+      description: Built-in/custom coexistence is not qualified because of conflicting SDK requirements.
+      options:
+        - 'No'
+        - 'Yes'
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Requested capability and current app behavior
+      description: Explain what is missing, what the same account can do in the EZVIZ app, and any already-working HA features. Do not infer unsupported hardware from a permission error alone.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe capability evidence and testing availability
+      description: Attach reviewed diagnostics or public model documentation. Say whether you can test a candidate safely; do not post account responses or exercise locks/alarms just to collect a report.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and reviewed the troubleshooting guide.
+          required: true
+        - label: I reviewed attachments and removed credentials, identifiers and private URLs.
+          required: true

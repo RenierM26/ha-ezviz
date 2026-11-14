@@ -1,13 +1,30 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: daily
-      time: "06:00"
-    open-pull-requests-limit: 10
-  - package-ecosystem: "docker"
-    directory: "/.github/actions/hacs"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: '06:00'
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /.github/actions/hacs
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+  - package-ecosystem: pip
+    directories: ['/', '/requirements', '/tests/runtime', '/tests/acceptance']
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
     open-pull-requests-limit: 5
+    groups:
+      development-tooling:
+        patterns: ['*']
+        exclude-patterns: [homeassistant, pytest-homeassistant-custom-component, pyezvizapi]
+    # Compatibility profiles are deliberately reviewed as separate upgrade PRs.
+    # The tooling group never absorbs HA, its pytest plugin or the SDK.

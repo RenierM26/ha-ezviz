@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a workflow or integration improvement (use Device support for a model).
+title: '[Feature] '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Explain the outcome you need, not just a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Include relevant integration/HA versions and model/firmware if applicable. Keep credentials and private identifiers out of examples.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and reviewed the troubleshooting guide.
+          required: true
+        - label: I reviewed attachments and removed credentials, identifiers and private URLs.
+          required: true
