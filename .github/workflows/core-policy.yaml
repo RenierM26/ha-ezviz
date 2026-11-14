@@ -10,6 +10,7 @@ on:
       - 'tools/**'
       - 'requirements/**'
       - 'pyproject.toml'
+      - 'conftest.py'
       - '.vscode/**'
       - '.devcontainer/**'
       - '.github/workflows/core-policy.yaml'

@@ -3,7 +3,9 @@
 Use [the shared check entry points](../docs/development.md). Do not run unscoped
 `pytest` across all layers in one process: standalone fixtures replace HA modules,
 acceptance installs a version-pinned HA plugin, and native tests deliberately do
-neither. An editor's default test target is `tests/runtime`, not this whole tree.
+neither. The root collection guard now refuses mixed/unscoped targets with a
+usage error before test modules are imported. See [behavioral contracts and
+isolation](../docs/behavioral-tests.md) for focused path/node-ID commands and limits. An editor's default test target is `tests/runtime`, not this whole tree.
 
 | Layer | Environment / command | Proves | Does not prove |
 | --- | --- | --- | --- |
