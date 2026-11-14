@@ -82,7 +82,8 @@ numbers/selections/text, media alarm metadata and Options Flow SDK calls.
 Services use HA's async methods; cancelled callers cannot cancel their executor
 workers. HTTP closure drains both polling and action futures. Fresh credential
 clients and push startup/cleanup keep their separate explicit lifecycle owners.
-Entity and service IDs remain unchanged.
+Entity and service IDs remain unchanged except the explicitly
+[retired legacy image-URL sensor](upgrading.md#breaking-change-legacy-alarm-image-url-sensor-removed).
 
 Diagnostics use only cached allowlisted scalar/health fields and credential-free
 push health; they do not fetch the account again or include full token/session,

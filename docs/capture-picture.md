@@ -19,6 +19,15 @@ Snapshot image entity updates independently of the Last motion image entity.
 The signed picture URL is held in memory, not in the image entity's state, and
 is not restored after a restart. Treat URLs returned to automations as private.
 
+## Legacy last-image URL sensor
+
+The URL-valued diagnostic sensor `last_alarm_pic` is retired in this unreleased
+line; use the existing **Last motion image** entity for the most recent alarm
+image, or **Snapshot** for an explicitly requested capture. This does not remove
+the internal image source URL or change image entity identities. See the
+[consumer migration and registry-retirement notes](upgrading.md#breaking-change-legacy-alarm-image-url-sensor-removed).
+Do not publish a signed source URL as a substitute sensor state/attribute.
+
 ## Download ordering and errors
 
 Each capture advances an image generation, even when the server reuses a URL.

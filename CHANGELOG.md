@@ -8,6 +8,13 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Upgrade considerations
 
+- The legacy URL-valued `last_alarm_pic` diagnostic sensor is removed, including
+  its account-scoped current/historical registry rows during sensor setup. Update
+  consumers to the existing Last motion image entity; image/media source URLs
+  stay internal. No automatic consumer rewrite or history/recorder purge occurs.
+  This fixes [#222](https://github.com/RenierM26/ha-ezviz/issues/222) without moving
+  signed/private URLs to another public state/attribute.
+
 - Requires HA 2026.10.4+, Python 3.14.2+ and published SDK 2.2.0+.
   Built-in/custom EZVIZ coexistence has an unresolved SDK-pin conflict.
 - Encryption-key text entities are write-only. IDs and `text.set_value` remain;

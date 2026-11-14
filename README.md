@@ -41,7 +41,8 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 
 ## Features and limits
 
-- Existing camera platforms and stable entity/action identities are retained.
+- Existing camera platforms and stable entity/action identities are retained,
+  except the [retired legacy image-URL sensor](docs/upgrading.md#breaking-change-legacy-alarm-image-url-sensor-removed).
 - [Chime and alarm voice volume](docs/alarm-volume.md) are separate capability-gated
   controls: flag 185 for `ChimeMusic` (0–100; DBScreen guard 0–7), flag 203 for
   `CustomVoice_Volume` (10–100). Neither changes arm/disarm behavior.
