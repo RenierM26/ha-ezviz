@@ -36,6 +36,11 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   Image decoding no longer changes Pillow's process-global truncated-image flag;
   undecodable composites pass through. See [the migration](docs/sdk-feature-boundary.md).
 
+- Do not return or cache encrypted bytes as JPEGs when cloud image decoding fails
+  or no usable image key is available. Discard previously encrypted cache entries
+  and retry on the next request; retain valid-image caching and worker/shutdown
+  ownership. Decoder errors no longer incorrectly identify a key mismatch.
+
 - Gate the existing chime/Alarm volume number on enabled `SupportDeviceRing` (185)
   plus valid observed metadata, including write-time checks and the app-backed
   0–7 DBScreen scale guard instead of a universal 0–100 range. Published SDK 2.2.0
