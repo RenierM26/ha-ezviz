@@ -79,6 +79,25 @@ _LOGGER = logging.getLogger(__name__)
 VERSION = 5  # keep in sync with __init__.py TARGET_VERSION
 
 
+class CameraCredentialFetchError(PyEzvizError):
+    """Identify the failed cloud credential request without exposing its response."""
+
+    def __init__(self, field: str, data: dict, saved: Any) -> None:
+        """Retain partial results for explicit review, never commit them on failure."""
+        super().__init__("EZVIZ camera credential retrieval failed")
+        self.field = field
+        self.error_key = (
+            "verification_code_fetch_failed"
+            if field == CONF_PASSWORD
+            else "encryption_key_fetch_failed"
+        )
+        self.data = dict(data)
+        self.data.pop(CONF_CAM_VERIFICATION_2FA_CODE, None)
+        self.data.pop(CONF_CAM_ENC_2FA_CODE, None)
+        if isinstance(saved, str) and saved not in ("", DEFAULT_FETCH_MY_KEY):
+            self.data[field] = saved
+
+
 # -----------------------------------------------------------------------------
 # Low-level helpers (run in executor)
 # -----------------------------------------------------------------------------
@@ -699,6 +718,10 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
                 return self._camera_options_result(resolved)
 
+            except CameraCredentialFetchError as err:
+                errors[err.field] = err.error_key
+                self._prefill = _make_prefill(err.data, user_input)
+
             except CameraOptionsConflict:
                 self._camera_baseline = camera_options(
                     self.config_entry, self._cam_serial
@@ -790,6 +813,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
                 return self._camera_options_result(resolved)
 
+            except CameraCredentialFetchError as err:
+                self._pending = None
+                self._prefill = err.data
+                return await self.async_step_camera_edit(
+                    errors={err.field: err.error_key}
+                )
+
             except CameraOptionsConflict:
                 self._camera_baseline = camera_options(
                     self.config_entry, self._cam_serial
@@ -864,6 +894,19 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         self._prefill = None
         return self.async_create_entry(title="", data=options)
 
+    def _credential_fetch_error(
+        self, field: str, data: dict
+    ) -> CameraCredentialFetchError:
+        label = (
+            "verification/sticker code" if field == CONF_PASSWORD else "encryption key"
+        )
+        _LOGGER.warning(
+            "EZVIZ %s retrieval failed for camera %s; saved credentials are unchanged",
+            label,
+            self._cam_serial,
+        )
+        return CameraCredentialFetchError(field, data, self._camera_baseline.get(field))
+
     # --------------------------
     # Shared validator for both camera steps
     # --------------------------
@@ -879,25 +922,30 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """
         ezviz_client: EzvizClient = self.coordinator.ezviz_client
 
+        fetch_field: str | None = None
         try:
             # ENC key (used by newer cams & for last motion images)
             if data.get(CONF_ENC_KEY) == DEFAULT_FETCH_MY_KEY:
+                fetch_field = CONF_ENC_KEY
                 data[CONF_ENC_KEY] = await self.coordinator.async_execute(
                     _get_cam_enc_key,
                     data,
                     ezviz_client,
                     data.get(CONF_CAM_ENC_2FA_CODE),  # optional one-time MFA
                 )
+                fetch_field = None
                 _LOGGER.info("Fetched encryption key for camera %s", data[ATTR_SERIAL])
 
             # Verification (sticker) code (older cam RTSP auth)
             if data.get(CONF_PASSWORD) == DEFAULT_FETCH_MY_KEY:
+                fetch_field = CONF_PASSWORD
                 data[CONF_PASSWORD] = await self.coordinator.async_execute(
                     _get_cam_verification_code,
                     data,
                     ezviz_client,
                     data.get(CONF_CAM_VERIFICATION_2FA_CODE),  # optional one-time MFA
                 )
+                fetch_field = None
                 _LOGGER.info(
                     "Fetched verification code for camera %s", data[ATTR_SERIAL]
                 )
@@ -917,6 +965,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             raise
 
         except DeviceException as err:
+            if fetch_field is not None:
+                raise self._credential_fetch_error(fetch_field, data) from err
             _LOGGER.warning(
                 "Device error while preparing/testing %s", data.get(ATTR_SERIAL)
             )
@@ -926,18 +976,20 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             raise device_error from err
 
         except AuthTestResultFailed as err:
+            if fetch_field is not None:
+                raise self._credential_fetch_error(fetch_field, data) from err
             _LOGGER.warning("RTSP auth failed for camera %s", data.get(ATTR_SERIAL))
             auth_error = AuthTestResultFailed("RTSP DESCRIBE auth test failed")
             cast(Any, auth_error).data = data
             raise auth_error from err
 
         except PyEzvizError as err:
+            if fetch_field is not None:
+                raise self._credential_fetch_error(fetch_field, data) from err
             _LOGGER.warning(
                 "EZVIZ API error while preparing/testing %s", data.get(ATTR_SERIAL)
             )
-            api_error = PyEzvizError(
-                f"EZVIZ API error, could be account permission for retrieving key: {err}"
-            )
+            api_error = PyEzvizError("EZVIZ API error during RTSP credential testing")
             cast(Any, api_error).data = data
             raise api_error from err
 

@@ -246,3 +246,25 @@ verify acknowledged saves, actual HA Store restart with changed synthetic MACs,
 SDK constructor validation, all four login paths, corruption, cancellation,
 concurrent selection, account removal and established-identity reauthentication.
 This is software regression evidence, not a live cloud/device soak guarantee.
+
+
+## Independent camera credential queries
+
+Fetching the encryption key and fetching the verification/sticker code are
+separate EZVIZ cloud requests. One can succeed while the other is rejected, even
+when the camera is online and its existing RTSP credential works. The options
+flow identifies which credential query failed; it does not infer an account
+permission problem from a generic vendor error such as 2009.
+
+A failed request never commits partial settings. Any encryption key already
+retrieved remains in the form, together with the existing saved verification
+credential when available. Review and submit to save the successful key without
+retrying the failed sticker-code query. To fetch only an encryption key, leave
+the existing verification credential unchanged and enter `fetch_my_key` only in
+the encryption-key field. This also applies to the one-time-code flow. No working
+verification credential or RTSP-authentication mode is silently overwritten, and
+vendor response bodies/keys are not included in the failure message.
+
+This improves query reporting and recovery; it does not fix or bypass EZVIZ's
+cloud rejection. Online status, permissions and RTSP success do not establish
+that its sticker-code retrieval endpoint will succeed.

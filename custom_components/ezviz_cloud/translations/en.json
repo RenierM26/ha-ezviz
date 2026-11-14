@@ -561,11 +561,13 @@
         },
         "error": {
             "cannot_connect": "Failed to connect",
-            "device_exception": "Device exception, couldn't fetch key",
+            "device_exception": "Device error while testing the camera's RTSP credentials.",
+            "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later.",
             "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
             "options_changed": "Camera settings changed while this form was open. Review the current values and submit again.",
             "rtsp_auth_failed": "RTSP authentication failed",
             "unknown": "Unexpected error",
+            "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
             "verification_required": "Verification code required or invalid. Please try again."
         },
         "step": {
@@ -578,10 +580,10 @@
             },
             "camera_edit": {
                 "data": {
-                    "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
+                    "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
                     "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
                     "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
-                    "password": "Verification code (older cams) or leave \u201cfetch_my_key\u201d",
+                    "password": "Verification code (older cams) or leave “fetch_my_key”",
                     "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
                     "username": "Username"
                 },

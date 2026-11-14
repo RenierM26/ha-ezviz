@@ -110,12 +110,14 @@
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
-      "device_exception": "Device exception, couldn't fetch key",
+      "device_exception": "Device error while testing the camera's RTSP credentials.",
       "verification_required": "Verification code required or invalid. Please try again.",
       "unknown": "[%key:common::config_flow::error::unknown%]",
       "rtsp_auth_failed": "RTSP authentication failed",
       "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
-      "options_changed": "Camera settings changed while this form was open. Review the current values and submit again."
+      "options_changed": "Camera settings changed while this form was open. Review the current values and submit again.",
+      "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
+      "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later."
     },
     "abort": {
       "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
