@@ -284,9 +284,6 @@
             "door_status": {
                 "name": "Contact status (raw)"
             },
-            "last_alarm_pic": {
-                "name": "Last alarm picture URL"
-            },
             "last_alarm_time": {
                 "name": "Last alarm time"
             },

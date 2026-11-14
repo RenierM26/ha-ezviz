@@ -13,10 +13,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
+from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .inventory import async_add_inventory_entities
@@ -135,13 +137,6 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         value_fn=lambda d: d.get("Seconds_Last_Trigger"),
     ),
     EzvizSensorEntityDescription(
-        key="last_alarm_pic",
-        translation_key="last_alarm_pic",
-        entity_registry_enabled_default=False,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda d: d.get("last_alarm_pic"),
-    ),
-    EzvizSensorEntityDescription(
         key="supported_channels",
         translation_key="supported_channels",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -183,6 +178,27 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
 )
 
 
+@callback
+def _async_remove_retired_image_url_sensors(
+    hass: HomeAssistant, entry: EzvizConfigEntry
+) -> None:
+    """Retire only this account's URL sensors, including pre-migration IDs."""
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.platform == DOMAIN
+            and entity.domain == "sensor"
+            and (
+                entity.unique_id.lower().endswith(".last_alarm_pic")
+                or (
+                    "." not in entity.unique_id
+                    and entity.unique_id.lower().endswith("_last_alarm_pic")
+                )
+            )
+        ):
+            registry.async_remove(entity.entity_id)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
@@ -190,6 +206,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
+
+    # Remove retired IDs before migration so legacy URL sensors do not generate
+    # an unmapped-ID repair or survive as misleading unavailable entities.
+    _async_remove_retired_image_url_sensors(hass, entry)
 
     await migrate_unique_ids_with_coordinator(
         hass,

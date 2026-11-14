@@ -24,7 +24,7 @@ Historical per-camera entries/settings are consolidated into cloud-entry options
 Current account metadata is version 5; old token layouts are imported into a
 single private SDK snapshot before public credential copies are removed. Stable
 entry/device/entity identities and existing options are preserved by the qualified
-migration paths. Failed writes keep the prior data/reference for retry rather
+migration paths, except for the explicitly retired URL sensor described below. Failed writes keep the prior data/reference for retry rather
 than acknowledging an uncommitted migration.
 
 Existing private snapshots preserve opaque SDK fields, host identity and push
@@ -33,6 +33,36 @@ fall back to duplicate stale config-entry tokens. A fresh login uses the same
 persisted account identity. Expired/revoked credentials can still require reauth.
 Do not hand-edit/delete `.storage`, copy tokens from another active deployment or
 change a container MAC to try to repair account auth.
+
+## Breaking change: legacy alarm-image URL sensor removed
+
+The diagnostic sensor with unique-ID suffix `_last_alarm_pic` is retired. It put
+signed/private media URLs into HA state and could exceed HA's 255-character state
+limit ([#222](https://github.com/RenierM26/ha-ezviz/issues/222)). It is **removed**,
+not truncated, replaced with another URL attribute, or renamed into an image.
+
+Before upgrading, find references to your actual sensor entity ID (including any
+custom name) in automations, scripts, templates, dashboards, helpers/groups and
+external consumers such as Node-RED. Replace image-display/download consumers
+with the existing **Last motion image** entity from that device's page. Its
+unique-ID suffix is `_last_motion_image`; lens-specific images, the separate
+**Snapshot** image and media-browser images remain available. Their entity IDs
+are unchanged. They expose images through HA, not the old raw URL sensor value.
+Do not assume the old URL-valued template can be replaced with an image's state;
+choose the appropriate image entity/action for that consumer instead.
+
+On successful sensor-platform setup, the integration uses HA's registry API to
+remove only this account's `ezviz_cloud` **sensor** rows for the retired key,
+including historical `<serial>_<name>.last_alarm_pic` / uppercase-key forms,
+renamed entity IDs, disabled entries and absent cameras. This runs before normal
+unique-ID migration, so retired rows do not generate an unmapped-ID repair.
+Other accounts/platforms, image entities and sibling sensor IDs are untouched.
+The internal SDK image URL remains in memory for image retrieval/media browsing.
+
+This automatic retirement does **not** rewrite users' dashboards/automations or
+purge old signed URLs from recorder/history/logs/backups. Review those consumers
+before installing; keep the pre-upgrade backup described above. No household HA
+configuration is changed merely by merging this code PR.
 
 ## Breaking change: encryption-key text state is write-only
 

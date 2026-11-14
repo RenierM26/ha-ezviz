@@ -363,9 +363,6 @@
       "seconds_last_trigger": {
         "name": "Seconds since last trigger"
       },
-      "last_alarm_pic": {
-        "name": "Last alarm picture URL"
-      },
       "supported_channels": {
         "name": "Supported channels"
       },
