@@ -53,11 +53,20 @@ in `ci.yaml` remains separate, with 100% config-flow and diagnostics coverage.
 
 ## Local lint and formatting
 
-The component's `ruff.toml` extends `tools/core_ruff.toml`: a reviewable snapshot
-of Core's Ruff policy at the qualified commit above, with the Python target that
-Core otherwise infers from its project metadata. Normal `ruff check` now applies
-that policy to component sources. Standalone test/tool policy stays independent.
-`ruff format --check custom_components/ezviz_cloud` is also a normal CI gate.
+`tools/core_ruff.toml` is a reviewable snapshot of Core's Ruff policy at the
+qualified commit above, with the Python target that Core otherwise infers from
+its project metadata. CI explicitly selects this policy for component sources:
+
+```sh
+ruff check --config tools/core_ruff.toml custom_components/ezviz_cloud
+ruff format --check --config tools/core_ruff.toml custom_components/ezviz_cloud
+```
+
+The root Ruff configuration excludes component sources; plain `ruff check .`
+checks standalone tests/tools, while the explicit commands above enforce the
+component's Core policy. CI runs both scopes. There is deliberately no Ruff
+configuration inside the distributable integration: a copied component must not
+override its host Core checkout's policy or refer to absent repository tooling.
 The live Core job catches later policy drift; refresh the snapshot and provenance
 when adopting a new baseline, rather than weakening Core's configuration.
 

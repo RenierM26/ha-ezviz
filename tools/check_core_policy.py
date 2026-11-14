@@ -100,7 +100,7 @@ def main() -> None:
             if path.name not in (DOMAIN, "__pycache__"):
                 (components / path.name).symlink_to(path, target_is_directory=path.is_dir())
         mirror = components / DOMAIN
-        shutil.copytree(source, mirror, ignore=shutil.ignore_patterns("__pycache__", "ruff.toml"))
+        shutil.copytree(source, mirror, ignore=shutil.ignore_patterns("__pycache__"))
         test_policy, focused_tests = prepare_test_overlay(core, overlay)
         for name in ("script", "requirements_all.txt"):
             (overlay / name).symlink_to(core / name, target_is_directory=(core / name).is_dir())

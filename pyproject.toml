@@ -2,6 +2,8 @@
 line-length = 100
 target-version = "py314"
 src = ["custom_components"]
+# Component sources use Core's separate policy via explicit CI/developer commands.
+extend-exclude = ["custom_components/ezviz_cloud"]
 
 [tool.ruff.lint]
 select = ["E","F","I","UP","B","SIM","PL","RUF","TID251"]
