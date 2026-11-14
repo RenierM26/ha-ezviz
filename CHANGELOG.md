@@ -15,7 +15,7 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   This fixes [#222](https://github.com/RenierM26/ha-ezviz/issues/222) without moving
   signed/private URLs to another public state/attribute.
 
-- Requires HA 2026.10.4+, Python 3.14.2+ and published SDK 2.3.0+.
+- Requires HA 2026.10.4+, Python 3.14.2+ and published SDK 2.4.0+.
   Built-in/custom EZVIZ coexistence has an unresolved SDK-pin conflict.
 - Encryption-key text entities are write-only. IDs and `text.set_value` remain;
   state is empty, not restored, and cannot supply an automation's secret. Existing
@@ -26,8 +26,12 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Require published SDK 2.4.0 for length-delimited cloud image decryption and
+  clear multi-image selection. CI qualifies the exact PyPI artifact. JPEG-only
+  splitting/cropping preserves non-JPEG bytes without PNG transcoding.
+
 - Move vendor audio, capability/metadata, port-security, linked-tracking/app and
-  multi-lens image handling to published SDK 2.3.0. Keep HA entity IDs,
+  multi-lens image handling to published SDK 2.4.0. Keep HA entity IDs,
   descriptions, executor/refresh/shutdown ownership, fetching/caching and config
   lifecycles unchanged. Microphone writes now preserve speaker/unknown sibling
   fields rather than defaulting speaker volume to 100; missing configuration

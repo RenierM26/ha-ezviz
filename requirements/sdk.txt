@@ -1,2 +1,2 @@
 # Published SDK minimum qualified by CI and development profiles.
-pyezvizapi==2.3.0
+pyezvizapi==2.4.0

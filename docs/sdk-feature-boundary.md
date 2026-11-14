@@ -1,10 +1,12 @@
 # SDK feature boundary migration
 
-This integration requires **published pyezvizapi 2.3.0 or newer**, with CI and
-local check profiles pinned to exactly 2.3.0 from PyPI. The manifest and
+This integration requires **published pyezvizapi 2.4.0 or newer**, with CI and
+local check profiles pinned to exactly 2.4.0 from PyPI. The manifest and
 `requirements/sdk.txt` agree. The release contains both the extraction
 [SDK #438](https://github.com/RenierM26/pyEzvizApi/pull/438) and the focused-module
-refactor [SDK #439](https://github.com/RenierM26/pyEzvizApi/pull/439).
+refactor [SDK #439](https://github.com/RenierM26/pyEzvizApi/pull/439), plus
+length-delimited image framing [#441](https://github.com/RenierM26/pyEzvizApi/pull/441)
+and app image variants [#442](https://github.com/RenierM26/pyEzvizApi/pull/442).
 No editable checkout, source override or direct-Git dependency is required.
 Pillow is already an explicit Home Assistant core dependency, so the SDK image
 helpers use HA's provided Pillow rather than adding another conflicting pin.
@@ -36,6 +38,13 @@ source/cropped images and does not change Pillow's process-global truncated-
 image policy; undecodable composites pass through. No live device outcome is
 inferred from offline regression tests.
 
+Cloud-image records are bounded before AES decryption; opaque trailers are not
+ciphertext. Clear multi-image selection no longer needs a password. JPEG-only
+splitting/cropping preserves recognized non-JPEG bytes without transcoding.
+The app's local PNG encoding does not establish PNG cloud responses. Existing
+HA worker execution, lens indices and clear-only caching remain HA-owned; no
+new key modes or credential UI are exposed by this dependency update.
+
 ## Published dependency qualification
 
 Install normal isolated profile requirements and use the shared checks:
@@ -63,8 +72,8 @@ preserving microphone writes, observed state, owned worker execution and failure
 
 Core's optional built-in EZVIZ integration still requests `pyezvizapi==1.0.5.0`.
 `tools/check_hassfest.py` permits only the exact custom-only
-`pyezvizapi>=2.3.0` conflict with that pin, with a visible warning. Other packages,
+`pyezvizapi>=2.4.0` conflict with that pin, with a visible warning. Other packages,
 changed versions, additional errors and core integrations remain fatal; negative
-controls cover the old 2.2.0 requirement too. This is **not** stock hassfest
+controls cover the old 2.2.0 and 2.3.0 requirements too. This is **not** stock hassfest
 success or proof the built-in and custom integrations can coexist. Do not enable
 them together. Remove the exception when upstream alignment makes it unused.

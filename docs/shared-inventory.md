@@ -91,7 +91,7 @@ image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
 ## Published SDK requirement and release handoff
 
-The manifest requires **pyezvizapi >=2.3.0**. The
+The manifest requires **pyezvizapi >=2.4.0**. The
 [published 2.1.0 release](https://pypi.org/project/pyezvizapi/2.1.0/) contains
 [pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), LAN RTSP
 controls and the alarm epoch correction. This integration directly uses
@@ -104,7 +104,7 @@ physical HPD7 confirmation for SDK issue #432 remains pending.
 Existing config-entry/registry migration and web-profile
 reauthentication remain: those migrate user data, not SDK versions.
 
-All CI runtime jobs install **pyezvizapi==2.3.0 from PyPI** to qualify the declared
+All CI runtime jobs install **pyezvizapi==2.4.0 from PyPI** to qualify the declared
 minimum. Python 3.14 covers standalone lint/types/lifecycle tests and the separate
 jobs qualifying actual HA 2026.10.4/2026.11.0 and disk storage. No editable SDK
 checkout, direct-Git manifest requirement or unpublished dependency remains.
@@ -113,7 +113,7 @@ SDK 2.2.0 additionally retains the primary HTTP cause when modern and legacy
 switch endpoints both fail ([#436](https://github.com/RenierM26/pyEzvizApi/pull/436)).
 The [published 2.2.0 release](https://pypi.org/project/pyezvizapi/2.2.0/) is now the
 baseline for reliable permission/timeout diagnostics, including mixed HTTP statuses.
-The new minimum is [published 2.3.0](https://pypi.org/project/pyezvizapi/2.3.0/),
+The new minimum is [published 2.4.0](https://pypi.org/project/pyezvizapi/2.4.0/),
 which owns audio/port/capability/tracking and multi-lens image helpers; see the
 [SDK feature boundary](sdk-feature-boundary.md).
 
@@ -164,20 +164,20 @@ warning or validator is suppressed.
 
 Current hassfest compares custom dependencies against every optional core
 integration's requirement, even when unused. Core EZVIZ still requests
-`pyezvizapi==1.0.5.0`; this custom integration needs the published 2.3.0 APIs.
+`pyezvizapi==1.0.5.0`; this custom integration needs the published 2.4.0 APIs.
 Our custom-only real-HA acceptance passes, but **do not enable built-in EZVIZ
 alongside this integration**: their shared package requirements conflict and
 simultaneous operation is not qualified.
 
 The hassfest workflow runs the current stock container and all its validators
 through `tools/check_hassfest.py`. It converts only this exact requirements error
-for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.3.0`, into a
+for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.4.0`, into a
 visible GitHub warning. All other errors remain fatal, including malformed
 manifests/requirements, other packages and changed core/SDK version conflicts.
 There is no blanket `continue-on-error`, skipped requirements plugin, altered
 runtime dependency or replacement core requirement file.
 
-When core accepts 2.3.0, stock validation produces no matching error and the
+When core accepts 2.4.0, stock validation produces no matching error and the
 exception is unused. Remove the wrapper after upstream alignment; review any
 changed mismatch rather than widening it automatically.
 
@@ -194,7 +194,7 @@ No firmware upgrades are performed by the acceptance tests.
 
 ```sh
 python3.14 -m venv .venv-ha
-.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.3.0
+.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.4.0
 .venv-ha/bin/python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
 ```
 

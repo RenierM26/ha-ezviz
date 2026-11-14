@@ -34,7 +34,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py`,
 both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.3.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.4.0'
 python tools/check.py native
 ```
 

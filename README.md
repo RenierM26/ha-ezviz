@@ -23,7 +23,7 @@ For this development line:
 | --- | --- |
 | Home Assistant | 2026.10.4 minimum; native CI also tests 2026.11.0 |
 | Python | 3.14.2+; HA manages Python on OS/Container installations |
-| SDK | Published `pyezvizapi>=2.3.0`; CI qualifies exactly 2.3.0 |
+| SDK | Published `pyezvizapi>=2.4.0`; CI qualifies exactly 2.4.0 |
 | Built-in/custom coexistence | **Not supported/qualified:** built-in EZVIZ pins a conflicting SDK version |
 
 Cloud login and initial polling must succeed. Local RTSP requires a model that
