@@ -19,6 +19,14 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Add a per-camera **Alarm volume** configuration number (0–100) only when the
+  camera reports a valid integer `ChimeMusic.volume`. Preserve the complete
+  reported chime payload while changing its volume, using the normal owned
+  executor/refresh/error path. This does not automatically restore an arm/disarm
+  alarm profile or prove audible output. Adapted from
+  [@blankcan](https://github.com/blankcan)'s original [PR #229](https://github.com/RenierM26/ha-ezviz/pull/229)
+  and [device investigation #228](https://github.com/RenierM26/ha-ezviz/issues/228).
+
 - Fix options-save failures with loaded cameras by removing their redundant
   config-entry listener; HA owns options reloads, while credential actions retain
   coordinator-driven stream updates.

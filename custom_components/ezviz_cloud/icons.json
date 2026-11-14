@@ -17,6 +17,9 @@
     "number": {
       "detection_sensibility": {
         "default": "mdi:eye"
+      },
+      "alarm_volume": {
+        "default": "mdi:volume-high"
       }
     },
     "select": {
