@@ -266,7 +266,9 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         ext = mqtt_data.get("ext")
         if not isinstance(ext, dict):
             return
-        self.intercom_events.push(mqtt_data)
+        if ext.get("channel_type", 1) not in (1, "1"):
+            return
+        intercom_event = self.intercom_events.push(mqtt_data)
         if not ext.get("image"):
             return
         changes = {
@@ -275,7 +277,10 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             "last_alarm_pic": ext.get("image"),
             "last_alarm_type_name": mqtt_data.get("alert"),
         }
-        if intercom_event_type(ext.get("alert_type_code")) is None:
+        if (
+            intercom_event is None
+            and intercom_event_type(ext.get("alert_type_code")) is None
+        ):
             changes["Motion_Trigger"] = True
         if all(self.data[serial].get(key) == value for key, value in changes.items()):
             return

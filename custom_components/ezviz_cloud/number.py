@@ -359,7 +359,6 @@ class EzvizIntercomVolume(EzvizInventoryEntity, NumberEntity):
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_native_min_value = 0
-    _attr_native_max_value = 7
     _attr_native_step = 1
     _attr_translation_key = "intercom_chime_volume"
 
@@ -367,6 +366,12 @@ class EzvizIntercomVolume(EzvizInventoryEntity, NumberEntity):
         """Reuse the previous camera volume ID without creating duplicates."""
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_alarm_volume"
+
+    @property
+    @override
+    def native_max_value(self) -> float:
+        """Use the SDK's category-based chime scale, not relay capability."""
+        return _alarm_volume_max(self.data)
 
     @property
     @override
@@ -384,9 +389,13 @@ class EzvizIntercomVolume(EzvizInventoryEntity, NumberEntity):
         """Reject non-integral/out-of-range values at the SDK boundary."""
         if not self.available:
             raise HomeAssistantError("EZVIZ intercom is unavailable")
-        if isinstance(value, bool) or not 0 <= value <= 7 or value != int(value):
+        if (
+            isinstance(value, bool)
+            or not 0 <= value <= self.native_max_value
+            or value != int(value)
+        ):
             raise HomeAssistantError(
-                "Intercom volume must be an integer between 0 and 7"
+                f"Intercom volume must be an integer between 0 and {self.native_max_value:g}"
             )
         try:
             await self.async_write_setting(

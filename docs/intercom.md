@@ -1,16 +1,16 @@
-# Non-streaming video intercom support (pending SDK release)
+# Non-streaming video intercom support
 
-This change depends on the companion pyEzvizApi intercom API. The planned SDK
-minimum is **2.5.0**, which is not published by this PR. Keep this HA PR in draft
-until that release is published and the exact published SDK is qualified using
-all standard repository checks. Local candidate tests are not PyPI acceptance.
+Requires published [pyezvizapi 2.5.0](https://pypi.org/project/pyezvizapi/2.5.0/)
+or newer. The exact 2.5.0 wheel is the repository qualification baseline; no
+source override, vendored SDK or Git dependency is used. These changes are not
+in the integration 0.3.0 release.
 
 ## Entities
 
 | Device / observed capability | Entities |
 | --- | --- |
 | `BDoorBell`, local-relay capability 662 == 1 and one valid Video route | Unlock door and unlock gate buttons |
-| Outdoor intercom or advertised `DBScreen`, reported `ChimeMusic` fields | Doorbell/motion chime switches and chime volume 0–7 |
+| Outdoor intercom or advertised `DBScreen`, reported `ChimeMusic` fields | Doorbell/motion chime switches; chime volume DBScreen 0–7, outdoor BDoorBell 0–100 |
 | Reported routed nameplate property or legacy switch 611 | Nameplate-light switch |
 | `BDoorBell` | Doorbell-ring and lock-activity event entities |
 
@@ -18,7 +18,8 @@ Monitors use their own vendor-reported serial, registry identity and availabilit
 They are not cameras. No serial splitting manufactures a monitor or relationship.
 The existing `<serial>_alarm_volume` unique ID is retained for chime volume, so an
 existing intercom volume entity is not duplicated. Ordinary doorbells without the
-local-relay capability retain the existing generic volume behaviour.
+local-relay capability retain the existing generic volume behaviour. Relay
+capability does not choose the volume range.
 
 Unlock buttons are momentary commands. They do not imply that a door is open or
 that a physical lock remains unlocked. There is no automatic fallback to the
@@ -55,8 +56,12 @@ camera timezone, resolved in the poll worker; missing/invalid/unsupported timezo
 metadata never falls back to HA's timezone or UTC. Numeric history timestamps can
 still provide the event.
 
-Image-less pushes work. Ringing/unlock events do not generate motion activity.
-Existing raw `ezviz_push_event` compatibility remains unchanged.
+Image-less pushes work. Ringing/unlock events, including the SDK
+`alarmType=0` / `subType=2701` fallback, do not generate motion activity. Call
+thumbnails and unknown notification families do not update camera alarm state.
+The raw `ezviz_push_event` bus is retained. Standard alarm aliases remain, but
+SDK 2.5.0 call/unknown layouts no longer expose camera-alarm fields; raw bus
+consumers must branch by notification family.
 
 One opt-in SDK history read retrieves at most 50 recent messages per normal poll.
 This is bounded best-effort recovery, not guaranteed lossless backfill across
@@ -75,11 +80,10 @@ available. New physical hardware acceptance is still needed across models/firmwa
 
 ## Validation
 
-Use an isolated environment with the exact companion SDK candidate on `PYTHONPATH`
-for development tests. This is source-candidate qualification only; the installed
-SDK version string alone does not prove the new methods are in a published wheel.
-After SDK publication, remove the source override and run the ordinary
-`tools/check.py` profiles with the new exact published pin.
+Run the ordinary `tools/check.py` profiles in isolated environments with
+`requirements/sdk.txt` installed from PyPI and no `PYTHONPATH` source override.
+The profile guard requires the installed SDK to match the published exact pin
+and manifest minimum.
 
 The network-denied native suite covers real HA event/registry rename and unload,
 monitor identity/health, numeric event decoding and replay/freshness rules,

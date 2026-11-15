@@ -8,8 +8,10 @@
 - Add doorbell/access event entities with bounded push/history deduplication, initial
   history suppression and strict timestamp handling. Known ring/unlock events no
   longer activate motion. See [intercom support](docs/intercom.md).
-- Requires the companion SDK intercom release (planned 2.5.0); this integration PR
-  remains draft until the published dependency is qualified. No streaming changes.
+- Require published SDK 2.5.0; qualify the exact PyPI wheel without source overrides.
+  Use DBScreen 0–7 / outdoor BDoorBell 0–100 chime ranges, and exclude call/unknown
+  notifications from camera alarms. Subtype-fallback rings do not trigger motion.
+  No streaming changes.
 
 ## 0.3.0
 

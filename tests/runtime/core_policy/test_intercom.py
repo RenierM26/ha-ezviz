@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import json
 import logging
 from typing import Any
 from unittest.mock import MagicMock
@@ -16,6 +17,7 @@ from pyezvizapi import DeviceSnapshot, MonitorState
 from pyezvizapi.devices.intercom_events import IntercomEvent
 from pyezvizapi.devices.snapshot import CameraState, DeviceHealth
 from pyezvizapi.exceptions import PyEzvizError
+from pyezvizapi.push.notifications import decode_notification
 import pytest
 
 from homeassistant.core import HomeAssistant
@@ -108,7 +110,10 @@ async def test_platform_discovers_monitors_without_cameras_or_duplicate_volume(
         assert "MON001" not in coordinator.data
         for entity in actual:
             if isinstance(entity, number.EzvizIntercomVolume):
-                assert entity.native_max_value == 7 and entity.native_value == 4
+                assert entity.native_max_value == (
+                    7 if entity.serial == "MON001" else 100
+                )
+                assert entity.native_value == 4
         # Re-notifying the same snapshot does not duplicate dynamic entities.
         add.reset_mock()
         coordinator.async_update_listeners()
@@ -167,18 +172,41 @@ async def test_chime_siblings_survive_stale_poll_and_are_never_displayed_optimis
         await coordinator.async_close()
 
 
-@pytest.mark.parametrize("value", [-1, 8, 0.5, float("nan"), float("inf")])
+@pytest.mark.parametrize(("serial", "maximum"), [("MON001", 7), ("CAM001", 100)])
+@pytest.mark.parametrize("value", [-1, 101, 0.5, float("nan"), float("inf"), True])
 async def test_invalid_volume_never_reaches_device(
-    hass: HomeAssistant, value: float
+    hass: HomeAssistant, serial: str, maximum: int, value: float
 ) -> None:
     """Validate direct calls as well as HA's service schema."""
     _, api, coordinator = intercom(hass)
     try:
         with pytest.raises(HomeAssistantError):
             await number.EzvizIntercomVolume(
-                coordinator, "CAM001"
+                coordinator, serial
             ).async_set_native_value(value)
+        with pytest.raises(HomeAssistantError):
+            await number.EzvizIntercomVolume(
+                coordinator, serial
+            ).async_set_native_value(maximum + 1)
         api.set_dev_config_kv.assert_not_called()
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(("serial", "maximum"), [("MON001", 7), ("CAM001", 100)])
+async def test_chime_volume_uses_category_range(
+    hass: HomeAssistant, serial: str, maximum: int
+) -> None:
+    """HA accepts each app-backed upper bound through the real SDK setter."""
+    _, api, coordinator = intercom(hass)
+    volume = number.EzvizIntercomVolume(coordinator, serial)
+    try:
+        assert volume.native_max_value == maximum
+        for value in (0, maximum):
+            await volume.async_set_native_value(value)
+            assert api.set_dev_config_kv.call_args.args[0] == serial
+            assert api.set_dev_config_kv.call_args.args[3]["volume"] == value
+        assert volume.native_value == 4
     finally:
         await coordinator.async_close()
 
@@ -437,5 +465,91 @@ async def test_known_timezone_push_does_not_resolve_files_on_loop(
             },
         )
         assert received.call_count == 1
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("code", "subtype", "kind"),
+    [
+        (0, 2701, "ring"),
+        (None, "2701", "ring"),
+        (2701, None, "ring"),
+        (10242, None, "lock_unlocked"),
+    ],
+)
+async def test_image_push_uses_sdk_normalization_without_motion(
+    hass: HomeAssistant, code: int | None, subtype: int | str | None, kind: str
+) -> None:
+    """Image-bearing subtype fallback rings use the same event/motion decision."""
+    _, _, coordinator = intercom(hass)
+    received = MagicMock()
+    coordinator.intercom_events.subscribe("CAM001", received)
+    payload = {
+        "ext": {
+            "channel_type": 1,
+            "device_serial": "CAM001",
+            "msgId": "normalized-push",
+            "alert_type_code": code,
+            "subType": subtype,
+            "customerType": "Card",
+            "time": datetime.now(UTC).isoformat(),
+            "image": "synthetic-picture",
+        }
+    }
+    try:
+        coordinator.merge_mqtt_update("CAM001", payload)
+        assert received.call_count == 1
+        normalized = received.call_args.args[0]
+        assert normalized.event_type == kind
+        assert normalized.method == ("rfid" if kind == "lock_unlocked" else None)
+        assert coordinator.data["CAM001"]["Motion_Trigger"] is False
+        assert coordinator.data["CAM001"]["last_alarm_pic"] == "synthetic-picture"
+        coordinator.merge_mqtt_update("CAM001", payload)
+        assert received.call_count == 1
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("family", ["14", "2", "99"])
+async def test_non_alarm_sdk_notification_does_not_change_camera_state(
+    hass: HomeAssistant, family: str
+) -> None:
+    """Call thumbnails and unknown CSV layouts are not camera motion alarms."""
+    _, _, coordinator = intercom(hass)
+    received = MagicMock()
+    coordinator.intercom_events.subscribe("CAM001", received)
+    payload = decode_notification(
+        json.dumps(
+            {
+                "ext": ",".join(
+                    [
+                        family,
+                        datetime.now(UTC).isoformat(),
+                        "CAM001",
+                        "0",
+                        "2701",
+                        "call-id",
+                        "1",
+                        "synthetic-picture",
+                        "0",
+                        "checksum",
+                        "0",
+                        "analysis",
+                        "",
+                        "Monitor",
+                        "",
+                        "custom",
+                    ]
+                )
+            }
+        ).encode()
+    )
+    original = deepcopy(coordinator.data)
+    try:
+        assert payload is not None
+        coordinator.merge_mqtt_update("CAM001", payload)
+        received.assert_not_called()
+        assert coordinator.data == original
     finally:
         await coordinator.async_close()

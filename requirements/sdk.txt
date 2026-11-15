@@ -1,2 +1,2 @@
-# Planned SDK minimum. Draft intercom PR requires companion release publication.
+# Published SDK minimum qualified by the standard repository profiles.
 pyezvizapi==2.5.0

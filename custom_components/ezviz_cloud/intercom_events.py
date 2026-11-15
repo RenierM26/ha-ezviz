@@ -88,13 +88,15 @@ class IntercomEvents:
         self._seeded.update(serials)
 
     @callback
-    def push(self, payload: Mapping[str, Any]) -> None:
+    def push(self, payload: Mapping[str, Any]) -> IntercomEvent | None:
         """Normalize picture-less pushes without assigning naive times to UTC."""
         ext = payload.get("ext")
         serial = ext.get("device_serial") if isinstance(ext, Mapping) else None
         zone = self._zones.get(serial) if isinstance(serial, str) else None
         if event := normalize_intercom_event(payload, zone=zone):
             self._accept(event, emit=True)
+            return event
+        return None
 
     @callback
     def _accept(self, event: IntercomEvent, *, emit: bool) -> None:
