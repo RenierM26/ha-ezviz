@@ -296,6 +296,8 @@ class LocalRtspCoordinator(DataUpdateCoordinator[bool]):
             name="EZVIZ local RTSP",
             update_interval=timedelta(minutes=5),
         )
+        # Optional LAN setup runs in the background; no observation exists yet.
+        self.last_update_success = False
         self.account = account
         self.serial = serial
         self.device = account.local_device(serial)

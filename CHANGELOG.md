@@ -43,6 +43,10 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   minute-long management restart after disable; read-only recovery now allows a
   75-second window without blocking unrelated switches. The optional connection
   test defaults off.
+  Optional LAN initialization is background/bounded and no longer delays cloud
+  camera switches during startup. Enable offers are bound to their runtime and
+  invalidated by explicit inventory removal, including while waiting for the local
+  lock; retained historical SDK rows are not evidence of current membership.
   Local status is polled every five minutes, independently of cloud health.
   Writes preserve unrelated services and publish only verified read-back; no
   automatic port opening, credential fallback, watchdog or write retry.

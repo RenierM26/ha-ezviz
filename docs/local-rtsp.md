@@ -44,8 +44,10 @@ affirmative confirmation described below.
    to Camera settings with its error and all selections retained; a passing test
    saves the settings. Configuring LAN control alone never offers or enables RTSP.
 4. An affirmative submission permits one enable attempt through the shared local
-   executor. The current saved settings are checked inside its lock first; a stale
-   offer returns to fresh settings without writing. The operation re-reads current
+   executor. The offer belongs to the runtime that displayed it. An authoritative
+   inventory removal or a replaced/unloaded runtime invalidates it, even while
+   waiting for the device lock. Current saved settings are checked inside the lock;
+   a stale options patch returns to fresh settings without writing. The operation re-reads current
    service state and changes only RTSP if needed. It confirms the resulting state
    with fresh read-back checks, allowing up to 75 seconds of service recovery
    with five-second gaps between attempts.
@@ -57,7 +59,10 @@ affirmative confirmation described below.
 Unknown LAN state, closed ports, timeouts and authentication errors are never
 interpreted as RTSP off. Failed/unverified writes return to the form without an
 automatic retry. A new explicit test reads actual state again before any new offer.
-The offer is consumed before the write, and removal/shutdown invalidates it.
+The offer is consumed before the write. Explicit inventory absence is checked
+before the write, before the playback probe and before saving. Historical SDK rows
+do not override a reported removal. Temporary cloud failures or stale device
+health alone do not invalidate independent LAN access.
 
 The two authentication dropdowns are independent. **Test RTSP connection** is
 unchecked by default; if LAN is disabled it simply runs the existing RTSP probe
@@ -77,7 +82,9 @@ failed playback test alone never causes a camera setting to be changed.
   EZVIZ account credentials are not used for this connection.
 
 The normal options reload adds **RTSP service** to the camera's configuration
-entities. Choosing **Disabled** later stops local controls, but leaves the camera's
+entities. Initial LAN reads run in the background and do not delay existing cloud
+switches or integration startup. A local switch remains unavailable until its
+first successful observation; unreachable cameras do not hold up other controls. Choosing **Disabled** later stops local controls, but leaves the camera's
 service setting, stored camera credentials, stream settings and images unchanged.
 Existing credentials are still used elsewhere; disabling local controls does not
 purge credentials or their history from HA backups. If you installed an earlier

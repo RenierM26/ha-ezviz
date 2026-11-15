@@ -78,6 +78,8 @@ async def test_only_opted_nonbattery_camera_gets_local_switch(
         ]
         expected = configured and category == "IPC"
         assert len(local_entities) == int(expected)
+        assert all(not item.available for item in local_entities)
+        await asyncio.gather(*tuple(entry._background_tasks))
         assert factory.call_count == int(expected)
         if local_entities:
             assert local_entities[0].available is reachable

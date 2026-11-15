@@ -21,6 +21,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
 
@@ -50,7 +51,7 @@ from .local_rtsp import write_local_rtsp
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
-    from .runtime import EzvizConfigEntry
+    from .runtime import EzvizConfigEntry, RuntimeCleanup
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Initialize options flow."""
         self._cam_serial: str
         self._camera_baseline: dict[str, Any] = {}
-        self._rtsp_pending: dict[str, Any] | None = None
+        self._rtsp_pending: tuple[RuntimeCleanup, dict[str, Any]] | None = None
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = (
             None  # one-shot defaults when returning from 2FA fallback
@@ -467,7 +468,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Offer an explicit action or save only after the requested checks pass."""
         if resolved.pop("ephemeral_enable_rtsp", False):
             self._pending = None
-            self._rtsp_pending = resolved
+            self._rtsp_pending = (self.config_entry.runtime_data, resolved)
             return self._rtsp_enable_form()
         options = self._validated_camera_options(resolved)
         self._pending = self._prefill = self._rtsp_pending = None
@@ -484,24 +485,53 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             description_placeholders={"serial": self._cam_serial},
         )
 
+    @callback
+    def _validate_rtsp_offer(self, runtime: RuntimeCleanup) -> None:
+        """Do not migrate consent to a reloaded owner or a removed camera."""
+        reason = None
+        if (
+            getattr(self.config_entry, "runtime_data", None) is not runtime
+            or runtime.coordinator.config_entry is not self.config_entry
+            or runtime.coordinator.shutting_down
+        ):
+            reason = "integration_unavailable"
+        else:
+            snapshot = runtime.coordinator.inventory_snapshot
+            health = snapshot.health.get(self._cam_serial) if snapshot else None
+            if self._cam_serial not in (runtime.coordinator.data or {}) or (
+                health is not None and health.present is False
+            ):
+                reason = "no_cameras"
+        if reason:
+            self._rtsp_pending = self._pending = self._prefill = None
+            raise AbortFlow(reason)
+
     async def async_step_rtsp_enable(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """A consumed affirmative submission permits one owned enable attempt."""
         runtime = getattr(self.config_entry, "runtime_data", None)
         if runtime is None or runtime.coordinator.shutting_down:
-            self._rtsp_pending = None
+            self._rtsp_pending = self._pending = self._prefill = None
             return self.async_abort(reason="integration_unavailable")
         if self._cam_serial not in (self.coordinator.data or {}):
-            self._rtsp_pending = None
+            self._rtsp_pending = self._pending = self._prefill = None
             return self.async_abort(reason="no_cameras")
         if self._rtsp_pending is None:
             return await self.async_step_camera_edit()
+        owner, resolved = self._rtsp_pending
+        self._validate_rtsp_offer(owner)
         if user_input is None:
             return self._rtsp_enable_form()
-        resolved, self._rtsp_pending = self._rtsp_pending, None
+        self._rtsp_pending = None
         self._prefill = {**resolved, "ephemeral_test_rtsp": True}
         enable = user_input["enable_rtsp"] is True
+
+        @callback
+        def validate_options() -> None:
+            self._validate_rtsp_offer(owner)
+            self._validated_camera_options(resolved)
+
         try:
             # Check again inside the shared lock, not before potentially queued IO.
             if enable:
@@ -509,12 +539,14 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     write_local_rtsp,
                     True,
                     options=resolved,
-                    precondition=lambda: self._validated_camera_options(resolved),
+                    precondition=validate_options,
                 )
         except CameraOptionsConflict:
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
             self._prefill = None
             return await self.async_step_camera_edit(errors={"base": "options_changed"})
+        except AbortFlow:
+            raise
         except (
             HomeAssistantError,
             PyEzvizError,
@@ -527,7 +559,9 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 errors={"base": "rtsp_enable_unverified"}
             )
         try:
+            self._validate_rtsp_offer(owner)
             await self._probe_rtsp(resolved)
+            self._validate_rtsp_offer(owner)
             return self._camera_options_result(
                 resolved,
                 description="rtsp_enabled_and_tested"

@@ -178,6 +178,10 @@ Shared execution resolves current options inside the lock, rather than retaining
 a camera password in a coordinator. Reads and writes retain ownership until the
 SDK worker finishes even when a waiter is cancelled. The RTSP coordinator keeps
 read-back publication owned too. Core listeners and entry unload stop polling.
+Platform setup publishes cloud and local entities without waiting on LAN IO.
+Local coordinators start unavailable; entry-owned background tasks perform initial
+reads, bounded to two concurrent cameras. Unload cancels queued initializers while
+already-dispatched SDK work remains account-owned and drained before HTTP closes.
 Future local controls can use `account.local_device(serial).async_execute(...)`
 without sharing RTSP state or adding another credential profile. Flow validation
 uses that same executor with explicitly resolved candidate options; it never
@@ -203,6 +207,10 @@ known off plus requested RTSP testing sets an ephemeral enable offer. The one-sh
 runs the requested probe without writing, reports its auth/connection errors with
 fields retained, and saves only on success. An affirmative submission
 uses the shared executor's in-lock precondition to reject stale camera settings,
+a replaced runtime or explicit SDK `health.present=False` even when the SDK retains
+the historical camera row. It repeats ownership/presence checks before probing and
+committing. Stale `health.current=False` and temporary cloud failures alone do not
+revoke independent LAN access,
 then performs one idempotent write followed by read-only recovery checks within
 a 75-second monotonic window, with waits capped at five seconds. An already-started
 SDK read can overrun that window; no later read starts after expiry. Live Husky
@@ -222,3 +230,10 @@ and during queued IO, post-write conflict, unverified outcomes, and disabled-LAN
 or unknown-state cases that must not offer a write. Virtual-clock regressions
 cover the observed long Husky recovery and the bounded no-write-retry deadline;
 real HA service dispatch verifies cloud switches remain responsive during recovery.
+
+
+`test_rtsp_offer_lifetime.py` exercises the actual SDK `poll_devices()` empty-record
+retention path, queued consent, owner replacement, pre-probe/pre-commit removal and
+cloud/stale-health controls. `test_local_startup.py` blocks real executor workers
+to prove immediate cloud publication, unavailable local initial state, bounded
+concurrent initial reads, eventual success/failure and unload drain ownership.
