@@ -81,10 +81,17 @@ class SettingWrites:
                     command.projections() if command.projections else ()
                 ):
                     self._context[serial, key] = (expires, project)
-                self._refresh_due = self.coordinator.hass.loop.time() + REFRESH_DELAY
-                self._schedule_refresh()
+                self.async_schedule_refresh()
 
         await self.coordinator.async_execute_owned(operation)
+
+    @callback
+    def async_schedule_refresh(self) -> None:
+        """Coalesce observation after accepted or partially applied commands."""
+        if self.coordinator.shutting_down:
+            return
+        self._refresh_due = self.coordinator.hass.loop.time() + REFRESH_DELAY
+        self._schedule_refresh()
 
     @callback
     def _schedule_refresh(self) -> None:

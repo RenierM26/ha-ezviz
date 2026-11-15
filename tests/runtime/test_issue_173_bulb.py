@@ -72,8 +72,8 @@ async def test_recorded_lb1_discovery_and_observed_features(hass, bulb, power, o
         entity = added[0]
         assert entity.unique_id == f"{SERIAL}_power" and entity.is_on is power
         assert entity.available is online and entity.device_info["model"] == "LB1"
-        assert entity.supported_color_modes == {ColorMode.ONOFF}
-        assert entity.brightness is None and entity.color_temp_kelvin is None and entity.rgb_color is None
+        assert entity.supported_color_modes == {ColorMode.COLOR_TEMP, ColorMode.RGB}
+        assert entity.brightness == 255 and entity.color_temp_kelvin == 6500 and entity.rgb_color is None
         fetch.assert_called_once()
         messages.assert_not_called()
     finally:
@@ -158,8 +158,8 @@ async def test_recorded_lb1_registered_light_service_and_observed_state(hass, bu
         await platform.async_add_entities(entities)
         entity = entities[0]
         state = hass.states.get(entity.entity_id)
-        assert state.state == "on" and state.attributes["supported_color_modes"] == ["onoff"]
-        assert "brightness" not in state.attributes and "rgb_color" not in state.attributes
+        assert state.state == "on" and state.attributes["supported_color_modes"] == ["color_temp", "rgb"]
+        assert state.attributes["brightness"] == 255 and state.attributes["color_temp_kelvin"] == 6500
         await hass.services.async_call("light", "turn_off", {"entity_id": entity.entity_id}, blocking=True)
         assert json.loads(send.call_args.args[0].body)["value"] is False
         assert hass.states.get(entity.entity_id).state == "on"

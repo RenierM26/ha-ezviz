@@ -23,7 +23,7 @@ work; arbitrary custom blocking hooks still cannot be interrupted by Python.
 | Camera | Existing platforms and IDs | No new stream route or optimistic capability inference |
 | Detector | Battery percentage and raw contact/water/siren/radio/power diagnostics | Raw enum/radio diagnostics are disabled by default; no assumed radio units |
 | Contact / water | Disabled-by-default binary views | Unknown until a model-specific semantic policy is qualified; raw 0/1 is not booleanized |
-| Light bulb | On/off light with observed command metadata | No inferred brightness/color temperature scale |
+| Light bulb | On/off; metadata-gated brightness, Kelvin and RGB draft | Known writable ranges/units and RGB format required; no inferred effects |
 | Smart plug | On/off outlet switch | No inferred power/energy measurements |
 
 The recorded LB1 bulb from [issue #173](https://github.com/RenierM26/ha-ezviz/issues/173)
@@ -31,9 +31,11 @@ is qualified by an offline export replay through published SDK 2.4.0 and the HA
 adapter. The eight recorded-fixture cases cover bulb-only discovery, observed
 on/off and online/offline states, real SDK command encoding, and a registered HA
 light service/state update. The SDK reads brightness and colour-temperature values
-and retains RGB feature metadata, but the HA bulb entity intentionally exposes
-only on/off. No dimming/colour controls or physical bulb behaviour are established
-by this replay. See [fixture provenance and sanitization](../tests/fixtures/README.md).
+and retains RGB feature metadata. The [draft bulb additions](bulb-controls.md)
+map matching writable metadata into native HA brightness, Kelvin and RGB controls;
+missing/unknown metadata preserves basic on/off. Extra network-denied service tests
+cover conversion, mode changes, sequential commands, partial failures and owned
+cancellation. No physical bulb behaviour is established by this replay. See [fixture provenance and sanitization](../tests/fixtures/README.md).
 
 The contact/water binary views intentionally remain `unknown` with current SDK
 polling. This is not a claim of hardware-qualified detector alarm semantics.

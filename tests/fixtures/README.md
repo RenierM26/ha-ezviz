@@ -24,4 +24,7 @@ The original unmodified export was also replayed privately through published
 SDK 2.4.0: one `LightState` plus two cameras; the LB1 is online/on with brightness
 100 and colour temperature 6500 K. The sanitized fixture retains those results.
 Tests make no live requests. They prove parsing, discovery and command encoding,
-not physical bulb behaviour or additional supported HA controls.
+not physical bulb behaviour or successful delivery to a device. The follow-up
+control draft uses this same metadata to test native HA brightness, Kelvin and RGB
+commands; additional test variants explicitly cover unqualified/absent metadata
+falling back to basic on/off.

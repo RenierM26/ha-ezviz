@@ -26,6 +26,13 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Draft metadata-gated bulb brightness, Kelvin and RGB controls using the
+  existing SDK feature setter. Preserve bulb IDs and on/off fallback; serialize
+  mode/value/brightness/power sequences and publish only observed state. Failed
+  sequences stop without rollback/retry and request a coalesced observed refresh.
+  Recorded LB1 metadata and offline HA services qualify API shapes, not physical
+  bulb operation. Scene/music effects remain unsupported; see the bulb guide.
+
 - Add an opt-in per-camera **RTSP service** configuration switch using the
   published SDK's local command-port API (TCP 8000). Setup is read-only and
   excludes battery families. A three-choice Local device controls dropdown in
