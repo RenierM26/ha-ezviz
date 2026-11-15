@@ -47,7 +47,6 @@ from .const import (
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .flow_validation import validate_timeout
 from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
-from .local_rtsp import write_local_rtsp
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
@@ -535,11 +534,10 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         try:
             # Check again inside the shared lock, not before potentially queued IO.
             if enable:
-                await self.coordinator.local_device(self._cam_serial).async_execute(
-                    write_local_rtsp,
-                    True,
-                    options=resolved,
-                    precondition=validate_options,
+                await owner.coordinator.local_rtsp_coordinator(
+                    self._cam_serial
+                ).async_set_enabled(
+                    True, options=resolved, precondition=validate_options
                 )
         except CameraOptionsConflict:
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)

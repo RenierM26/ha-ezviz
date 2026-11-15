@@ -361,3 +361,68 @@ def test_real_sdk_patch_preserves_unknown_and_other_service_fields():
     payload = ezviz_lan_services_switch_set_payload(before, rtsp=1)
     assert payload == {**RAW, "servicesSwitch": {**RAW["servicesSwitch"], "rtsp": 1}}
     assert before == RAW
+
+
+async def test_flow_only_state_owner_is_closed_with_the_account(hass):
+    _, _, account, *_ = entities(hass)
+    rtsp = account.local_rtsp_coordinator("CAM001")
+    assert account.local_rtsp_coordinator("CAM001") is rtsp
+    assert not rtsp._shutdown_requested
+    await account.async_close()
+    assert rtsp._shutdown_requested and rtsp._unsub_refresh is None
+    with pytest.raises(HomeAssistantError):
+        account.local_rtsp_coordinator("CAM002")
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_completed_result_delivery_during_close_cannot_restart_polling(hass, sdk, monkeypatch, failed):
+    client, _ = sdk
+    entry, _, account, *_ = entities(hass)
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_control_auth": "verification_code", "username": "admin", "password": CONFIG["password"]}}})
+    rtsp = account.local_rtsp_coordinator("CAM001")
+    await rtsp.async_refresh()
+    notified = MagicMock()
+    remove_listener = rtsp.async_add_listener(notified)
+    entered, release, stopped = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    original = rtsp.device.async_execute
+    async def gated_result(*args, **kwargs):
+        value, error = None, None
+        try:
+            value = await original(*args, **kwargs)
+        except PyEzvizError as err:
+            error = err
+        entered.set()
+        await release.wait()
+        if error is not None:
+            raise error
+        return value
+    shutdown = rtsp.async_shutdown
+    async def signal_shutdown():
+        await shutdown()
+        stopped.set()
+    monkeypatch.setattr(rtsp.device, "async_execute", gated_result)
+    monkeypatch.setattr(rtsp, "async_shutdown", signal_shutdown)
+    client.services_switch_state.side_effect = PyEzvizError("synthetic") if failed else [state(0), state(1)]
+    setter = asyncio.create_task(rtsp.async_set_enabled(True))
+    closing = None
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        closing = asyncio.create_task(account.async_close())
+        await asyncio.wait_for(stopped.wait(), 2)
+        assert rtsp._unsub_refresh is None and not closing.done()
+        release.set()
+        if failed:
+            with pytest.raises(HomeAssistantError):
+                await setter
+        else:
+            await setter
+        await closing
+        notified.assert_not_called()
+        assert rtsp.data is False and rtsp._unsub_refresh is None
+    finally:
+        release.set()
+        await asyncio.gather(setter, return_exceptions=True)
+        remove_listener()
+        if closing:
+            await closing
+        await account.async_close()

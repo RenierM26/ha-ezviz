@@ -542,7 +542,7 @@ async def async_setup_entry(
                 "Invalid local-control authentication; review Camera settings"
             )
             continue
-        local = LocalRtspCoordinator(coordinator, serial)
+        local = coordinator.local_rtsp_coordinator(serial)
         entry.async_on_unload(local.async_shutdown)
         local_coordinators.append(local)
         entities.append(EzvizRtspSwitch(local))

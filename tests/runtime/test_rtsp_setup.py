@@ -9,6 +9,7 @@ from pyezvizapi.exceptions import AuthTestResultFailed, EzvizAuthVerificationCod
 import pytest
 
 from custom_components.ezviz_cloud import camera_flow, local, options_flow
+from custom_components.ezviz_cloud.switch import EzvizRtspSwitch
 from homeassistant.components.config.config_entries import OptionManagerFlowResourceView
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -394,4 +395,82 @@ async def test_native_dropdown_and_consent_form_http_serialization(hass, sdk, pr
         client.services_switch_set.assert_not_called()
         probe.assert_not_called()
     finally:
+        await account.async_close()
+
+
+@pytest.mark.parametrize("probe_fails", [False, True])
+async def test_flow_enable_updates_existing_switch_without_changed_options_or_reload(hass, sdk, probe, flow_setup, probe_fails):
+    client, _ = sdk
+    entry, _, account, reload = flow_setup
+    saved = {key: value for key, value in CAMERA.items() if not key.startswith("ephemeral_")}
+    saved[AUTH] = "verification_code"
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": saved}})
+    rtsp = account.local_rtsp_coordinator("CAM001")
+    assert account.local_rtsp_coordinator("CAM001") is rtsp
+    entity = EzvizRtspSwitch(rtsp)
+    try:
+        await rtsp.async_refresh()
+        assert entity.is_on is False
+        listener = MagicMock()
+        unsubscribe = rtsp.async_add_listener(listener)
+        before = entry.options
+        result = await submit(hass, entry, ephemeral_test_rtsp=True)
+        client.services_switch_state.side_effect = [state(0), state(1)]
+        if probe_fails:
+            probe.return_value.main.side_effect = AuthTestResultFailed("synthetic")
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": True})
+        if probe_fails:
+            assert result["step_id"] == "camera_edit" and result["errors"] == {"base": "rtsp_enabled_test_failed"}
+        else:
+            assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert entry.options == before
+        reload.assert_not_awaited()
+        assert entity.is_on is True and entity.available
+        listener.assert_called_once()
+        unsubscribe()
+    finally:
+        await rtsp.async_shutdown()
+        await account.async_close()
+
+
+async def test_old_poll_queued_before_flow_enable_cannot_leave_switch_off(hass, sdk, probe, flow_setup):
+    client, _ = sdk
+    entry, _, account, _ = flow_setup
+    saved = {key: value for key, value in CAMERA.items() if not key.startswith("ephemeral_")}
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {**saved, AUTH: "verification_code"}}})
+    rtsp = account.local_rtsp_coordinator("CAM001")
+    entered, release = Event(), Event()
+    poll = submitted = None
+    try:
+        await rtsp.async_refresh()
+        result = await submit(hass, entry, ephemeral_test_rtsp=True)
+        reads = 0
+        def read():
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                entered.set()
+                assert release.wait(5)
+            return state(int(reads == 3))
+        client.services_switch_state.side_effect = read
+        updates = []
+        unsubscribe = rtsp.async_add_listener(lambda: updates.append(rtsp.data))
+        poll = asyncio.create_task(rtsp.async_refresh())
+        assert await asyncio.to_thread(entered.wait, 2)
+        submitted = asyncio.create_task(hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": True}))
+        await asyncio.sleep(0)
+        release.set()
+        await poll
+        result = await submitted
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert rtsp.data is True and updates[-1] is True
+        assert reads == 3
+        client.services_switch_set.assert_called_once()
+        unsubscribe()
+    finally:
+        release.set()
+        if poll:
+            await poll
+        if submitted:
+            await submitted
         await account.async_close()

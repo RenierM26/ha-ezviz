@@ -47,7 +47,10 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   camera switches during startup. Enable offers are bound to their runtime and
   invalidated by explicit inventory removal, including while waiting for the local
   lock; retained historical SDK rows are not evidence of current membership.
-  Local status is polled every five minutes, independently of cloud health.
+  Settings-flow enables and the RTSP entity share one observed-state coordinator,
+  so unchanged options or a later playback-test failure cannot leave the switch
+  stale until a poll/reload. Local status is polled every five minutes,
+  independently of cloud health.
   Writes preserve unrelated services and publish only verified read-back; no
   automatic port opening, credential fallback, watchdog or write retry.
 

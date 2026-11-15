@@ -177,7 +177,14 @@ selector renders native string choices through a small boolean adapter so old
 Shared execution resolves current options inside the lock, rather than retaining
 a camera password in a coordinator. Reads and writes retain ownership until the
 SDK worker finishes even when a waiter is cancelled. The RTSP coordinator keeps
-read-back publication owned too. Core listeners and entry unload stop polling.
+read-back publication owned too. The account caches one RTSP coordinator per
+camera, shared by the settings flow and the entity. Both enable paths publish
+verified read-back through this same owner, even if options remain unchanged or
+the later DESCRIBE test fails. Candidate credentials remain operation-local; this
+is state ownership, not a persistent TCP session. Account close shuts down cached
+coordinators, including flow-only instances, and rejects new ones. Late result
+publication is skipped once account shutdown begins, so it cannot recreate a
+canceled polling timer. Core listeners and entry unload stop polling.
 Platform setup publishes cloud and local entities without waiting on LAN IO.
 Local coordinators start unavailable; entry-owned background tasks perform initial
 reads, bounded to two concurrent cameras. Unload cancels queued initializers while

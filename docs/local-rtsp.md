@@ -55,6 +55,9 @@ affirmative confirmation described below.
    save the camera options. Success distinguishes verified service configuration
    from the DESCRIBE result. A successful enable followed by a failed test is
    reported as such; it is not called rollback and does not save the options.
+   The existing RTSP switch immediately receives verified configuration changes
+   from the flow, even if no options changed or the subsequent playback test fails.
+   A manual integration reload is not needed to publish that observed state.
 
 Unknown LAN state, closed ports, timeouts and authentication errors are never
 interpreted as RTSP off. Failed/unverified writes return to the form without an
