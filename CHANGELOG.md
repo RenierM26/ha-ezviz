@@ -39,7 +39,10 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   distinguished. Leaving the enable confirmation unchecked still performs the
   requested credential test without a camera write. A single service write allows
   bounded read-only recovery checks so a delayed state or lost acknowledgement
-  does not falsely report failure. The optional connection test defaults off.
+  does not falsely report failure. Live Husky testing confirmed an approximately
+  minute-long management restart after disable; read-only recovery now allows a
+  75-second window without blocking unrelated switches. The optional connection
+  test defaults off.
   Local status is polled every five minutes, independently of cloud health.
   Writes preserve unrelated services and publish only verified read-back; no
   automatic port opening, credential fallback, watchdog or write retry.

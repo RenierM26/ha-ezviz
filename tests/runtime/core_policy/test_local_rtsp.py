@@ -1,9 +1,11 @@
 """Local RTSP entity setup, real HA services and coordinator polling lifecycle."""
 
+import asyncio
 from datetime import timedelta
 import logging
-from threading import get_ident
+from threading import Event, get_ident
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import custom_components
@@ -23,7 +25,7 @@ from homeassistant.components.switch.services import async_setup_services
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_component import EntityComponent
-from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.helpers.entity_platform import EntityPlatform, EntityPlatformModule
 
 from tests.runtime.test_hardening import entities
 
@@ -213,4 +215,94 @@ async def test_lan_credentials_and_address_never_enter_diagnostics(
         assert CONFIG["password"] not in str(report)
         assert "192.0.2.1" not in str(report)
     finally:
+        await account.async_close()
+
+
+async def test_recovering_local_service_does_not_block_cloud_switch_dispatch(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real service dispatch must use independent cloud and per-camera locks."""
+    loader.async_setup(hass)
+    component = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
+    assert component is not None
+    hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = component
+    entry, _api, account, *_ = entities(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": CONFIG}}
+    )
+    local_coordinator = LocalRtspCoordinator(account, "CAM001")
+    entered, release = Event(), Event()
+    written = False
+    client = MagicMock()
+    cloud_write = MagicMock(return_value=True)
+
+    def read() -> EzvizLanServicesSwitchState:
+        if written:
+            entered.set()
+            assert release.wait(5)
+            return response(0)
+        return response(1)
+
+    def write(_payload: object, *, rtsp: int) -> None:
+        nonlocal written
+        assert rtsp == 0
+        written = True
+
+    client.services_switch_state.side_effect = read
+    client.services_switch_set.side_effect = write
+    monkeypatch.setattr(local, "HcNetSdkPurePythonClient", lambda *_a, **_k: client)
+    account.async_request_refresh = AsyncMock()
+    await local_coordinator.async_refresh()
+    hass.data[DATA_COMPONENT] = EntityComponent[SwitchEntity](
+        logging.getLogger(__name__), "switch", hass
+    )
+    async_setup_services(hass)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="switch",
+        platform_name=DOMAIN,
+        platform=cast(EntityPlatformModule, switch),
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = entry
+    rtsp = switch.EzvizRtspSwitch(local_coordinator)
+    cloud = switch.EzvizSwitch(
+        account,
+        "CAM001",
+        switch.EzvizSwitchEntityDescription(
+            key="cloud_test",
+            name="Cloud test",
+            value_fn=lambda _: False,
+            method=cloud_write,
+        ),
+    )
+    task = None
+    try:
+        await platform.platform_data.async_load_translations()
+        await platform.async_add_entities([rtsp, cloud])
+        task = asyncio.create_task(
+            hass.services.async_call(
+                "switch", "turn_off", {"entity_id": rtsp.entity_id}, blocking=True
+            )
+        )
+        assert await asyncio.to_thread(entered.wait, 2)
+        async with asyncio.timeout(1):
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": cloud.entity_id}, blocking=True
+            )
+        cloud_write.assert_called_once()
+        assert not task.done()
+        assert hass.states.get(rtsp.entity_id).state == "on"  # Not optimistic.
+        release.set()
+        await task
+        assert hass.states.get(rtsp.entity_id).state == "off"
+        client.services_switch_set.assert_called_once()
+    finally:
+        release.set()
+        if task is not None:
+            await task
+        await platform.async_reset()
+        await local_coordinator.async_shutdown()
         await account.async_close()

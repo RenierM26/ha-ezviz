@@ -47,7 +47,8 @@ affirmative confirmation described below.
    executor. The current saved settings are checked inside its lock first; a stale
    offer returns to fresh settings without writing. The operation re-reads current
    service state and changes only RTSP if needed. It confirms the resulting state
-   with up to three read-back attempts, allowing brief service recovery.
+   with fresh read-back checks, allowing up to 75 seconds of service recovery
+   with five-second gaps between attempts.
 5. After a requested enable is verified on, run the RTSP credential test and
    save the camera options. Success distinguishes verified service configuration
    from the DESCRIBE result. A successful enable followed by a failed test is
@@ -95,8 +96,11 @@ source for it. Published installations require no storage-version migration.
   Local operations on one camera share an owned executor and lock, including
   future local controls; different cameras have independent locks.
 - A change reads current configuration and updates only RTSP once. It confirms
-  observed state immediately, then after one and two seconds if needed. Service
-  restarts can interrupt an acknowledgement or briefly return stale state; a
+  observed state immediately, then retries reads with five-second recovery waits
+  for up to 75 seconds. Live Husky testing found management unavailable for about
+  51–54 seconds after an acknowledged disable. The control may therefore take
+  roughly a minute to finish; other switches are not held behind this recovery.
+  Service restarts can interrupt an acknowledgement or return stale state; a
   matching read-back confirms success even if the acknowledgement was lost.
   Other SDK/web/UPnP and unknown fields are preserved. An already-matching value
   causes no write; there is no optimism or repeated write.
@@ -104,7 +108,9 @@ source for it. Published installations require no storage-version migration.
   not off. If no read-back confirms the requested state, the outcome remains
   unknown: the setting may already have changed. Wait for recovery and refresh
   (`homeassistant.update_entity`) before deciding whether to retry. No automatic write retry or credential rotation.
-  The five-second timeout applies per socket operation, not the entire sequence.
+  The five-second timeout applies per socket operation. The 75-second recovery
+  window stops initiating reads after expiry; an already-started SDK read can
+  finish later. It is not a hard whole-command deadline.
 
 You can separately create an opt-in HA state automation that calls
 `switch.turn_on` when this switch changes **from on to off**. It reacts after the
@@ -113,5 +119,6 @@ off will also trigger it, so disable that automation before deliberately switchi
 RTSP off. There is no hidden watchdog or startup write.
 
 Read-back confirms configuration only—not a listener, authenticated stream,
-codec support or HA playback. It cannot add RTSP to unsupported firmware. No new
-live-camera validation is claimed by this PR.
+codec support or HA playback. It cannot add RTSP to unsupported firmware. Live
+Husky enable/disable checks verified this service-control path and restored its
+starting state; they do not establish support for every model or media playback.

@@ -33,7 +33,11 @@ def state(value):
 
 @pytest.fixture
 def sdk(monkeypatch):
-    monkeypatch.setattr(local_rtsp, "sleep", MagicMock(), raising=False)
+    clock = MagicMock(return_value=0.0)
+    def advance(seconds):
+        clock.return_value += seconds
+    monkeypatch.setattr(local_rtsp, "monotonic", clock, raising=False)
+    monkeypatch.setattr(local_rtsp, "sleep", MagicMock(side_effect=advance))
     client = MagicMock()
     client.services_switch_state.return_value = state(0)
     client.services_switch_set.return_value = SimpleNamespace(
@@ -104,10 +108,11 @@ def test_application_denial_is_not_transport_success(sdk, status):
     with pytest.raises(PyEzvizError):
         local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
-    assert client.services_switch_state.call_count == 4  # Initial read plus bounded verification.
+    assert client.services_switch_state.call_count == 16  # Initial read plus the recovery window.
+    assert local_rtsp.monotonic.return_value == 75
 
 
-@pytest.mark.parametrize("failure", ["transport", "write", "readback", "mismatch"])
+@pytest.mark.parametrize("failure", ["transport", "write", "readback", "mismatch", "unknown"])
 def test_unknown_outcome_never_retries_write(sdk, failure):
     client, _ = sdk
     if failure == "transport":
@@ -115,7 +120,9 @@ def test_unknown_outcome_never_retries_write(sdk, failure):
     elif failure == "write":
         client.services_switch_set.side_effect = OSError("synthetic")
     elif failure == "readback":
-        client.services_switch_state.side_effect = [state(0), *[OSError("synthetic")] * 3]
+        client.services_switch_state.side_effect = [state(0), *[OSError("synthetic")] * 16]
+    elif failure == "unknown":
+        client.services_switch_state.side_effect = [state(0), *[state(None)] * 16]
     with pytest.raises((PyEzvizError, OSError)):
         local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
@@ -139,7 +146,7 @@ def test_final_observation_confirms_change_even_when_ack_is_lost(sdk, on, write_
     assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", on) is on
     client.services_switch_set.assert_called_once_with(before.raw, rtsp=int(on))
     assert client.services_switch_state.call_count == (2 if readback == "immediate" else 3)
-    assert local_rtsp.sleep.call_args_list == ([] if readback == "immediate" else [((1,), {})])
+    assert local_rtsp.sleep.call_args_list == ([] if readback == "immediate" else [((5.0,), {})])
 
 
 async def test_disable_service_restart_returns_success_and_publishes_observed_off(hass, sdk):
@@ -157,6 +164,52 @@ async def test_disable_service_restart_returns_success_and_publishes_observed_of
     finally:
         await coord.async_shutdown()
         await account.async_close()
+
+
+@pytest.mark.parametrize("on", [False, True])
+def test_husky_recovery_over_fifty_seconds_verifies_without_repeating_write(sdk, on):
+    client, _ = sdk
+    before = state(int(not on))
+    writes = []
+    client.services_switch_set.side_effect = lambda *a, **kw: writes.append(kw)
+
+    def read():
+        if not writes:
+            return before
+        elapsed = local_rtsp.monotonic.return_value
+        if elapsed < 7:
+            raise PyEzvizError("HCNetSDK unavailable during restart")
+        if elapsed < 52:
+            local_rtsp.monotonic.return_value += 5  # Recorded socket timeouts.
+            raise TimeoutError("camera restarting")
+        return state(int(on))
+
+    client.services_switch_state.side_effect = read
+    assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", on) is on
+    assert 52 <= local_rtsp.monotonic.return_value <= 75
+    client.services_switch_set.assert_called_once_with(before.raw, rtsp=int(on))
+
+
+@pytest.mark.parametrize("observed", [0, 1])
+def test_slow_last_read_finishes_without_initiating_another_after_deadline(sdk, observed):
+    client, _ = sdk
+    reads = 0
+    def read():
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return state(0)
+        local_rtsp.monotonic.return_value = 80  # One already-started SDK operation.
+        return state(observed)
+    client.services_switch_state.side_effect = read
+    if observed:
+        assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True) is True
+    else:
+        with pytest.raises(PyEzvizError):
+            local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
+    assert reads == 2
+    local_rtsp.sleep.assert_not_called()
+    client.services_switch_set.assert_called_once()
 
 
 @pytest.mark.parametrize("patch", [

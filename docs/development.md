@@ -203,8 +203,14 @@ known off plus requested RTSP testing sets an ephemeral enable offer. The one-sh
 runs the requested probe without writing, reports its auth/connection errors with
 fields retained, and saves only on success. An affirmative submission
 uses the shared executor's in-lock precondition to reject stale camera settings,
-then performs one idempotent write followed by up to three read-only checks, with
-one- and two-second off-loop delays after stale/failed observations. Matching state
+then performs one idempotent write followed by read-only recovery checks within
+a 75-second monotonic window, with waits capped at five seconds. An already-started
+SDK read can overrun that window; no later read starts after expiry. Live Husky
+disable acknowledged successfully but management only recovered after about a
+minute. All waits remain off-loop under the owned per-camera lock. The switch
+platform uses `PARALLEL_UPDATES=0`: cloud writes already use the shared account
+write lock, while local writes use their device lock, so service recovery cannot
+hold unrelated switches behind a platform-wide semaphore. Matching state
 is authoritative even if the write ACK was interrupted; writes are never retried.
 The requested probe follows;
 only success saves options. The result distinguishes configured-on from DESCRIBE
@@ -213,4 +219,6 @@ or write retry is claimed. New flow fields/one-time codes never enter the saved
 allowlisted patch. `test_rtsp_setup.py` covers normal/MFA ordering, retained fields,
 HTTP selector/form serialization, decline, replay/no-offer guards, conflict before
 and during queued IO, post-write conflict, unverified outcomes, and disabled-LAN
-or unknown-state cases that must not offer a write.
+or unknown-state cases that must not offer a write. Virtual-clock regressions
+cover the observed long Husky recovery and the bounded no-write-retry deadline;
+real HA service dispatch verifies cloud switches remain responsive during recovery.

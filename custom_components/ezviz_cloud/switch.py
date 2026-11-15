@@ -47,7 +47,9 @@ from .utility import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-PARALLEL_UPDATES = 1
+# Cloud writes have an account-owned lock; local controls have per-camera locks.
+# A camera restarting after a local write must not hold up unrelated switches.
+PARALLEL_UPDATES = 0
 
 PORT_SECURITY_CLIENT_MODE = PortSecurityToggle((80, 443, 8000))
 PORT_SECURITY_LINK = PortSecurityToggle.single(50161)

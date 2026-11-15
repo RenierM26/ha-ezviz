@@ -2,12 +2,15 @@
 
 from collections.abc import Mapping
 from contextlib import suppress
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 
 from pyezvizapi.exceptions import PyEzvizError
 
 from .local import LocalDeviceConfig
+
+RTSP_RECOVERY_TIMEOUT = 75.0
+RTSP_RECOVERY_INTERVAL = 5.0
 
 
 class LocalRtspUnsupported(PyEzvizError):
@@ -42,12 +45,14 @@ def write_local_rtsp(config: LocalDeviceConfig, serial: str, enabled: bool) -> b
         client.services_switch_set(before.raw, rtsp=int(enabled))
     # Only reads are retried, off-loop under the shared device lock. A matching
     # observation is authoritative even when the write response was lost.
-    for delay in (0, 1, 2):
-        if delay:
-            sleep(delay)
-        try:
+    # Live Husky disable ACKs successfully, but management can remain unavailable
+    # for about a minute. Do not mistake that recovery interval for a refusal.
+    deadline = monotonic() + RTSP_RECOVERY_TIMEOUT
+    while monotonic() < deadline:
+        with suppress(PyEzvizError, OSError, ValueError):
             if _known_rtsp(client.services_switch_state().raw) is enabled:
                 return enabled
-        except PyEzvizError, OSError, ValueError:
-            continue
+        remaining = deadline - monotonic()
+        if remaining > 0:
+            sleep(min(RTSP_RECOVERY_INTERVAL, remaining))
     raise PyEzvizError("RTSP change outcome could not be verified")
