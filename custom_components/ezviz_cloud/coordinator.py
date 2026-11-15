@@ -1,10 +1,12 @@
 """Provides the ezviz DataUpdateCoordinator."""
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Callable, Coroutine
 from copy import deepcopy
 from datetime import timedelta
 import logging
+from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
@@ -53,6 +55,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
+        self._image_downloads: dict[tuple[Any, ...], asyncio.Task] = {}
+        self.image_records: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
         self._close_succeeded = False
@@ -79,15 +83,17 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
+            inventory, cameras = await self.async_execute(_project_snapshot, result)
             self.inventory_snapshot = result
-            self.inventory_data = result.as_dict()
-            return result.as_dict("camera")
+            self.inventory_data = inventory
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error
 
         except (InvalidURL, HTTPError, PyEzvizError, OSError, TimeoutError) as error:
             raise UpdateFailed(str(request_error("Poll devices", error))) from error
+        else:
+            return cameras
 
     @property
     def poll_in_flight(self) -> bool:
@@ -99,6 +105,20 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         return self.ezviz_client.poll_devices(
             DevicePollOptions(timeout=self._api_timeout)
         )
+
+    def register_image(self, serial: str, url: str) -> str:
+        """Remember only SDK-provided images in a bounded account-local registry."""
+        if serial not in (self.data or {}):
+            raise ValueError("Unknown camera")
+        record = (serial, url)
+        for reference, existing in self.image_records.items():
+            if existing == record:
+                return reference
+        reference = token_urlsafe(24)
+        self.image_records[reference] = record
+        while len(self.image_records) > 1024:
+            self.image_records.popitem(last=False)
+        return reference
 
     def device_data(self, serial: str) -> dict[str, Any]:
         """Use the camera push projection, otherwise the detached inventory view."""
@@ -150,6 +170,25 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         task.add_done_callback(_retrieve_worker_error)
         return await asyncio.shield(task)
 
+    async def async_image_download(
+        self, key: tuple[Any, ...], operation: Callable[[], Coroutine[Any, Any, Any]]
+    ) -> Any:
+        """Share only concurrent downloads for one account/camera/image generation."""
+        if self._closing:
+            raise HomeAssistantError("EZVIZ coordinator is shutting down")
+        if key not in self._image_downloads:
+            task = create_critical_task(self.hass, operation(), "EZVIZ image download")
+            self._image_downloads[key] = task
+            self._action_futures.add(task)
+
+            def finished(future: asyncio.Task) -> None:
+                self._image_downloads.pop(key, None)
+                self._action_futures.discard(future)
+                _retrieve_worker_error(future)
+
+            task.add_done_callback(finished)
+        return await asyncio.shield(self._image_downloads[key])
+
     @property
     def shutting_down(self) -> bool:
         """Expose the owned-worker shutdown boundary to image/action adapters."""
@@ -187,23 +226,37 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         # Push cannot invent inventory entries or mutate an earlier snapshot.
         if self._closing or not self.data or serial not in self.data:
             return
-        snapshot = deepcopy(self.data)
         ext = mqtt_data.get("ext")
-        if not isinstance(ext, dict):
+        if not isinstance(ext, dict) or not ext.get("image"):
             return
-        if ext.get("image"):
-            snapshot[serial].update(
-                last_alarm_type_code=ext.get("alert_type_code"),
-                last_alarm_time=ext.get("time"),
-                last_alarm_pic=ext.get("image"),
-                last_alarm_type_name=mqtt_data.get("alert"),
-                Motion_Trigger=True,
-            )
+        changes = {
+            "last_alarm_type_code": ext.get("alert_type_code"),
+            "last_alarm_time": ext.get("time"),
+            "last_alarm_pic": ext.get("image"),
+            "last_alarm_type_name": mqtt_data.get("alert"),
+            "Motion_Trigger": True,
+        }
+        if all(self.data[serial].get(key) == value for key, value in changes.items()):
+            return
+        snapshot = dict(self.data)
+        snapshot[serial] = deepcopy(self.data[serial])
+        snapshot[serial].update(deepcopy(changes))
 
         # Push is a partial observation, not a successful inventory poll. Keep
         # last_update_success/last_exception untouched while notifying listeners.
         self.data = snapshot
         self.async_update_listeners()
+
+
+def _project_snapshot(
+    result: DeviceSnapshot,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Thaw once off-loop, keeping SDK command adapters detached from inventory."""
+    inventory = result.as_dict()
+    cameras = {
+        serial: deepcopy(inventory[serial]) for serial in result.select("camera")
+    }
+    return inventory, cameras
 
 
 def _retrieve_worker_error(future: asyncio.Future) -> None:

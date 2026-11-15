@@ -26,6 +26,31 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Coalesce concurrent cold reads per image generation and share in-flight image
+  downloads across lenses. Viewer cancellation does not cancel other viewers;
+  stale URL/key/capture results stay uncached and shutdown owns the work.
+  SDK decoding remains per lens (no new SDK batch API or vendor parsing in HA).
+- Skip no-image/identical push updates and discovery on unchanged inventory;
+  detach only the affected camera row, preserving poll health and public events.
+- Materialize SDK inventory once off-loop per poll, with a detached camera
+  projection so SDK write adapters cannot mutate accepted inventory.
+
+- Bind media-proxy requests to bounded, account/camera-owned image references;
+  reject caller URLs and private DNS/IP targets. Follow at most five validated
+  public HTTPS CDN redirects within one 30-second download deadline, keeping
+  connection-time DNS checks on every hop. Reject downgrades, unsafe/malformed
+  targets and missing locations. Validate yarl's transport-normalized hostname
+  before public-IP/numeric checks, including Unicode-dot/fullwidth IP forms;
+  keep the original signed request string. Old proxy links require browsing again.
+- Decode media-browser images through the SDK even without a key (first lens),
+  reject unresolved encryption and serve the decoded image content type.
+- Publish siren availability on coordinator failure/recovery without polling or
+  changing local assumed state/timer semantics.
+- Camera switches/lights now await shared authoritative refresh rather than
+  publishing optimistic values that unrelated alarm pushes could roll back.
+  Light turn-on completes brightness/power writes before one observation refresh;
+  accepted brightness is still reconciled if the later power write fails.
+
 - Recognize clear image signatures before rejecting embedded encryption markers,
   including legal JPEG metadata in fresh/cached Last motion and Snapshot images.
   Keep residual ciphertext rejection and recovery. Image fetch failures no longer

@@ -1,7 +1,6 @@
 """Actual HA image CPU ownership, capture cleanup and durable storage controls."""
 
 import asyncio
-from base64 import urlsafe_b64encode
 from datetime import UTC, datetime
 from io import BytesIO
 import json
@@ -413,21 +412,22 @@ async def test_proxy_decryption_runs_off_loop_and_never_forwards_ha_auth(hass, m
         release=MagicMock(),
     )
     session = SimpleNamespace(get=AsyncMock(return_value=response))
-    monkeypatch.setattr(views, "async_get_clientsession", lambda _hass: session)
+    monkeypatch.setattr(views, "ClientSession", lambda **_kwargs: session)
+    session.close = AsyncMock()
     threads = []
 
-    def decrypt(body, key):
+    def decrypt(body, key, lens, total):
         threads.append(get_ident())
         assert body == b"input" and key == "SYNTHETIC"
-        return b"decrypted"
+        return b"\xff\xd8\xffdecrypted"
 
-    monkeypatch.setattr(views, "decrypt_image", decrypt)
+    monkeypatch.setattr(views, "process_image_bytes", decrypt)
     proxy = views.ImageProxyView(hass)
-    url = urlsafe_b64encode(b"https://images.example.invalid/synthetic").decode()
+    url = data.register_image("CAM001", "https://images.example.invalid/synthetic")
     result = await proxy.get(
         SimpleNamespace(headers={"Authorization": "PRIVATE"}), entry.entry_id, "CAM001", url
     )
-    assert result.status == 200 and result.body == b"decrypted"
+    assert result.status == 200 and result.body == b"\xff\xd8\xffdecrypted"
     assert threads and threads[0] != get_ident()
     assert "Authorization" not in session.get.call_args.kwargs["headers"]
     response.release.assert_called_once()

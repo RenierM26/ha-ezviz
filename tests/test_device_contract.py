@@ -87,7 +87,9 @@ def test_timed_out_poll_keeps_one_worker_until_it_finishes(coordinator_module):
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
         calls = []
-        async def executor(func):
+        async def executor(func, *args):
+            if args:
+                return func(*args)
             calls.append(func)
             entered.set()
             await release.wait()

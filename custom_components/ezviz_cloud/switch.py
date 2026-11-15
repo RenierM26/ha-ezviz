@@ -20,6 +20,7 @@ from homeassistant.components.switch import (
     SwitchEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
@@ -535,7 +536,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on on the device."""
         try:
-            await self.coordinator.async_execute(
+            result = await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -544,14 +545,15 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
             raise request_error("Turn on switch", err) from err
 
-        self._attr_is_on = True
-        self.async_write_ha_state()
+        if result is False:
+            raise HomeAssistantError("EZVIZ did not accept the switch command")
+        await self.coordinator.async_request_refresh()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off on the device."""
         try:
-            await self.coordinator.async_execute(
+            result = await self.coordinator.async_execute(
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -560,8 +562,9 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
             raise request_error("Turn off switch", err) from err
 
-        self._attr_is_on = False
-        self.async_write_ha_state()
+        if result is False:
+            raise HomeAssistantError("EZVIZ did not accept the switch command")
+        await self.coordinator.async_request_refresh()
 
     @callback
     @override

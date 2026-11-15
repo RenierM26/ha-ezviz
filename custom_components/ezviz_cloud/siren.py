@@ -77,6 +77,9 @@ class EzvizSirenEntity(EzvizBaseEntity, SirenEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         self._removed = False
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
         # Registry rename re-adds this object without a restore record at the
         # new ID. Resume its existing expiry, not another full firmware minute.
         if self._attr_is_on and self._off_deadline is not None:

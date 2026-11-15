@@ -100,12 +100,17 @@ async def test_valid_image_resolution_preserves_signed_urls(hass, legacy):
     identifier = (
         f"IMG|{media._b64e(url)}|image/png" if legacy else f"EIMG|entry|serial|{media._b64e(url)}"
     )
+    entry, _, data, *_ = entities(hass)
+    entry.runtime_data = SimpleNamespace(coordinator=data)
+    reference = data.register_image("CAM001", url)
+    if not legacy:
+        identifier = f"EIMG|{entry.entry_id}|CAM001|{media._b64e(url)}"
     result = await source.async_resolve_media(SimpleNamespace(identifier=identifier))
     if legacy:
         assert result.url == url
         assert result.mime_type == "image/png"
     else:
-        assert result.url == media.async_generate_image_proxy_url("entry", "serial", url)
+        assert result.url == media.async_generate_image_proxy_url(entry.entry_id, "CAM001", reference)
         assert result.mime_type == "image/jpeg"
 
 
