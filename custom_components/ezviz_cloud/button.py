@@ -6,6 +6,8 @@ from typing import Any, Literal, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import SupportExt
+from pyezvizapi.devices.intercom import intercom_relays, unlock_intercom
+from pyezvizapi.devices.snapshot import DeviceState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.button import (
@@ -14,11 +16,13 @@ from homeassistant.components.button import (
     ButtonEntityDescription,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
+from .inventory import async_add_inventory_entities
 from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
@@ -115,6 +119,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up EZVIZ button based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
+    async_add_inventory_entities(
+        coordinator, entry, async_add_entities, "camera", intercom_buttons
+    )
 
     async_add_entities(
         EzvizButtonEntity(coordinator, serial, description)
@@ -152,3 +159,44 @@ class EzvizButtonEntity(EzvizEntity, ButtonEntity):
 
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Press button", err) from err
+
+
+def intercom_buttons(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizIntercomUnlock]:
+    """Create only local relays explicitly advertised by the SDK."""
+    return [
+        EzvizIntercomUnlock(coordinator, serial, relay.name)
+        for relay in intercom_relays(state.as_dict())
+    ]
+
+
+class EzvizIntercomUnlock(EzvizInventoryEntity, ButtonEntity):
+    """One-shot door/gate command with no inferred physical lock state."""
+
+    def __init__(
+        self, coordinator: EzvizDataUpdateCoordinator, serial: str, relay: str
+    ) -> None:
+        """Retain the relay role, never credentials or stale command metadata."""
+        super().__init__(coordinator, serial)
+        self._relay = relay
+        self._attr_unique_id = f"{serial}_unlock_{relay}"
+        self._attr_translation_key = f"unlock_{relay}"
+
+    @override
+    async def async_press(self) -> None:
+        """Revalidate current capabilities before sending exactly one command."""
+        if not self.available or self._relay not in ("door", "gate"):
+            raise HomeAssistantError("EZVIZ intercom is unavailable")
+        try:
+            result = await self.coordinator.async_execute(
+                unlock_intercom,
+                self.coordinator.ezviz_client,
+                self.serial,
+                self._relay,
+                self.data,
+            )
+            if result is False:
+                raise HomeAssistantError("EZVIZ did not accept the unlock command")
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Unlock intercom", err) from err

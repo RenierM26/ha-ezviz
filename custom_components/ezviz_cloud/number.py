@@ -26,16 +26,21 @@ from pyezvizapi.devices.features import (
     night_vision_payload,
     resolve_channel,
 )
+from pyezvizapi.devices.intercom import chime_value, is_intercom
+from pyezvizapi.devices.snapshot import DeviceState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity
+from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
+from .intercom import prepare_chime
+from .inventory import async_add_inventory_entities
 from .runtime import EzvizConfigEntry
 from .setting_commands import prepare_number
 from .utility import passes_description_gates
@@ -280,12 +285,17 @@ async def async_setup_entry(
 ) -> None:
     """Set up EZVIZ sensors based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
+    for kind in ("camera", "monitor"):
+        async_add_inventory_entities(
+            coordinator, entry, async_add_entities, kind, intercom_numbers
+        )
 
     entities: list[NumberEntity] = [
         EzvizNumber(coordinator, serial, desc)
         for serial, camera_data in coordinator.data.items()
         for desc in STATIC_NUMBER_DESCRIPTIONS
         if _is_desc_supported(camera_data, desc)
+        and not (desc.key == "alarm_volume" and is_intercom(camera_data))
     ]
 
     async_add_entities(entities)
@@ -331,3 +341,65 @@ class EzvizNumber(EzvizEntity, NumberEntity):
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Set numeric value", err) from err
+
+
+def intercom_numbers(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizIntercomVolume]:
+    """Keep the existing alarm-volume unique ID while using the intercom scale."""
+    return (
+        [EzvizIntercomVolume(coordinator, serial)]
+        if chime_value(state.as_dict(), "volume") is not None
+        else []
+    )
+
+
+class EzvizIntercomVolume(EzvizInventoryEntity, NumberEntity):
+    """Device-reported chime volume, not speaker percentage or microphone gain."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min_value = 0
+    _attr_native_step = 1
+    _attr_translation_key = "intercom_chime_volume"
+
+    def __init__(self, coordinator: EzvizDataUpdateCoordinator, serial: str) -> None:
+        """Reuse the previous camera volume ID without creating duplicates."""
+        super().__init__(coordinator, serial)
+        self._attr_unique_id = f"{serial}_alarm_volume"
+
+    @property
+    @override
+    def native_max_value(self) -> float:
+        """Use the SDK's category-based chime scale, not relay capability."""
+        return _alarm_volume_max(self.data)
+
+    @property
+    @override
+    def native_value(self) -> float | None:
+        """Leave missing/invalid cloud values unknown."""
+        value = chime_value(self.data, "volume")
+        return (
+            float(value)
+            if isinstance(value, int) and not isinstance(value, bool)
+            else None
+        )
+
+    @override
+    async def async_set_native_value(self, value: float) -> None:
+        """Reject non-integral/out-of-range values at the SDK boundary."""
+        if not self.available:
+            raise HomeAssistantError("EZVIZ intercom is unavailable")
+        if (
+            isinstance(value, bool)
+            or not 0 <= value <= self.native_max_value
+            or value != int(value)
+        ):
+            raise HomeAssistantError(
+                f"Intercom volume must be an integer between 0 and {self.native_max_value:g}"
+            )
+        try:
+            await self.async_write_setting(
+                prepare=lambda: prepare_chime(self, "volume", int(value))
+            )
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Set intercom volume", err) from err

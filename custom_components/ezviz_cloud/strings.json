@@ -315,6 +315,12 @@
       },
       "flip_image": {
         "name": "Flip camera image"
+      },
+      "unlock_door": {
+        "name": "Unlock door"
+      },
+      "unlock_gate": {
+        "name": "Unlock gate"
       }
     },
     "binary_sensor": {
@@ -363,6 +369,9 @@
       },
       "alarm_voice_volume": {
         "name": "Alarm voice volume"
+      },
+      "intercom_chime_volume": {
+        "name": "Chime volume"
       }
     },
     "sensor": {
@@ -557,11 +566,42 @@
       },
       "rtsp_service": {
         "name": "RTSP service"
+      },
+      "intercom_doorbell_enable": {
+        "name": "Doorbell chime"
+      },
+      "intercom_pir_enable": {
+        "name": "Motion chime"
+      },
+      "intercom_label_light": {
+        "name": "Nameplate light"
       }
     },
     "siren": {
       "siren": {
         "name": "[%key:component::siren::title%]"
+      }
+    },
+    "event": {
+      "intercom_ring": {
+        "name": "Doorbell",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Ring"
+            }
+          }
+        }
+      },
+      "intercom_lock_unlocked": {
+        "name": "Lock activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock_unlocked": "Unlocked"
+            }
+          }
+        }
       }
     }
   },

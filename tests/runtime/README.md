@@ -34,7 +34,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py`,
 both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.4.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.0'
 python tools/check.py native
 ```
 
@@ -223,3 +223,16 @@ and that a later success is fetched/cached normally. The override preserves HA's
 client, timeout and redirect policy. The exact `httpx` lint exception retains the
 client exception types used by the supported HA releases; it is not an HTTP stack
 migration. These are offline tests, not camera or deployment qualification.
+
+## Intercom history baselines
+
+`core_policy/test_intercom_history.py` uses the published SDK's real
+`poll_devices()` and native HA event entities. It checks a failed initial history
+request followed by successful history during stale camera rendering, recovery
+without old last-event publication, empty baselines, shared deduplication,
+unsupported rows excluded from the SDK query, and independent live push admission.
+Flow/diagnostic coverage percentages do not describe event-module coverage.
+
+Run these probes through the native harness, which denies sockets and DNS before
+SDK execution. Synthetic serials alone do not prevent network access: an empty
+prefetched-alarm mapping can cause the SDK renderer to perform a cloud fallback.

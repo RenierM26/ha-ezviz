@@ -18,6 +18,9 @@ Read the [0.3.0 change notes](CHANGELOG.md#030) and
 The older tag does not contain these changes; a merge into `main` alone does not
 publish a HACS update. Development branches and draft PRs are not release contents.
 
+The development intercom changes require published SDK 2.5.0 and qualify that
+exact wheel in CI; they are not included in 0.3.0. See [intercom support](docs/intercom.md).
+
 For 0.3.0:
 
 | Requirement | Qualified baseline |
@@ -85,3 +88,9 @@ establish live broker delivery, physical actions or browser/media compatibility.
 Report reproducible problems through [GitHub issues](https://github.com/RenierM26/ha-ezviz/issues)
 using the [support checklist](docs/troubleshooting.md#reporting-a-problem).
 Do not attach passwords, verification codes, keys, tokens or signed media URLs.
+
+## Video intercoms (unreleased)
+
+See [non-streaming intercom support](docs/intercom.md) for monitor inventory,
+relay buttons, chime settings and ringing/access events. This branch depends on
+the companion SDK release; it does not add streaming or talkback.

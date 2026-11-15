@@ -1,6 +1,7 @@
 """App-backed capability and scale separation for chime and alarm voice volume."""
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
 import json
 import logging
@@ -11,7 +12,7 @@ import custom_components
 from custom_components.ezviz_cloud import number
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.runtime import RuntimeCleanup
-from pyezvizapi import EzvizClient
+from pyezvizapi import EzvizClient, MonitorState
 from pyezvizapi.constants import SupportExt
 from pyezvizapi.exceptions import PyEzvizError
 import pytest
@@ -100,17 +101,29 @@ async def test_platform_separates_two_controls_and_uses_category_range(
     data = camera_data({**CHIME, "volume": current})
     data.update({"supportExt": {"185": "1", "203": "1"}, "device_category": category})
     coordinator.data["CAM001"].update(data)
+    if category == "DBScreen":
+        monitor = dict(coordinator.data.pop("CAM001"))
+        coordinator.inventory_data["CAM001"] = monitor
+        snapshot = coordinator.inventory_snapshot
+        coordinator.inventory_snapshot = replace(
+            snapshot, devices={"CAM001": MonitorState("CAM001", "monitor", monitor)}
+        )
     entry.runtime_data = RuntimeCleanup(hass, coordinator)
     add = MagicMock()
     try:
         await number.async_setup_entry(hass, entry, add)
-        actual = {item.unique_id: item for item in add.call_args.args[0]}
+        actual = {
+            item.unique_id: item for call in add.call_args_list for item in call.args[0]
+        }
         chime = actual["CAM001_alarm_volume"]
-        voice = actual["CAM001_alarm_voice_volume"]
         assert chime.native_max_value == maximum
         assert chime.max_value == maximum
         assert chime.native_value == current
         assert chime.native_min_value == 0
+        if category == "DBScreen":
+            assert "CAM001_alarm_voice_volume" not in actual
+            return
+        voice = actual["CAM001_alarm_voice_volume"]
         assert voice.native_min_value == 10
         assert voice.native_max_value == 100
         assert voice.native_step == 1
