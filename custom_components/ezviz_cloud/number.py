@@ -1,7 +1,6 @@
 """Support for EZVIZ number controls."""
 
 from collections.abc import Callable
-from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
@@ -38,6 +37,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
 from .runtime import EzvizConfigEntry
+from .setting_commands import prepare_number
 from .utility import passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
@@ -342,7 +342,7 @@ class EzvizNumber(EzvizEntity, NumberEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
                 value,
-                deepcopy(self.data),
+                prepare=lambda: prepare_number(self, value),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Set numeric value", err) from err

@@ -173,10 +173,8 @@ class EzvizLight(EzvizEntity, LightEntity):
         await self.async_write_setting(
             "light:power",
             on,
-            lambda: bool(
-                self.entity_description.is_on_value(
-                    self.coordinator.inventory_data[self.serial]
-                )
+            lambda: self.entity_description.is_on_value(
+                self.coordinator.inventory_data[self.serial]
             ),
             self.entity_description.power_on
             if on

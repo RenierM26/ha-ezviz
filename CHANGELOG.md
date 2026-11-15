@@ -36,6 +36,11 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   remain authoritative. No optimistic mutation of SDK/coordinator snapshots,
   getter sleeps, secret retention or change to siren/alarm/action semantics.
   Two seconds is an initial propagation allowance, not a universal guarantee.
+  Compound setters compose detached context from accepted pending siblings under
+  the write lock, retain related settings/unknown fields, and record all effective
+  effects (including SDK rounding/clamping and implicit mode changes). Unknown,
+  null and SDK-defaulted fields cannot falsely confirm a setting. Unprovable SDK
+  helper states use bounded expiry; no private SDK parsing is introduced.
 
 - Coalesce concurrent cold reads per image generation and share in-flight image
   downloads across lenses. Viewer cancellation does not cancel other viewers;

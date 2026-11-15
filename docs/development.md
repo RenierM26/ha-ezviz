@@ -84,6 +84,29 @@ Number/select SDK adapters receive detached input so they cannot mutate accepted
 camera data. Pending display values survive unrelated pushes and stale reads;
 missing number capabilities still render unknown. Availability is never overlaid.
 
+`setting_commands` prepares number/select payloads only after acquiring the write
+lock, using detached observations plus unexpired accepted sibling effects. SDK
+optional-data precedence (`statusInfo`, flattened `optionals`, raw `STATUS`) is
+preserved. Day/night, night-vision and speaker/microphone compound writes retain
+accepted siblings and unknown fields, instead of resending stale values. A
+sensitivity change also records its forced auto-mode effect; night-mode aliases
+share one internal setting key. SDK helpers build normalized night payloads.
+Effective numeric targets use the writer's rounding, truncation and clamping;
+effects register only after SDK acceptance, and original inputs still reach SDK
+validation unchanged. Full payload writes update all the fields they actually
+write, so an implicitly changed sibling cannot keep displaying an older target.
+
+`setting_observations` requires actual known property evidence, not just an online
+device and a compatibility getter's default. Retained raw SDK fields distinguish
+missing/null encryption, motion and notification state from explicit bool/0/1;
+compound configuration readers likewise reject default-only observations.
+SDK2.4's intelligent-app iterator discards enabled-field presence/type. Those
+controls therefore use bounded pending expiry rather than claim confirmation.
+Port controls require explicit retained canonical raw enabled fields; other
+unprovable shapes use the same bounded fallback. No private SDK traversal is
+copied into HA. A future public SDK known-state helper can improve these cases.
+Malformed compatibility getters are isolated from whole-account poll health.
+
 One account-wide refresh request is scheduled two seconds after the latest
 accepted write, not immediately after every entity setter. Compound brightness/
 power writes restart this delay after the final ACK; accepted brightness remains
@@ -101,7 +124,8 @@ confirm commands. A later accepted setting supersedes its predecessor.
 
 Each pending setting expires 60 seconds after its ACK, publishing the latest
 observed value without waiting for another poll. New commands for other settings
-do not extend that deadline. Confirmation/expiry callbacks and the confirmation
+do not extend that deadline unless the compound command actually rewrites those
+related fields. Confirmation/expiry callbacks and the confirmation
 task are cancelled on unload; owned command/poll workers finish before HTTP close.
 Nothing is persisted, including pending camera names; no key text enters this map.
 
@@ -112,6 +136,9 @@ bound. No new live device timing claim is made by this implementation.
 families with real HA coordinator/debouncer behavior and detached synthetic SDK
 network snapshots, including stale-to-stale-to-matching reads, failure, ordering,
 pre-command/timed-out polls, account isolation, expiry, cancellation and unload.
+`test_confirmation_audit.py` additionally verifies producer-normalized effective
+values, compound siblings/implicit effects, queue-time preparation, SDK validation,
+real SDK source defaults/nulls and conservative helper-provenance fallbacks.
 
 ### Media and earlier audit coverage
 

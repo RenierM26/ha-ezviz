@@ -1,7 +1,6 @@
 """Support for EZVIZ select controls."""
 
 from collections.abc import Callable
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -30,6 +29,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
 from .runtime import EzvizConfigEntry
+from .setting_commands import prepare_select, select_setting_key
 from .utility import (
     has_lens_defog,
     linked_tracking_takeover_enabled,
@@ -403,9 +403,12 @@ class EzvizSelect(EzvizEntity, SelectEntity):
     @override
     def current_option(self) -> str | None:
         """Return the currently selected option."""
+        try:
+            observed = self.entity_description.get_current_option(self.data)
+        except KeyError, TypeError, ValueError, AttributeError:
+            observed = None
         current_value = self.setting_value(
-            f"select:{self.entity_description.key}",
-            self.entity_description.get_current_option(self.data),
+            select_setting_key(self.entity_description.key), observed
         )
 
         try:
@@ -433,7 +436,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         try:
             # Run potentially blocking client call in executor
             await self.async_write_setting(
-                f"select:{self.entity_description.key}",
+                select_setting_key(self.entity_description.key),
                 set_value,
                 lambda: self.entity_description.get_current_option(
                     self.coordinator.inventory_data[self.serial]
@@ -442,7 +445,7 @@ class EzvizSelect(EzvizEntity, SelectEntity):
                 self.coordinator.ezviz_client,
                 self._serial,
                 set_value,
-                deepcopy(self.data),
+                prepare=lambda: prepare_select(self, set_value),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Select option", err) from err

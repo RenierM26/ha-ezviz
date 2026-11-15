@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,26 @@ class PendingSetting:
     value: Any
     read_observed: Callable[[], Any]
     expires: float
+    project: Callable[[dict[str, Any]], None] | None = None
+
+
+@dataclass(frozen=True)
+class SettingEffect:
+    """An effective value and optional projection for later compound writes."""
+
+    key: str
+    value: Any
+    read_observed: Callable[[], Any]
+    project: Callable[[dict[str, Any]], None] | None = None
+
+
+@dataclass(frozen=True)
+class SettingCommand:
+    """Prepare under the write lock; derive effects only after SDK acceptance."""
+
+    func: Callable
+    args: tuple[Any, ...]
+    effects: Callable[[], tuple[SettingEffect, ...]]
 
 
 class SettingConfirmation:
@@ -48,6 +69,17 @@ class SettingConfirmation:
                 return pending.value
         return observed
 
+    def command_data(self, serial: str, observed: dict[str, Any]) -> dict[str, Any]:
+        """Compose detached write context from observations and accepted effects."""
+        data = deepcopy(observed)
+        now = self.coordinator.hass.loop.time()
+        for (owner, _key), item in sorted(
+            self.pending.items(), key=lambda pair: pair[1].generation
+        ):
+            if owner == serial and item.expires > now and item.project:
+                item.project(data)
+        return data
+
     async def async_write(
         self,
         serial: str,
@@ -56,21 +88,33 @@ class SettingConfirmation:
         read_observed: Callable[[], Any],
         func: Callable,
         *args: Any,
+        prepare: Callable[[], SettingCommand] | None = None,
     ) -> None:
         """Own acceptance across service cancellation and serialize cloud writes."""
 
         async def operation() -> None:
             async with self._write_lock:
-                result = await self.coordinator.async_execute(func, *args)
+                command = (
+                    prepare()
+                    if prepare
+                    else SettingCommand(
+                        func, args, lambda: (SettingEffect(key, value, read_observed),)
+                    )
+                )
+                result = await self.coordinator.async_execute(
+                    command.func, *command.args
+                )
                 if result is False:
                     raise HomeAssistantError("EZVIZ did not accept the setting command")
                 self.generation += 1
-                self.pending[serial, key] = PendingSetting(
-                    self.generation,
-                    value,
-                    read_observed,
-                    self.coordinator.hass.loop.time() + PENDING_TIMEOUT,
-                )
+                for effect in command.effects():
+                    self.pending[serial, effect.key] = PendingSetting(
+                        self.generation,
+                        effect.value,
+                        effect.read_observed,
+                        self.coordinator.hass.loop.time() + PENDING_TIMEOUT,
+                        effect.project,
+                    )
                 self._schedule_confirmation(CONFIRMATION_DELAY)
                 self._schedule_expiry()
                 self.coordinator.async_update_listeners()
@@ -93,7 +137,7 @@ class SettingConfirmation:
                 continue
             try:
                 matches = pending.read_observed() == pending.value
-            except KeyError, TypeError, ValueError:
+            except KeyError, TypeError, ValueError, AttributeError:
                 # A missing/unrenderable property cannot confirm a command or
                 # turn an otherwise accepted account poll into a failure.
                 continue

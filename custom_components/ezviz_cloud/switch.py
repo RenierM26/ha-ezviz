@@ -28,6 +28,7 @@ from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
+from .setting_observations import observed_switch
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
@@ -544,11 +545,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
             await self.async_write_setting(
                 f"switch:{self.entity_description.key}",
                 on,
-                lambda: bool(
-                    self.entity_description.value_fn(
-                        self.coordinator.inventory_data[self.serial]
-                    )
-                ),
+                lambda: observed_switch(self),
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,

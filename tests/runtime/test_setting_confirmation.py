@@ -22,8 +22,17 @@ def snapshot(data, **changes):
     now = datetime.now(UTC)
     values = deepcopy(data.inventory_snapshot.as_dict())
     values["CAM001"].update(changes)
+    if "alarm_notify" in changes:
+        values["CAM001"].setdefault("STATUS", {})["globalStatus"] = changes["alarm_notify"]
     states = {
-        serial: type(state)(serial, state.kind, values[serial])
+        serial: type(state)(
+            serial,
+            state.kind,
+            values[serial],
+            replace(state.capabilities, observed=state.capabilities.observed | {"alarm_notify"})
+            if serial == "CAM001" and "alarm_notify" in changes
+            else state.capabilities,
+        )
         for serial, state in data.inventory_snapshot.devices.items()
     }
     return DeviceSnapshot(

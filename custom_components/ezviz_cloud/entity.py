@@ -16,6 +16,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .availability import device_available
+from .confirmation import SettingCommand
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
 
@@ -121,11 +122,21 @@ class EzvizEntity(
         read_observed: Callable[[], Any],
         func: Callable,
         *args: Any,
+        prepare: Callable[[], SettingCommand] | None = None,
     ) -> None:
         """Use the shared setting command/confirmation path."""
         await self.coordinator.settings.async_write(
-            self._serial, key, value, read_observed, func, *args
+            self._serial, key, value, read_observed, func, *args, prepare=prepare
         )
+
+    def observed_motion_detection(self) -> bool | None:
+        """Do not treat the SDK's missing-globalStatus default as observed off."""
+        data = self.coordinator.inventory_data[self.serial]
+        status = data.get("STATUS")
+        raw = status.get("globalStatus") if isinstance(status, Mapping) else None
+        if type(raw) not in (bool, int) or raw not in (0, 1):
+            return None
+        return data.get("alarm_notify")
 
     @property
     @override

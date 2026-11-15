@@ -239,9 +239,7 @@ class EzvizCamera(EzvizEntity, Camera):
             await self.async_write_setting(
                 "switch:motion_detection",
                 True,
-                lambda: bool(
-                    self.coordinator.inventory_data[self.serial]["alarm_notify"]
-                ),
+                self.observed_motion_detection,
                 self.coordinator.ezviz_client.set_camera_defence,
                 self._serial,
                 1,
@@ -257,9 +255,7 @@ class EzvizCamera(EzvizEntity, Camera):
             await self.async_write_setting(
                 "switch:motion_detection",
                 False,
-                lambda: bool(
-                    self.coordinator.inventory_data[self.serial]["alarm_notify"]
-                ),
+                self.observed_motion_detection,
                 self.coordinator.ezviz_client.set_camera_defence,
                 self._serial,
                 0,
