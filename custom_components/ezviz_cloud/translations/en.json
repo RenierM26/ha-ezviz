@@ -513,7 +513,7 @@
             "message": "{operation} failed: EZVIZ request error ({detail})."
         },
         "local_rtsp_unverified": {
-            "message": "The local RTSP change was refused or could not be verified. Wait for the camera's services to recover and refresh its status before retrying."
+            "message": "The local RTSP change could not be confirmed after checking the camera's reported state. The setting may already have changed. Wait for camera services to recover and refresh its status before retrying."
         }
     },
     "issues": {
@@ -660,14 +660,15 @@
             },
             "rtsp_enable": {
                 "title": "RTSP service is disabled",
-                "description": "For camera {serial}, local LAN authentication succeeded and the camera explicitly reports RTSP off. Enable RTSP and then test the selected playback credential? No camera change or option save has occurred yet. Check the box to permit one enable attempt; leave it unchecked to return to Camera settings with your selections retained.",
+                "description": "For camera {serial}, local LAN authentication succeeded and the camera explicitly reports RTSP off. Check the box to enable RTSP before testing the selected playback credential, or leave it unchecked to test without changing the camera. No camera change or option save has occurred yet. Settings are saved only if the requested test succeeds.",
                 "data": {
-                    "enable_rtsp": "Enable RTSP and test the connection"
+                    "enable_rtsp": "Enable RTSP before testing"
                 }
             }
         },
         "create_entry": {
-            "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback."
+            "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback.",
+            "rtsp_tested_without_enable": "The RTSP DESCRIBE credential test passed and camera settings were saved. No RTSP service change was requested. This does not verify media playback."
         }
     },
     "selector": {

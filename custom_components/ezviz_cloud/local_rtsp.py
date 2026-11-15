@@ -1,6 +1,8 @@
 """RTSP service operations using the shared local-device connection profile."""
 
 from collections.abc import Mapping
+from contextlib import suppress
+from time import sleep
 from typing import Any
 
 from pyezvizapi.exceptions import PyEzvizError
@@ -29,16 +31,23 @@ def read_local_rtsp(config: LocalDeviceConfig, serial: str) -> bool:
 
 
 def write_local_rtsp(config: LocalDeviceConfig, serial: str, enabled: bool) -> bool:
-    """Read/modify/read back once, preserving every unrelated service field."""
+    """Write at most once, then confirm observed state after services recover."""
     client = config.client(serial)
     before = client.services_switch_state()
     if _known_rtsp(before.raw) is enabled:
         return enabled
-    response = client.services_switch_set(before.raw, rtsp=int(enabled))
-    status = response.json().get("statusCode") if response.succeeded else None
-    if type(status) is not int or status != 1:
-        raise PyEzvizError("RTSP update was not acknowledged")
-    observed = _known_rtsp(client.services_switch_state().raw)
-    if observed is not enabled:
-        raise PyEzvizError("RTSP update was not verified")
-    return observed
+    # Firmware can apply the change and restart services before returning an
+    # ACK. The response alone cannot prove either success or failure.
+    with suppress(PyEzvizError, OSError, ValueError):
+        client.services_switch_set(before.raw, rtsp=int(enabled))
+    # Only reads are retried, off-loop under the shared device lock. A matching
+    # observation is authoritative even when the write response was lost.
+    for delay in (0, 1, 2):
+        if delay:
+            sleep(delay)
+        try:
+            if _known_rtsp(client.services_switch_state().raw) is enabled:
+                return enabled
+        except PyEzvizError, OSError, ValueError:
+            continue
+    raise PyEzvizError("RTSP change outcome could not be verified")

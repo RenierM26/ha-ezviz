@@ -33,6 +33,7 @@ def state(value):
 
 @pytest.fixture
 def sdk(monkeypatch):
+    monkeypatch.setattr(local_rtsp, "sleep", MagicMock(), raising=False)
     client = MagicMock()
     client.services_switch_state.return_value = state(0)
     client.services_switch_set.return_value = SimpleNamespace(
@@ -103,7 +104,7 @@ def test_application_denial_is_not_transport_success(sdk, status):
     with pytest.raises(PyEzvizError):
         local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
-    client.services_switch_state.assert_called_once()  # No write retry.
+    assert client.services_switch_state.call_count == 4  # Initial read plus bounded verification.
 
 
 @pytest.mark.parametrize("failure", ["transport", "write", "readback", "mismatch"])
@@ -114,10 +115,48 @@ def test_unknown_outcome_never_retries_write(sdk, failure):
     elif failure == "write":
         client.services_switch_set.side_effect = OSError("synthetic")
     elif failure == "readback":
-        client.services_switch_state.side_effect = [state(0), OSError("synthetic")]
+        client.services_switch_state.side_effect = [state(0), *[OSError("synthetic")] * 3]
     with pytest.raises((PyEzvizError, OSError)):
         local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
+
+
+@pytest.mark.parametrize("on", [False, True])
+@pytest.mark.parametrize("write_result", ["ack", "lost", "denied", "malformed"])
+@pytest.mark.parametrize("readback", ["immediate", "stale", "restart", "unknown"])
+def test_final_observation_confirms_change_even_when_ack_is_lost(sdk, on, write_result, readback):
+    client, _ = sdk
+    before = state(int(not on))
+    observed = state(int(on))
+    transient = {"stale": before, "restart": OSError("restarting"), "unknown": state(None)}
+    client.services_switch_state.side_effect = [before, *([transient[readback]] if readback != "immediate" else []), observed]
+    if write_result == "lost":
+        client.services_switch_set.side_effect = PyEzvizError("ACK lost")
+    elif write_result == "denied":
+        client.services_switch_set.return_value = SimpleNamespace(succeeded=False)
+    elif write_result == "malformed":
+        client.services_switch_set.return_value = SimpleNamespace(succeeded=True, json=lambda: {"statusCode": "unexpected"})
+    assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", on) is on
+    client.services_switch_set.assert_called_once_with(before.raw, rtsp=int(on))
+    assert client.services_switch_state.call_count == (2 if readback == "immediate" else 3)
+    assert local_rtsp.sleep.call_args_list == ([] if readback == "immediate" else [((1,), {})])
+
+
+async def test_disable_service_restart_returns_success_and_publishes_observed_off(hass, sdk):
+    client, _ = sdk
+    _, _, account, coord, entity = coordinator(hass)
+    try:
+        client.services_switch_state.return_value = state(1)
+        await coord.async_refresh()
+        client.services_switch_state.side_effect = [state(1), OSError("service restarting"), state(1), state(0)]
+        client.services_switch_set.side_effect = OSError("ACK lost")
+        await entity.async_turn_off()
+        assert entity.is_on is False and entity.available
+        client.services_switch_set.assert_called_once()
+        assert client.services_switch_state.call_count == 5
+    finally:
+        await coord.async_shutdown()
+        await account.async_close()
 
 
 @pytest.mark.parametrize("patch", [

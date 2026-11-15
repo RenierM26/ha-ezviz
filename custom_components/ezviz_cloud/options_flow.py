@@ -501,16 +501,16 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             return self._rtsp_enable_form()
         resolved, self._rtsp_pending = self._rtsp_pending, None
         self._prefill = {**resolved, "ephemeral_test_rtsp": True}
-        if user_input["enable_rtsp"] is not True:
-            return await self.async_step_camera_edit()
+        enable = user_input["enable_rtsp"] is True
         try:
             # Check again inside the shared lock, not before potentially queued IO.
-            await self.coordinator.local_device(self._cam_serial).async_execute(
-                write_local_rtsp,
-                True,
-                options=resolved,
-                precondition=lambda: self._validated_camera_options(resolved),
-            )
+            if enable:
+                await self.coordinator.local_device(self._cam_serial).async_execute(
+                    write_local_rtsp,
+                    True,
+                    options=resolved,
+                    precondition=lambda: self._validated_camera_options(resolved),
+                )
         except CameraOptionsConflict:
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
             self._prefill = None
@@ -529,17 +529,32 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         try:
             await self._probe_rtsp(resolved)
             return self._camera_options_result(
-                resolved, description="rtsp_enabled_and_tested"
+                resolved,
+                description="rtsp_enabled_and_tested"
+                if enable
+                else "rtsp_tested_without_enable",
             )
         except CameraOptionsConflict:
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
             self._prefill = None
             return await self.async_step_camera_edit(
-                errors={"base": "rtsp_enabled_options_changed"}
+                errors={
+                    "base": "rtsp_enabled_options_changed"
+                    if enable
+                    else "options_changed"
+                }
+            )
+        except AuthTestResultFailed:
+            return await self.async_step_camera_edit(
+                errors={
+                    "base": "rtsp_enabled_test_failed" if enable else "rtsp_auth_failed"
+                }
             )
         except PyEzvizError, OSError, ValueError:
             return await self.async_step_camera_edit(
-                errors={"base": "rtsp_enabled_test_failed"}
+                errors={
+                    "base": "rtsp_enabled_test_failed" if enable else "cannot_connect"
+                }
             )
 
     async def _probe_rtsp(self, resolved: dict[str, Any]) -> None:

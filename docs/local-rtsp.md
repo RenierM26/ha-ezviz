@@ -39,13 +39,16 @@ affirmative confirmation described below.
    saved; select another source or correct a field explicitly. No fallback occurs.
 3. If **Test RTSP connection** is checked and the authenticated LAN response
    explicitly reports RTSP off, show **RTSP service is disabled**. The enable
-   checkbox is unchecked by default. Declining returns to the previous form;
-   configuring LAN control alone never offers or enables RTSP.
+   checkbox is unchecked by default. Leaving it unchecked still runs the requested
+   RTSP credential test, without changing the service setting. A failed test returns
+   to Camera settings with its error and all selections retained; a passing test
+   saves the settings. Configuring LAN control alone never offers or enables RTSP.
 4. An affirmative submission permits one enable attempt through the shared local
    executor. The current saved settings are checked inside its lock first; a stale
    offer returns to fresh settings without writing. The operation re-reads current
-   service state, changes only RTSP if needed, verifies the ACK and reads back.
-5. Only after verified on, run the explicitly requested RTSP credential test and
+   service state and changes only RTSP if needed. It confirms the resulting state
+   with up to three read-back attempts, allowing brief service recovery.
+5. After a requested enable is verified on, run the RTSP credential test and
    save the camera options. Success distinguishes verified service configuration
    from the DESCRIBE result. A successful enable followed by a failed test is
    reported as such; it is not called rollback and does not save the options.
@@ -91,13 +94,16 @@ source for it. Published installations require no storage-version migration.
   Later camera-key updates are used without retaining an old credential snapshot.
   Local operations on one camera share an owned executor and lock, including
   future local controls; different cameras have independent locks.
-- A change reads current configuration, updates only RTSP, requires an
-  application-level ACK and reads back. Other SDK/web/UPnP and unknown fields are
-  preserved. An already-matching value causes no write; there is no optimism.
+- A change reads current configuration and updates only RTSP once. It confirms
+  observed state immediately, then after one and two seconds if needed. Service
+  restarts can interrupt an acknowledgement or briefly return stale state; a
+  matching read-back confirms success even if the acknowledgement was lost.
+  Other SDK/web/UPnP and unknown fields are preserved. An already-matching value
+  causes no write; there is no optimism or repeated write.
 - Unknown/missing state, bad credentials or a closed port make it unavailable,
-  not off. A failed ACK/read-back has an unknown outcome. Camera services may
-  restart; wait for recovery and refresh (`homeassistant.update_entity`) before
-  deciding whether to retry. No automatic write retry or credential rotation.
+  not off. If no read-back confirms the requested state, the outcome remains
+  unknown: the setting may already have changed. Wait for recovery and refresh
+  (`homeassistant.update_entity`) before deciding whether to retry. No automatic write retry or credential rotation.
   The five-second timeout applies per socket operation, not the entire sequence.
 
 You can separately create an opt-in HA state automation that calls

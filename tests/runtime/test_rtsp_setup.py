@@ -114,12 +114,32 @@ async def test_known_off_is_only_an_offer_when_rtsp_testing_was_requested(hass, 
             assert result["step_id"] == "rtsp_enable"
             client.services_switch_state.assert_called_once()
             result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": False})
-            assert result["step_id"] == "camera_edit"
-            defaults = result["data_schema"]({})
-            assert defaults[AUTH] == "verification_code" and defaults["ephemeral_test_rtsp"] is True
-            assert defaults["enc_key"] == CAMERA["enc_key"]
-            result = await hass.config_entries.options.async_configure(result["flow_id"], {**defaults, "ephemeral_test_rtsp": False})
+            assert result["description"] == "rtsp_tested_without_enable"
+            probe.return_value.main.assert_called_once()
+            assert probe.call_args.args[2] == CAMERA["enc_key"]
         assert result["type"] is FlowResultType.CREATE_ENTRY
+        client.services_switch_set.assert_not_called()
+    finally:
+        await account.async_close()
+
+
+@pytest.mark.parametrize("failure,error", [(AuthTestResultFailed("SECRET"), "rtsp_auth_failed"), (PyEzvizError("SECRET"), "cannot_connect"), (OSError("SECRET"), "cannot_connect")])
+async def test_unchecked_enable_still_tests_and_reports_failure_with_fields_preserved(hass, sdk, probe, flow_setup, failure, error):
+    client, _ = sdk
+    entry, _, account, _ = flow_setup
+    before = entry.options
+    try:
+        result = await submit(hass, entry, ephemeral_test_rtsp=True, rtsp_uses_verification_code="verification_code")
+        probe.return_value.main.side_effect = failure
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": False})
+        assert result["step_id"] == "camera_edit" and result["errors"] == {"base": error}
+        probe.return_value.main.assert_called_once()
+        assert probe.call_args.args[2] == CAMERA["password"]
+        defaults = result["data_schema"]({})
+        assert defaults[AUTH] == "verification_code" and defaults["ephemeral_test_rtsp"] is True
+        assert defaults["password"] == CAMERA["password"] and defaults["enc_key"] == CAMERA["enc_key"]
+        assert defaults["ffmpeg_arguments"] == CAMERA["ffmpeg_arguments"] and defaults["rtsp_uses_verification_code"] is True
+        assert entry.options == before
         client.services_switch_set.assert_not_called()
     finally:
         await account.async_close()
@@ -197,14 +217,15 @@ async def test_unknown_write_outcome_returns_to_settings_without_retry_or_option
         await account.async_close()
 
 
-async def test_enable_success_but_probe_failure_is_reported_separately(hass, sdk, probe, flow_setup):
+@pytest.mark.parametrize("failure", [AuthTestResultFailed("synthetic"), OSError("synthetic")])
+async def test_enable_success_but_probe_failure_is_reported_separately(hass, sdk, probe, flow_setup, failure):
     client, _ = sdk
     entry, _, account, _ = flow_setup
     before = entry.options
     try:
         result = await submit(hass, entry, ephemeral_test_rtsp=True)
         client.services_switch_state.side_effect = [state(0), state(1)]
-        probe.return_value.main.side_effect = AuthTestResultFailed("synthetic")
+        probe.return_value.main.side_effect = failure
         result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": True})
         assert result["errors"] == {"base": "rtsp_enabled_test_failed"}
         assert result["step_id"] == "camera_edit" and entry.options == before
@@ -263,7 +284,8 @@ async def test_concurrent_edits_are_checked_inside_the_shared_lock_before_write(
         await account.async_close()
 
 
-async def test_edit_during_post_enable_probe_does_not_overwrite_options(hass, sdk, probe, flow_setup, monkeypatch):
+@pytest.mark.parametrize("enable", [False, True])
+async def test_edit_during_post_enable_probe_does_not_overwrite_options(hass, sdk, probe, flow_setup, monkeypatch, enable):
     client, _ = sdk
     entry, _, account, _ = flow_setup
     original = options_flow.EzvizOptionsFlowHandler._probe_rtsp
@@ -276,10 +298,10 @@ async def test_edit_during_post_enable_probe_does_not_overwrite_options(hass, sd
     try:
         result = await submit(hass, entry, ephemeral_test_rtsp=True)
         client.services_switch_state.side_effect = [state(0), state(1)]
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": True})
-        assert result["errors"] == {"base": "rtsp_enabled_options_changed"}
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enable_rtsp": enable})
+        assert result["errors"] == {"base": "rtsp_enabled_options_changed" if enable else "options_changed"}
         assert entry.options["cameras"]["CAM001"]["enc_key"] == "NEW_KEY"
-        client.services_switch_set.assert_called_once()
+        assert client.services_switch_set.call_count == int(enable)
     finally:
         await account.async_close()
 

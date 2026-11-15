@@ -169,7 +169,7 @@ selector renders native string choices through a small boolean adapter so old
 | Module | Responsibility |
 | --- | --- |
 | `local.py` | Shared source enum, profile validation, current-credential/address resolution and per-camera owned execution/lock. Reused by current and future local features. |
-| `local_rtsp.py` | RTSP-specific known-state read, idempotent read/modify/ACK/read-back using public SDK methods. No credential storage or flow logic. |
+| `local_rtsp.py` | RTSP-specific known-state read, idempotent read/modify/bounded read-back using public SDK methods. No credential storage or flow logic. |
 | `coordinator.py` | Entry-owned shared `LocalDevice` instances and `LocalRtspCoordinator`'s five-minute observed state/polling lifecycle. |
 | `camera_flow.py` | Existing cloud/MFA credential resolution, followed by read-only local validation with partial-result errors. |
 | `options_flow.py` | Camera settings dropdown, preserved selection through errors/MFA, conflict-aware allowlisted save and old unpublished-form cleanup. |
@@ -199,9 +199,14 @@ Credential resolution can defer its RTSP probe. Options always validate enabled
 LAN control before that optional test, and a failed validation retains the source,
 resolved fields and requested-test flag through both normal and MFA paths. Only
 known off plus requested RTSP testing sets an ephemeral enable offer. The one-shot
-`rtsp_enable` form defaults false and saves nothing. An affirmative submission
+`rtsp_enable` form defaults false and saves nothing. Unchecked submission still
+runs the requested probe without writing, reports its auth/connection errors with
+fields retained, and saves only on success. An affirmative submission
 uses the shared executor's in-lock precondition to reject stale camera settings,
-then performs one idempotent write/verified read-back. The requested probe follows;
+then performs one idempotent write followed by up to three read-only checks, with
+one- and two-second off-loop delays after stale/failed observations. Matching state
+is authoritative even if the write ACK was interrupted; writes are never retried.
+The requested probe follows;
 only success saves options. The result distinguishes configured-on from DESCRIBE
 success; failures after a verified enable explicitly retain that fact. No rollback
 or write retry is claimed. New flow fields/one-time codes never enter the saved
