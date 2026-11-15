@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from pyezvizapi.client import EzvizClient
-from pyezvizapi.constants import DeviceCatagories
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
     DeviceException,
@@ -23,6 +22,8 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_FETCH_MY_KEY,
 )
+from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth
+from .local_rtsp import LocalRtspUnsupported, read_local_rtsp
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
@@ -93,12 +94,6 @@ def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
     """Wake a hibernating camera and immediately run an RTSP DESCRIBE test."""
     ezviz_client.get_detection_sensibility(data[ATTR_SERIAL])  # safe 'ping'
     _test_camera_rtsp_creds(data)
-
-
-def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
-    """Heuristic: most battery categories lack RTSP; some do support it though."""
-    cat = cam_info["device_category"]
-    return DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value not in cat
 
 
 def _credential_fetch_error(
@@ -204,3 +199,38 @@ async def async_resolve_camera_credentials(
     data.pop("cloud_account_username")
 
     return data
+
+
+class LocalControlValidationError(PyEzvizError):
+    """Keep resolved camera fields for correction without logging device failures."""
+
+    def __init__(self, error_key: str, data: dict[str, Any]) -> None:
+        """Retain form inputs, not a credential-bearing error message."""
+        super().__init__("Local control validation failed")
+        self.error_key = error_key
+        self.data = data
+
+
+async def async_validate_local_controls(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, resolved: dict[str, Any]
+) -> None:
+    """Read-only validation after cloud/MFA resolution of the chosen source."""
+    if (
+        resolved.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED)
+        == LocalControlAuth.DISABLED
+    ):
+        return
+    try:
+        await coordinator.local_device(serial).async_execute(
+            read_local_rtsp, options=resolved
+        )
+    except KeyError, TypeError, ValueError:
+        raise LocalControlValidationError("local_control_invalid", resolved) from None
+    except LocalRtspUnsupported:
+        raise LocalControlValidationError(
+            "local_control_unsupported", resolved
+        ) from None
+    except PyEzvizError, OSError:
+        raise LocalControlValidationError(
+            "local_control_cannot_connect", resolved
+        ) from None

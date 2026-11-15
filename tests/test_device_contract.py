@@ -28,7 +28,7 @@ def coordinator_module(monkeypatch):
     package = ModuleType("contract_test")
     package.__path__ = [str(ROOT)]
     monkeypatch.setitem(sys.modules, "contract_test", package)
-    monkeypatch.setitem(sys.modules, "contract_test.const", SimpleNamespace(DOMAIN="ezviz_cloud", CONF_ENC_KEY="enc_key", OPTIONS_KEY_CAMERAS="cameras"))
+    load(monkeypatch, "contract_test.const", "const.py")
     monkeypatch.setitem(sys.modules, "homeassistant.const", SimpleNamespace(EVENT_HOMEASSISTANT_STOP="homeassistant_stop"))
     class Base[T]:
         def __init__(self, hass, *args, **kwargs):

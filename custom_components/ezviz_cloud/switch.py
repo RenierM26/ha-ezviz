@@ -35,7 +35,7 @@ from .entity import (
 )
 from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
-from .local_rtsp import CONF_LOCAL_RTSP, LocalRtspConfig, local_rtsp_eligible
+from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
 from .utility import (
@@ -522,19 +522,22 @@ async def async_setup_entry(
     )
 
     for serial, camera_data in coordinator.data.items():
-        if not local_rtsp_eligible(camera_data):
+        if not local_controls_eligible(camera_data):
             continue
-        options = camera_options(entry, serial).get(CONF_LOCAL_RTSP)
-        if not options:
+        options = camera_options(entry, serial)
+        if (
+            options.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED)
+            == LocalControlAuth.DISABLED
+        ):
             continue
         try:
-            config = LocalRtspConfig.from_options(options)
-        except KeyError, TypeError, ValueError:
+            coordinator.local_device(serial).configuration()
+        except KeyError, TypeError, ValueError, PyEzvizError:
             _LOGGER.warning(
-                "Invalid local RTSP options; reconfigure local service management"
+                "Invalid local-control authentication; review Camera settings"
             )
             continue
-        local = LocalRtspCoordinator(coordinator, serial, config)
+        local = LocalRtspCoordinator(coordinator, serial)
         entry.async_on_unload(local.async_shutdown)
         # A LAN failure leaves this entity unavailable, not the account setup.
         await local.async_refresh()

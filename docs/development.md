@@ -156,31 +156,36 @@ Host checks use `yarl.URL(raw_url).raw_host`, matching aiohttp's literal-IP path
 which bypasses DNS resolvers; the original URL string is still sent unchanged.
 
 
-### Opt-in local RTSP service control
+### Shared local-device controls
 
-`local_rtsp.py` validates explicit LAN configuration and uses the published
-`HcNetSdkPurePythonClient.services_switch_state` / `services_switch_set` API.
-`coordinator.LocalRtspCoordinator` polls independently of the cloud coordinator;
-only the observed boolean is cached. A per-camera lock serializes reads and the
-complete read/modify/read-back write. Existing account-owned executor/critical
-tasks retain operations across cancellation and wait for workers during unload.
-Core coordinator listeners own periodic scheduling; entry unload shuts it down.
+The camera-settings `local_control_auth` selector is disabled, verification code,
+or encryption key. Only that source enum is saved; the existing username/key
+fields and SDK-observed address supply the connection profile. This does not
+change `rtsp_uses_verification_code`, which still selects playback authentication.
+The optional RTSP wake/playback test now defaults off.
 
-The options flow probes read-only before saving a per-camera `local_rtsp` object.
-Blank passwords retain the existing LAN password without echoing it; opting out
-clears the object, including its credential, without changing camera services.
-The password is independent of cloud, sticker and media-key selection; no fetching
-or guessing is performed. Existing camera option patches preserve this unknown
-sibling, while the LAN form uses the same conflict-aware patch helper. Diagnostics
-remain allowlisted and exclude LAN credentials/addresses.
+| Module | Responsibility |
+| --- | --- |
+| `local.py` | Shared source enum, profile validation, current-credential/address resolution and per-camera owned execution/lock. Reused by current and future local features. |
+| `local_rtsp.py` | RTSP-specific known-state read, idempotent read/modify/ACK/read-back using public SDK methods. No credential storage or flow logic. |
+| `coordinator.py` | Entry-owned shared `LocalDevice` instances and `LocalRtspCoordinator`'s five-minute observed state/polling lifecycle. |
+| `camera_flow.py` | Existing cloud/MFA credential resolution, followed by read-only local validation with partial-result errors. |
+| `options_flow.py` | Camera settings dropdown, preserved selection through errors/MFA, conflict-aware allowlisted save and old unpublished-form cleanup. |
 
-Core-policy `test_local_rtsp.py` covers actual HA switch registration/services,
-translated naming, device association, in-place rename, observed external change,
-unavailability/recovery, polling subscription teardown, optional setup isolation
-and diagnostic privacy. Native `test_local_rtsp.py` covers SDK response semantics,
-known/malformed raw switches, true application-level ACKs, payload preservation,
-idempotence, unknown outcomes/no write retry, off-loop IO, cancellation ownership,
-read-only options flows, credential masking, conflict preservation and battery
-exclusion. The public SDK parser/payload helper is exercised; no private protocol
-implementation is copied into HA. All transport is synthetic and network-denied.
-No hardware/firmware compatibility or working-playback claim follows from tests.
+Shared execution resolves current options inside the lock, rather than retaining
+a camera password in a coordinator. Reads and writes retain ownership until the
+SDK worker finishes even when a waiter is cancelled. The RTSP coordinator keeps
+read-back publication owned too. Core listeners and entry unload stop polling.
+Future local controls can use `account.local_device(serial).async_execute(...)`
+without sharing RTSP state or adding another credential profile. Flow validation
+uses that same executor with explicitly resolved candidate options; it never
+commits credentials before successful validation.
+
+`test_local.py` covers the shared profile and real camera-options/MFA flows:
+explicit source versus independent media selection, no fallback, queued current
+key/address resolution after a cancelled waiter, fetched keys, opt-out, partial
+errors and concurrent edits. `test_local_rtsp.py` retains SDK response/payload,
+idempotence, off-loop IO, read-back, cancellation and unknown-outcome controls.
+Core-policy RTSP tests retain actual registered services, translated names,
+device association, rename, optional setup isolation, polling teardown and
+allowlisted diagnostic privacy. All transport remains synthetic/network-denied.

@@ -55,8 +55,9 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 - Camera options select local RTSP credentials and path. This work adds no new
   streaming protocol or universal battery-camera RTSP support.
 - Opt-in [local RTSP service control](docs/local-rtsp.md) reads and changes the
-  service configuration over TCP 8000 on supported non-battery cameras. This
-  is separate from RTSP credentials and does not add a streaming protocol.
+  service configuration over TCP 8000 on supported non-battery cameras. A shared
+  Camera settings dropdown selects the existing sticker code or encryption key
+  for local controls, independently of the playback credential choice.
 - [Capture-picture/snapshot images](docs/capture-picture.md) work independently
   of RTSP; a requested capture may wake a battery device.
 - Cached, allowlisted diagnostics help distinguish polling, push, device health

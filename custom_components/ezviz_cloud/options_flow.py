@@ -1,6 +1,5 @@
 """Options UI for live account settings and per-camera credentials."""
 
-from collections.abc import Mapping
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -16,20 +15,19 @@ from pyezvizapi.exceptions import (
 
 from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import (
-    CONF_HOST,
     CONF_IP_ADDRESS,
     CONF_PASSWORD,
     CONF_TIMEOUT,
     CONF_USERNAME,
 )
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
 
 from .camera_flow import (
     CameraCredentialFetchError,
-    _infer_supports_rtsp_from_category,
+    LocalControlValidationError,
     async_resolve_camera_credentials,
+    async_validate_local_controls,
 )
 from .const import (
     ATTR_SERIAL,
@@ -46,13 +44,7 @@ from .const import (
 )
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .flow_validation import validate_timeout
-from .local_rtsp import (
-    CONF_LOCAL_RTSP,
-    LocalRtspConfig,
-    LocalRtspUnsupported,
-    local_rtsp_eligible,
-    read_local_rtsp,
-)
+from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
@@ -76,7 +68,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Entry menu (bootstrap coordinator)."""
         return self.async_show_menu(
-            step_id="init", menu_options=["cloud", "camera_select", "local_rtsp_select"]
+            step_id="init", menu_options=["cloud", "camera_select"]
         )
 
     @property
@@ -164,7 +156,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
         cam_info = self.coordinator.data[self._cam_serial]
         inferred_ip = cam_info["local_ip"]
-        test_rtsp_default = _infer_supports_rtsp_from_category(cam_info)
+        test_rtsp_default = False
 
         errors = errors or {}
 
@@ -205,6 +197,15 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     ),
                 ),
                 "ephemeral_test_rtsp": ui.get("ephemeral_test_rtsp", test_rtsp_default),
+                CONF_LOCAL_CONTROL_AUTH: src.get(
+                    CONF_LOCAL_CONTROL_AUTH,
+                    ui.get(
+                        CONF_LOCAL_CONTROL_AUTH,
+                        per_cam.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED),
+                    ),
+                )
+                if local_controls_eligible(cam_info)
+                else LocalControlAuth.DISABLED,
             }
 
         if user_input is not None:
@@ -219,6 +220,10 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 resolved = await self._test_rtsp_credentials(payload)
 
                 return self._camera_options_result(resolved)
+
+            except LocalControlValidationError as err:
+                errors[CONF_LOCAL_CONTROL_AUTH] = err.error_key
+                self._prefill = _make_prefill(err.data, user_input)
 
             except CameraCredentialFetchError as err:
                 errors[err.field] = err.error_key
@@ -265,6 +270,17 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     CONF_RTSP_USES_VERIFICATION_CODE,
                     default=pf[CONF_RTSP_USES_VERIFICATION_CODE],
                 ): bool,
+                probatio.Optional(
+                    CONF_LOCAL_CONTROL_AUTH, default=pf[CONF_LOCAL_CONTROL_AUTH]
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(LocalControlAuth)
+                        if local_controls_eligible(cam_info)
+                        else [LocalControlAuth.DISABLED],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_LOCAL_CONTROL_AUTH,
+                    )
+                ),
                 probatio.Required(
                     "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
                 ): bool,
@@ -314,6 +330,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 resolved = await self._test_rtsp_credentials(data)
 
                 return self._camera_options_result(resolved)
+
+            except LocalControlValidationError as err:
+                self._pending = None
+                self._prefill = {**err.data, "ephemeral_test_rtsp": False}
+                return await self.async_step_camera_edit(
+                    errors={CONF_LOCAL_CONTROL_AUTH: err.error_key}
+                )
 
             except CameraCredentialFetchError as err:
                 self._pending = None
@@ -389,6 +412,21 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 ),
             ),
         }
+        auth = resolved.get(
+            CONF_LOCAL_CONTROL_AUTH,
+            self._camera_baseline.get(
+                CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED
+            ),
+        )
+        if (
+            auth != LocalControlAuth.DISABLED
+            or CONF_LOCAL_CONTROL_AUTH in self._camera_baseline
+        ):
+            patch[CONF_LOCAL_CONTROL_AUTH] = auth
+        if "local_rtsp" in camera_options(self.config_entry, self._cam_serial):
+            patch[
+                "local_rtsp"
+            ] = {}  # Clear credentials from the superseded, unpublished form.
         options = build_camera_options(
             self.config_entry, self._cam_serial, patch, expected=self._camera_baseline
         )
@@ -398,113 +436,10 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
     async def _test_rtsp_credentials(self, data: dict) -> dict:
         """Delegate resolution while retaining the live coordinator and edit baseline."""
-        return await async_resolve_camera_credentials(
+        resolved = await async_resolve_camera_credentials(
             self.coordinator, data, self._camera_baseline, self._cam_serial
         )
-
-    async def async_step_local_rtsp_select(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Choose a non-battery camera for explicit opt-in LAN management."""
-        runtime = getattr(self.config_entry, "runtime_data", None)
-        if runtime is None or runtime.coordinator.shutting_down:
-            return self.async_abort(reason="integration_unavailable")
-        choices = {
-            serial: f"{info.get('name', 'Camera')} ({serial})"
-            for serial, info in (self.coordinator.data or {}).items()
-            if local_rtsp_eligible(info)
-        }
-        if not choices:
-            return self.async_abort(reason="no_local_rtsp_cameras")
-        if user_input is not None:
-            self._cam_serial = user_input["serial"]
-            self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
-            return await self.async_step_local_rtsp()
-        return self.async_show_form(
-            step_id="local_rtsp_select",
-            data_schema=probatio.Schema(
-                {probatio.Required("serial"): probatio.In(choices)}
-            ),
+        await async_validate_local_controls(
+            self.coordinator, self._cam_serial, resolved
         )
-
-    async def async_step_local_rtsp(
-        self,
-        user_input: dict[str, Any] | None = None,
-        *,
-        errors: dict[str, str] | None = None,
-    ) -> ConfigFlowResult:
-        """Read-only validation, with separate LAN credentials and no port opening."""
-        runtime = getattr(self.config_entry, "runtime_data", None)
-        if runtime is None or runtime.coordinator.shutting_down:
-            return self.async_abort(reason="integration_unavailable")
-        info = (self.coordinator.data or {}).get(self._cam_serial, {})
-        if not local_rtsp_eligible(info):
-            return self.async_abort(reason="no_local_rtsp_cameras")
-        saved = self._camera_baseline.get(CONF_LOCAL_RTSP, {})
-        if not isinstance(saved, Mapping):
-            saved = {}
-        errors = errors or {}
-        if user_input is not None:
-            try:
-                config = {}
-                if user_input["enabled"]:
-                    credentials = LocalRtspConfig.from_options(
-                        {
-                            CONF_HOST: user_input[CONF_HOST],
-                            CONF_USERNAME: user_input[CONF_USERNAME],
-                            CONF_PASSWORD: user_input.get(CONF_PASSWORD)
-                            or saved.get(CONF_PASSWORD, ""),
-                        }
-                    )
-                    await self.coordinator.async_execute(
-                        read_local_rtsp, credentials, self._cam_serial
-                    )
-                    config = {
-                        CONF_HOST: credentials.host,
-                        CONF_USERNAME: credentials.username,
-                        CONF_PASSWORD: credentials.password,
-                    }
-                options = build_camera_options(
-                    self.config_entry,
-                    self._cam_serial,
-                    {CONF_LOCAL_RTSP: config},
-                    expected=self._camera_baseline,
-                )
-            except ValueError, KeyError, TypeError:
-                errors["base"] = "local_rtsp_invalid"
-            except LocalRtspUnsupported:
-                errors["base"] = "local_rtsp_unsupported"
-            except CameraOptionsConflict:
-                self._camera_baseline = camera_options(
-                    self.config_entry, self._cam_serial
-                )
-                return await self.async_step_local_rtsp(
-                    errors={"base": "options_changed"}
-                )
-            except PyEzvizError, OSError, HomeAssistantError:
-                errors["base"] = "local_rtsp_cannot_connect"
-            else:
-                return self.async_create_entry(title="", data=options)
-        defaults = user_input or {
-            "enabled": bool(saved),
-            CONF_HOST: saved.get(CONF_HOST, info.get("local_ip") or ""),
-            CONF_USERNAME: saved.get(CONF_USERNAME, DEFAULT_CAMERA_USERNAME),
-        }
-        return self.async_show_form(
-            step_id="local_rtsp",
-            data_schema=probatio.Schema(
-                {
-                    probatio.Required("enabled", default=defaults["enabled"]): bool,
-                    probatio.Required(CONF_HOST, default=defaults[CONF_HOST]): str,
-                    probatio.Required(
-                        CONF_USERNAME, default=defaults[CONF_USERNAME]
-                    ): str,
-                    probatio.Optional(CONF_PASSWORD, default=""): selector.TextSelector(
-                        selector.TextSelectorConfig(
-                            type=selector.TextSelectorType.PASSWORD
-                        )
-                    ),
-                }
-            ),
-            errors=errors,
-        )
+        return resolved

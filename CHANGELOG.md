@@ -28,7 +28,11 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 - Add an opt-in per-camera **RTSP service** configuration switch using the
   published SDK's local command-port API (TCP 8000). Setup is read-only and
-  excludes battery families; separate local device credentials are required.
+  excludes battery families. A three-choice Local device controls dropdown in
+  Camera settings reuses the existing username and chosen verification/sticker
+  code or encryption key, without another stored credential or fallback. The
+  shared local backend is reusable by future controls; the separate playback
+  credential choice is unchanged, and its one-time test now defaults off.
   Local status is polled every five minutes, independently of cloud health.
   Writes preserve unrelated services and publish only verified read-back; no
   automatic port opening, credential fallback, watchdog or write retry.

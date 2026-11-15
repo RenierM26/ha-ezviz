@@ -14,12 +14,9 @@ from pyezvizapi.streaming.local.hcnetsdk.api import (
 )
 import pytest
 
-import custom_components
-from custom_components.ezviz_cloud import config_flow, local_rtsp, switch
+from custom_components.ezviz_cloud import local, local_rtsp, switch
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.coordinator import LocalRtspCoordinator
-from homeassistant import loader
-from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 
 from .test_hardening import entities
@@ -42,7 +39,7 @@ def sdk(monkeypatch):
         succeeded=True, json=lambda: {"statusCode": 1}
     )
     factory = MagicMock(return_value=client)
-    monkeypatch.setattr(local_rtsp, "HcNetSdkPurePythonClient", factory)
+    monkeypatch.setattr(local, "HcNetSdkPurePythonClient", factory)
     return client, factory
 
 
@@ -50,7 +47,7 @@ def sdk(monkeypatch):
 def test_status_uses_explicit_known_raw_value(sdk, value, expected):
     client, factory = sdk
     client.services_switch_state.return_value = state(value)
-    config = local_rtsp.LocalRtspConfig.from_options(CONFIG)
+    config = local.LocalDeviceConfig.from_options(CONFIG)
     assert local_rtsp.read_local_rtsp(config, "CAM001") is expected
     args, kwargs = factory.call_args
     assert args[0].command_port == 8000 and args[0].host == CONFIG["host"]
@@ -64,7 +61,7 @@ def test_unknown_switch_never_becomes_false_or_allows_a_write(sdk, value):
     client, _ = sdk
     client.services_switch_state.return_value = state(value)
     with pytest.raises(local_rtsp.LocalRtspUnsupported):
-        local_rtsp.write_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001", True)
+        local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_not_called()
 
 
@@ -73,7 +70,7 @@ def test_missing_service_is_unsupported(sdk, raw):
     client, _ = sdk
     client.services_switch_state.return_value = EzvizLanServicesSwitchState(raw=raw)
     with pytest.raises(local_rtsp.LocalRtspUnsupported):
-        local_rtsp.read_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001")
+        local_rtsp.read_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001")
 
 
 @pytest.mark.parametrize("on", [False, True])
@@ -82,7 +79,7 @@ def test_change_preserves_payload_and_reads_back_once(sdk, on):
     before = state(int(not on))
     original = deepcopy(before.raw)
     client.services_switch_state.side_effect = [before, state(int(on))]
-    assert local_rtsp.write_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001", on) is on
+    assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", on) is on
     client.services_switch_set.assert_called_once_with(before.raw, rtsp=int(on))
     assert before.raw == original
     assert client.services_switch_state.call_count == 2
@@ -92,7 +89,7 @@ def test_change_preserves_payload_and_reads_back_once(sdk, on):
 def test_idempotent_write_only_reads(sdk, on):
     client, _ = sdk
     client.services_switch_state.return_value = state(int(on))
-    assert local_rtsp.write_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001", on) is on
+    assert local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", on) is on
     client.services_switch_state.assert_called_once()
     client.services_switch_set.assert_not_called()
 
@@ -104,7 +101,7 @@ def test_application_denial_is_not_transport_success(sdk, status):
         succeeded=True, json=lambda: {"statusCode": status}
     )
     with pytest.raises(PyEzvizError):
-        local_rtsp.write_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001", True)
+        local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
     client.services_switch_state.assert_called_once()  # No write retry.
 
@@ -119,7 +116,7 @@ def test_unknown_outcome_never_retries_write(sdk, failure):
     elif failure == "readback":
         client.services_switch_state.side_effect = [state(0), OSError("synthetic")]
     with pytest.raises((PyEzvizError, OSError)):
-        local_rtsp.write_local_rtsp(local_rtsp.LocalRtspConfig(**CONFIG), "CAM001", True)
+        local_rtsp.write_local_rtsp(local.LocalDeviceConfig(**CONFIG), "CAM001", True)
     client.services_switch_set.assert_called_once()
 
 
@@ -131,7 +128,7 @@ def test_unknown_outcome_never_retries_write(sdk, failure):
 def test_invalid_configuration_fails_before_client_creation(sdk, patch):
     _, factory = sdk
     with pytest.raises((ValueError, TypeError)):
-        local_rtsp.LocalRtspConfig.from_options({**CONFIG, **patch})
+        local.LocalDeviceConfig.from_options({**CONFIG, **patch})
     factory.assert_not_called()
 
 
@@ -140,13 +137,14 @@ def test_invalid_configuration_fails_before_client_creation(sdk, patch):
     ("BDoorBell", False), ("CatEye", False), ("XVR", False), (None, False),
 ])
 def test_only_nonbattery_camera_family_is_eligible(category, eligible):
-    assert local_rtsp.local_rtsp_eligible({"device_category": category}) is eligible
+    assert local.local_controls_eligible({"device_category": category}) is eligible
 
 
 def coordinator(hass):
     entry, api, account, *_ = entities(hass)
-    local = LocalRtspCoordinator(account, "CAM001", local_rtsp.LocalRtspConfig(**CONFIG))
-    return entry, api, account, local, switch.EzvizRtspSwitch(local)
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_control_auth": "verification_code", "username": "admin", "password": CONFIG["password"], "enc_key": "OTHER_KEY"}}})
+    rtsp = LocalRtspCoordinator(account, "CAM001")
+    return entry, api, account, rtsp, switch.EzvizRtspSwitch(rtsp)
 
 
 async def test_local_read_write_is_offloop_observed_and_cloud_independent(hass, sdk):
@@ -237,118 +235,6 @@ async def test_cancelled_local_write_remains_owned_and_unload_waits(hass, sdk):
         await account.async_close()
 
 
-@pytest.fixture
-def flow_setup(hass, monkeypatch):
-    loader.async_setup(hass)
-    component = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
-    hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = component
-    hass.data[loader.DATA_COMPONENTS][f"{DOMAIN}.config_flow"] = config_flow
-    monkeypatch.setattr(hass.config_entries, "async_reload", AsyncMock(return_value=True))
-    entry, _, account, *_ = entities(hass)
-    entry.runtime_data = SimpleNamespace(coordinator=account)
-    return entry, account
-
-
-async def start_flow(hass, entry):
-    manager = hass.config_entries.options
-    result = await manager.async_init(entry.entry_id)
-    return await manager.async_configure(result["flow_id"], {"next_step_id": "local_rtsp_select"})
-
-
-async def select_camera(hass, entry):
-    result = await start_flow(hass, entry)
-    return await hass.config_entries.options.async_configure(result["flow_id"], {"serial": "CAM001"})
-
-
-async def test_optin_reads_only_and_preserves_unrelated_camera_options(hass, sdk, flow_setup):
-    client, _ = sdk
-    entry, account = flow_setup
-    original = {"timeout": 33, "cameras": {"CAM001": {"password": "RTSP_NOT_LAN", "other": 7}, "OTHER": {"future": 1}}}
-    hass.config_entries.async_update_entry(entry, options=original)
-    try:
-        result = await select_camera(hass, entry)
-        assert result["step_id"] == "local_rtsp"
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"enabled": True, **CONFIG}
-        )
-        assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert entry.options["cameras"]["CAM001"] == {**original["cameras"]["CAM001"], "local_rtsp": CONFIG}
-        assert entry.options["cameras"]["OTHER"] == original["cameras"]["OTHER"]
-        assert entry.options["timeout"] == 33
-        client.services_switch_set.assert_not_called()
-        client.services_switch_state.assert_called_once()
-    finally:
-        await account.async_close()
-
-
-@pytest.mark.parametrize("enable", [False, True])
-async def test_edit_retains_masked_password_or_optout_clears_it_without_io(hass, sdk, flow_setup, enable):
-    client, _ = sdk
-    entry, account = flow_setup
-    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_rtsp": CONFIG}}})
-    try:
-        result = await select_camera(hass, entry)
-        assert "LAN_SECRET_MARKER" not in repr(result)
-        assert "LAN_SECRET_MARKER" not in repr(result["data_schema"].schema)
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": enable, **CONFIG, "password": ""})
-        assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert entry.options["cameras"]["CAM001"]["local_rtsp"] == (CONFIG if enable else {})
-        assert client.services_switch_state.call_count == int(enable)
-        client.services_switch_set.assert_not_called()
-    finally:
-        await account.async_close()
-
-
-@pytest.mark.parametrize("kind,error", [("invalid", "local_rtsp_invalid"), ("unknown", "local_rtsp_unsupported"), ("network", "local_rtsp_cannot_connect"), ("sdk", "local_rtsp_cannot_connect"), ("conflict", "options_changed")])
-async def test_flow_errors_do_not_commit_or_expose_credentials(hass, sdk, flow_setup, kind, error):
-    client, _ = sdk
-    entry, account = flow_setup
-    try:
-        result = await select_camera(hass, entry)
-        payload = {"enabled": True, **CONFIG}
-        if kind == "invalid":
-            payload["host"] = "localhost"
-        elif kind == "unknown":
-            client.services_switch_state.return_value = state(None)
-        elif kind == "network":
-            client.services_switch_state.side_effect = OSError("LAN_SECRET_MARKER")
-        elif kind == "sdk":
-            client.services_switch_state.side_effect = PyEzvizError("LAN_SECRET_MARKER")
-        else:
-            hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_rtsp": {**CONFIG, "host": "192.0.2.11"}}}})
-        before = entry.options
-        result = await hass.config_entries.options.async_configure(result["flow_id"], payload)
-        assert result["errors"] == {"base": error}
-        assert entry.options == before
-        assert "LAN_SECRET_MARKER" not in repr(result["data_schema"].schema)
-        client.services_switch_set.assert_not_called()
-    finally:
-        await account.async_close()
-
-
-@pytest.mark.parametrize("stage", ["select", "edit"])
-@pytest.mark.parametrize("failure", ["runtime", "shutdown", "battery", "missing"])
-async def test_flow_ineligible_or_unavailable_aborts(hass, sdk, flow_setup, stage, failure):
-    entry, account = flow_setup
-    try:
-        result = await (select_camera(hass, entry) if stage == "edit" else hass.config_entries.options.async_init(entry.entry_id))
-        if failure == "runtime":
-            del entry.runtime_data
-        elif failure == "shutdown":
-            account.begin_shutdown()
-        elif failure == "battery":
-            account.data["CAM001"]["device_category"] = "BatteryCamera"
-        else:
-            account.data = {}
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"enabled": False, **CONFIG} if stage == "edit" else {"next_step_id": "local_rtsp_select"}
-        )
-        assert result["type"] is FlowResultType.ABORT
-        assert result["reason"] == ("integration_unavailable" if failure in ("runtime", "shutdown") else "no_local_rtsp_cameras")
-    finally:
-        await account.async_close()
-
-
 async def test_cancelled_waiter_still_publishes_verified_readback(hass, sdk):
     client, _ = sdk
     _, _, account, local, entity = coordinator(hass)
@@ -383,42 +269,3 @@ def test_real_sdk_patch_preserves_unknown_and_other_service_fields():
     payload = ezviz_lan_services_switch_set_payload(before, rtsp=1)
     assert payload == {**RAW, "servicesSwitch": {**RAW["servicesSwitch"], "rtsp": 1}}
     assert before == RAW
-
-
-async def test_malformed_saved_optional_lan_config_can_be_reconfigured(hass, sdk, flow_setup):
-    client, _ = sdk
-    entry, account = flow_setup
-    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_rtsp": True, "future": 9}}})
-    try:
-        result = await select_camera(hass, entry)
-        assert result["step_id"] == "local_rtsp"
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": True, **CONFIG})
-        assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert entry.options["cameras"]["CAM001"] == {"local_rtsp": CONFIG, "future": 9}
-        client.services_switch_set.assert_not_called()
-    finally:
-        await account.async_close()
-
-
-async def test_conflict_redisplay_keeps_current_host_and_saved_password_together(hass, sdk, flow_setup):
-    client, factory = sdk
-    entry, account = flow_setup
-    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_rtsp": CONFIG}}})
-    try:
-        result = await select_camera(hass, entry)
-        changed = {**CONFIG, "host": "192.0.2.20", "username": "new-user", "password": "NEW_LAN_SECRET"}
-        hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"local_rtsp": changed}}})
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": True, **CONFIG, "password": ""})
-        assert result["errors"] == {"base": "options_changed"}
-        defaults = result["data_schema"]({})
-        assert defaults == {"enabled": True, **changed, "password": ""}
-        assert "NEW_LAN_SECRET" not in repr(result["data_schema"].schema)
-        assert factory.call_args.args[0].host == CONFIG["host"]
-        assert factory.call_args.args[1] == CONFIG["password"]
-        result = await hass.config_entries.options.async_configure(result["flow_id"], defaults)
-        assert result["type"] is FlowResultType.CREATE_ENTRY
-        assert factory.call_args.args[0].host == changed["host"]
-        assert factory.call_args.args[1] == changed["password"]
-        client.services_switch_set.assert_not_called()
-    finally:
-        await account.async_close()
