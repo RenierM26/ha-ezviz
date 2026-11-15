@@ -110,7 +110,7 @@ def _night_vision_luminance_setter() -> Callable[
             mode=night_vision_mode_value(camera_data),
             luminance=round(value),
         )
-        client.set_dev_config_kv(
+        return client.set_dev_config_kv(
             serial,
             resolve_channel(camera_data),
             "NightVision_Model",
@@ -134,7 +134,7 @@ def _night_vision_duration_setter() -> Callable[
             mode=night_vision_mode_value(camera_data),
             duration=round(value),
         )
-        client.set_dev_config_kv(
+        return client.set_dev_config_kv(
             serial,
             resolve_channel(camera_data),
             "NightVision_Model",

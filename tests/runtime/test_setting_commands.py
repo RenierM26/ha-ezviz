@@ -347,3 +347,28 @@ async def test_malformed_observed_enum_is_unknown_without_failing_poll(hass):
         assert entity.current_option is None
     finally:
         await data.async_close()
+
+
+@pytest.mark.parametrize(
+    "key,value,field,observed",
+    [
+        ("night_vision_luminance", 75.6, "luminance", 40),
+        ("night_vision_duration", 90.6, "duration", 60),
+    ],
+)
+async def test_rejected_night_number_cannot_reappear_in_later_mode_payload(
+    hass, key, value, field, observed
+):
+    api, data = configured(hass)
+    api.set_dev_config_kv.return_value = False
+    try:
+        with pytest.raises(HomeAssistantError):
+            await numeric(data, key).async_set_native_value(value)
+        assert not data.settings._context
+        assert data.settings._refresh_cancel is None
+        assert numeric(data, key).native_value == observed
+        api.set_dev_config_kv.return_value = True
+        await selector(data, "smart_night_vision_model").async_select_option("night_vision_smart")
+        assert api.set_dev_config_kv.call_args.args[-1][field] == observed
+    finally:
+        await data.async_close()
