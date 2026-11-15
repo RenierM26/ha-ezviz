@@ -26,6 +26,15 @@ work; arbitrary custom blocking hooks still cannot be interrupted by Python.
 | Light bulb | On/off light with observed command metadata | No inferred brightness/color temperature scale |
 | Smart plug | On/off outlet switch | No inferred power/energy measurements |
 
+The recorded LB1 bulb from [issue #173](https://github.com/RenierM26/ha-ezviz/issues/173)
+is qualified by an offline export replay through published SDK 2.4.0 and the HA
+adapter. The eight recorded-fixture cases cover bulb-only discovery, observed
+on/off and online/offline states, real SDK command encoding, and a registered HA
+light service/state update. The SDK reads brightness and colour-temperature values
+and retains RGB feature metadata, but the HA bulb entity intentionally exposes
+only on/off. No dimming/colour controls or physical bulb behaviour are established
+by this replay. See [fixture provenance and sanitization](../tests/fixtures/README.md).
+
 The contact/water binary views intentionally remain `unknown` with current SDK
 polling. This is not a claim of hardware-qualified detector alarm semantics.
 Detector siren control is not exposed. On/off commands use existing public SDK
