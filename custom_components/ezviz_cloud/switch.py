@@ -1,7 +1,9 @@
 """Support for EZVIZ switches."""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 from typing import Any, override
 
 from pyezvizapi import EzvizClient
@@ -19,13 +21,22 @@ from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import EzvizDataUpdateCoordinator
-from .entity import EzvizEntity, EzvizInventoryEntity
+from .coordinator import EzvizDataUpdateCoordinator, LocalRtspCoordinator
+from .credentials import camera_options
+from .entity import (
+    EzvizEntity,
+    EzvizEntityIdMixin,
+    EzvizInventoryEntity,
+    _build_device_info,
+)
 from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
+from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
 from .utility import (
@@ -36,7 +47,11 @@ from .utility import (
     passes_description_gates,
 )
 
-PARALLEL_UPDATES = 1
+_LOGGER = logging.getLogger(__name__)
+# Cloud writes have an account-owned lock; local controls have per-camera locks.
+# A camera restarting after a local write must not hold up unrelated switches.
+PARALLEL_UPDATES = 0
+LOCAL_INIT_CONCURRENCY = 2
 
 PORT_SECURITY_CLIENT_MODE = PortSecurityToggle((80, 443, 8000))
 PORT_SECURITY_LINK = PortSecurityToggle.single(50161)
@@ -510,7 +525,40 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "plug", plug_entities
     )
 
+    local_coordinators: list[LocalRtspCoordinator] = []
+    for serial, camera_data in coordinator.data.items():
+        if not local_controls_eligible(camera_data):
+            continue
+        options = camera_options(entry, serial)
+        if (
+            options.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED)
+            == LocalControlAuth.DISABLED
+        ):
+            continue
+        try:
+            coordinator.local_device(serial).configuration()
+        except KeyError, TypeError, ValueError, PyEzvizError:
+            _LOGGER.warning(
+                "Invalid local-control authentication; review Camera settings"
+            )
+            continue
+        local = coordinator.local_rtsp_coordinator(serial)
+        entry.async_on_unload(local.async_shutdown)
+        local_coordinators.append(local)
+        entities.append(EzvizRtspSwitch(local))
+
+    # Optional LAN connectivity must never gate existing cloud controls or setup.
     async_add_entities(entities)
+    limit = asyncio.Semaphore(LOCAL_INIT_CONCURRENCY)
+
+    async def initialize(local: LocalRtspCoordinator) -> None:
+        async with limit:
+            await local.async_refresh()
+
+    for local in local_coordinators:
+        entry.async_create_background_task(
+            hass, initialize(local), "EZVIZ local RTSP initial read", eager_start=False
+        )
 
 
 class EzvizSwitch(EzvizEntity, SwitchEntity):
@@ -596,3 +644,37 @@ def plug_entities(
         if isinstance(state, PlugState) and state.is_on is not None
         else []
     )
+
+
+class EzvizRtspSwitch(
+    EzvizEntityIdMixin, CoordinatorEntity[LocalRtspCoordinator], SwitchEntity
+):
+    """Observed LAN RTSP service configuration, not stream playback health."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "rtsp_service"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: LocalRtspCoordinator) -> None:
+        """Attach to the existing camera device, independently of cloud health."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.serial}_local_rtsp"
+        self._attr_device_info = _build_device_info(
+            coordinator.account.device_data(coordinator.serial), coordinator.serial
+        )
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the last observed local service setting."""
+        return self.coordinator.data
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable only RTSP and publish the verified configuration."""
+        await self.coordinator.async_set_enabled(True)
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable only RTSP and publish the verified configuration."""
+        await self.coordinator.async_set_enabled(False)

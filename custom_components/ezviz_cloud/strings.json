@@ -89,14 +89,19 @@
       },
       "camera_edit": {
         "title": "Camera settings",
-        "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted.",
+        "description": "Editing camera {serial} at {ip_address}. Local LAN control (HCNetSDK, TCP 8000) uses the explicitly selected existing credential and is always tested when enabled. RTSP playback authentication is separate. Failed LAN validation returns here with your selections and resolved fields retained; no other credential is tried. Test RTSP connection is optional. If requested and validated LAN status explicitly reports RTSP off, the next screen offers to enable it. No service is changed without confirmation.",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
           "password": "Verification code (older cams) or leave “fetch_my_key”",
           "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
-          "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
-          "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
-          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)"
+          "rtsp_uses_verification_code": "RTSP playback credential",
+          "ephemeral_test_rtsp": "Test RTSP connection",
+          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
+          "local_control_auth": "Local LAN control (HCNetSDK)"
+        },
+        "data_description": {
+          "rtsp_uses_verification_code": "Credential used only for the RTSP connection, independently of Local LAN control (HCNetSDK).",
+          "ephemeral_test_rtsp": "Runs the existing SDK RTSP DESCRIBE credential check on default port 554, not a media-playback test. Enabled LAN control is always validated first, even when this test is off."
         }
       },
       "camera_edit_2fa": {
@@ -105,6 +110,13 @@
         "data": {
           "cam_verification_2fa_code": "Verification code",
           "cam_encryption_2fa_code": "Verification code"
+        }
+      },
+      "rtsp_enable": {
+        "title": "RTSP service is disabled",
+        "description": "For camera {serial}, local LAN authentication succeeded and the camera explicitly reports RTSP off. Check the box to enable RTSP before testing the selected playback credential, or leave it unchecked to test without changing the camera. No camera change or option save has occurred yet. Settings are saved only if the requested test succeeds.",
+        "data": {
+          "enable_rtsp": "Enable RTSP before testing"
         }
       }
     },
@@ -117,10 +129,20 @@
       "invalid_timeout": "Timeout must be a whole number between 1 and 300 seconds.",
       "options_changed": "Camera settings changed while this form was open. Review the current values and submit again.",
       "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
-      "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later."
+      "encryption_key_fetch_failed": "EZVIZ could not retrieve the encryption key. Saved credentials are unchanged; keep the existing key or retry later.",
+      "local_control_invalid": "The selected local credential or camera IPv4 address is missing or invalid. Check the chosen field on this screen.",
+      "local_control_unsupported": "This camera does not report the local RTSP service setting.",
+      "local_control_cannot_connect": "Cannot validate local controls with the selected credential. Check that credential and local TCP port 8000; no other credential will be tried.",
+      "rtsp_enable_unverified": "RTSP enablement was refused or could not be verified. The outcome may be unknown; no automatic write retry was made. Wait for camera services to recover, then test again to read its actual status.",
+      "rtsp_enabled_test_failed": "RTSP configuration was verified enabled, but the connection/credential test failed. No camera options were saved. Review the playback credential and connection before testing again.",
+      "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings."
     },
     "abort": {
       "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
+    },
+    "create_entry": {
+      "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback.",
+      "rtsp_tested_without_enable": "The RTSP DESCRIBE credential test passed and camera settings were saved. No RTSP service change was requested. This does not verify media playback."
     }
   },
   "entity": {
@@ -532,6 +554,9 @@
       },
       "intelligent_app_pir_detect": {
         "name": "PIR detection"
+      },
+      "rtsp_service": {
+        "name": "RTSP service"
       }
     },
     "siren": {
@@ -556,6 +581,19 @@
         "eu": "Europe",
         "ru": "Russia",
         "custom": "Custom host"
+      }
+    },
+    "local_control_auth": {
+      "options": {
+        "disabled": "Disabled",
+        "verification_code": "Enabled — verification/sticker code (legacy cameras)",
+        "encryption_key": "Enabled — encryption key (modern cameras)"
+      }
+    },
+    "rtsp_playback_auth": {
+      "options": {
+        "encryption_key": "Encryption key",
+        "verification_code": "Verification/sticker code"
       }
     }
   },
@@ -661,6 +699,9 @@
     },
     "request_failed": {
       "message": "{operation} failed: EZVIZ request error ({detail})."
+    },
+    "local_rtsp_unverified": {
+      "message": "The local RTSP change could not be confirmed after checking the camera's reported state. The setting may already have changed. Wait for camera services to recover and refresh its status before retrying."
     }
   }
 }

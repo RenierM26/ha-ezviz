@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import OrderedDict
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from copy import deepcopy
 from datetime import timedelta
 import logging
@@ -27,6 +27,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
+from .local import LocalDevice
+from .local_rtsp import read_local_rtsp, write_local_rtsp
 from .setting_writes import SettingWrites
 from .workers import create_critical_task, create_executor_task
 
@@ -53,6 +55,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
         self.settings = SettingWrites(self)
+        self._local_devices: dict[str, LocalDevice] = {}
+        self._local_rtsp_coordinators: dict[str, LocalRtspCoordinator] = {}
         self._update_lock = asyncio.Lock()
         self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
@@ -127,6 +131,20 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         while len(self.image_records) > 1024:
             self.image_records.popitem(last=False)
         return reference
+
+    def local_device(self, serial: str) -> LocalDevice:
+        """Share one local execution lock across a camera's local control families."""
+        if serial not in self._local_devices:
+            self._local_devices[serial] = LocalDevice(self, serial)
+        return self._local_devices[serial]
+
+    def local_rtsp_coordinator(self, serial: str) -> LocalRtspCoordinator:
+        """Share one observed RTSP state owner between entities and options flows."""
+        if self._closing:
+            raise HomeAssistantError("EZVIZ coordinator is shutting down")
+        if serial not in self._local_rtsp_coordinators:
+            self._local_rtsp_coordinators[serial] = LocalRtspCoordinator(self, serial)
+        return self._local_rtsp_coordinators[serial]
 
     def device_data(self, serial: str) -> dict[str, Any]:
         """Use the camera push projection, otherwise the detached inventory view."""
@@ -220,6 +238,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         await asyncio.shield(self._close_task)
 
     async def _async_finish_close(self) -> None:
+        for local in tuple(self._local_rtsp_coordinators.values()):
+            await local.async_shutdown()
         pending = tuple(self._action_futures)
         if self._poll_future is not None:
             pending += (self._poll_future,)
@@ -273,3 +293,60 @@ def _retrieve_worker_error(future: asyncio.Future) -> None:
     """Retrieve late failures without cancelling a still-owned executor job."""
     if not future.cancelled():
         future.exception()
+
+
+class LocalRtspCoordinator(DataUpdateCoordinator[bool]):
+    """Poll one opted-in camera independently of cloud health and refreshes."""
+
+    def __init__(self, account: EzvizDataUpdateCoordinator, serial: str) -> None:
+        """Initialize an account-owned local IO lifetime and per-camera lock."""
+        super().__init__(
+            account.hass,
+            _LOGGER,
+            config_entry=account.config_entry,
+            name="EZVIZ local RTSP",
+            update_interval=timedelta(minutes=5),
+        )
+        # Optional LAN setup runs in the background; no observation exists yet.
+        self.last_update_success = False
+        self.account = account
+        self.serial = serial
+        self.device = account.local_device(serial)
+
+    @override
+    async def _async_update_data(self) -> bool:
+        try:
+            return await self.device.async_execute(read_local_rtsp)
+        except PyEzvizError, OSError, ValueError, TypeError, KeyError:
+            # Never include device responses, addresses or credential-bearing errors.
+            raise UpdateFailed("Local RTSP configuration unavailable") from None
+
+    async def async_set_enabled(
+        self,
+        enabled: bool,
+        *,
+        options: Mapping[str, Any] | None = None,
+        precondition: Callable[[], Any] | None = None,
+    ) -> None:
+        """Own the complete write/read-back even if the service caller cancels."""
+
+        async def operation() -> None:
+            try:
+                observed = await self.device.async_execute(
+                    write_local_rtsp,
+                    enabled,
+                    options=options,
+                    precondition=precondition,
+                )
+            except PyEzvizError, OSError, ValueError, TypeError, KeyError:
+                if not self.account.shutting_down:
+                    self.async_set_update_error(
+                        UpdateFailed("Local RTSP change refused or not verified")
+                    )
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="local_rtsp_unverified"
+                ) from None
+            if not self.account.shutting_down:
+                self.async_set_updated_data(observed)
+
+        await self.account.async_execute_owned(operation)

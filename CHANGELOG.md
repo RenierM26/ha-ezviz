@@ -26,6 +26,35 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Add an opt-in per-camera **RTSP service** configuration switch using the
+  published SDK's local command-port API (TCP 8000). Setup is read-only and
+  excludes battery families. A three-choice Local device controls dropdown in
+  Camera settings reuses the existing username and chosen verification/sticker
+  code or encryption key, without another stored credential or fallback. The
+  shared local backend is reusable by future controls. A separate RTSP playback
+  credential dropdown retains boolean storage compatibility. Enabled LAN control
+  is always tested first; failed checks preserve the form. Explicit RTSP testing
+  can offer a confirmed enable only after a known off response. No write occurs
+  without affirmative consent; verified enable and connection-test results are
+  distinguished. Leaving the enable confirmation unchecked still performs the
+  requested credential test without a camera write. A single service write allows
+  bounded read-only recovery checks so a delayed state or lost acknowledgement
+  does not falsely report failure. Live Husky testing confirmed an approximately
+  minute-long management restart after disable; read-only recovery now allows a
+  75-second window without blocking unrelated switches. The optional connection
+  test defaults off.
+  Optional LAN initialization is background/bounded and no longer delays cloud
+  camera switches during startup. Enable offers are bound to their runtime and
+  invalidated by explicit inventory removal, including while waiting for the local
+  lock; retained historical SDK rows are not evidence of current membership.
+  Settings-flow enables and the RTSP entity share one observed-state coordinator,
+  so unchanged options or a later playback-test failure cannot leave the switch
+  stale until a poll/reload. Local status is polled every five minutes,
+  independently of cloud health.
+  Writes preserve unrelated services and publish only verified read-back; no
+  automatic port opening, credential fallback, watchdog or write retry.
+
+
 - Coalesce ordinary cloud-setting refreshes about two seconds after the latest
   accepted command. Camera switches/lights, numbers/selects, plug/bulb power,
   camera name and motion detection display only SDK-observed state; the old value

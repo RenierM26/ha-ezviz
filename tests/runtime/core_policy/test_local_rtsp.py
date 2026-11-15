@@ -1,0 +1,310 @@
+"""Local RTSP entity setup, real HA services and coordinator polling lifecycle."""
+
+import asyncio
+from datetime import timedelta
+import logging
+from threading import Event, get_ident
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock
+
+import custom_components
+from custom_components.ezviz_cloud import local, switch
+from custom_components.ezviz_cloud.const import DOMAIN
+from custom_components.ezviz_cloud.coordinator import LocalRtspCoordinator
+from custom_components.ezviz_cloud.diagnostics import async_get_config_entry_diagnostics
+from custom_components.ezviz_cloud.runtime import RuntimeCleanup
+from pyezvizapi.exceptions import PyEzvizError
+from pyezvizapi.streaming.local.hcnetsdk.api import EzvizLanServicesSwitchState
+import pytest
+
+from homeassistant import loader
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch.const import DATA_COMPONENT
+from homeassistant.components.switch.services import async_setup_services
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import EntityComponent
+from homeassistant.helpers.entity_platform import EntityPlatform, EntityPlatformModule
+
+from tests.runtime.test_hardening import entities
+
+CONFIG = {
+    "local_control_auth": "verification_code",
+    "username": "admin",
+    "password": "LAN_SECRET_MARKER",
+    "enc_key": "OTHER_KEY",
+}
+
+
+def response(enabled: int) -> EzvizLanServicesSwitchState:
+    """Use detached observations, not an SDK optimistic setter cache."""
+    return EzvizLanServicesSwitchState(
+        raw={"servicesSwitch": {"rtsp": enabled, "web": 0}}
+    )
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("category", ["IPC", "BatteryCamera"])
+@pytest.mark.parametrize("reachable", [False, True])
+async def test_only_opted_nonbattery_camera_gets_local_switch(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: bool,
+    category: str,
+    reachable: bool,
+) -> None:
+    """A failed LAN initial read cannot prevent other cloud switches loading."""
+    entry, _api, account, *_ = entities(hass)
+    account.data["CAM001"]["device_category"] = category
+    account.data["CAM001"]["switches"] = {1: 0}
+    entry.runtime_data = SimpleNamespace(coordinator=account)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={"cameras": {"CAM001": CONFIG if configured else {}}},
+    )
+    client = MagicMock()
+    client.services_switch_state.return_value = response(0)
+    if not reachable:
+        client.services_switch_state.side_effect = OSError("synthetic")
+    factory = MagicMock(return_value=client)
+    monkeypatch.setattr(local, "HcNetSdkPurePythonClient", factory)
+    monkeypatch.setattr(switch, "migrate_unique_ids_with_coordinator", AsyncMock())
+    added: list[SwitchEntity] = []
+    try:
+        await switch.async_setup_entry(hass, entry, added.extend)
+        local_entities = [
+            item for item in added if isinstance(item, switch.EzvizRtspSwitch)
+        ]
+        expected = configured and category == "IPC"
+        assert len(local_entities) == int(expected)
+        assert all(not item.available for item in local_entities)
+        await asyncio.gather(*tuple(entry._background_tasks))
+        assert factory.call_count == int(expected)
+        if local_entities:
+            assert local_entities[0].available is reachable
+            await local_entities[0].coordinator.async_shutdown()
+        assert account.last_update_success
+        client.services_switch_set.assert_not_called()
+    finally:
+        await account.async_close()
+
+
+async def test_registered_switch_services_polling_rename_and_unload(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read-back controls real HA state; listeners alone own interval polling."""
+    loader.async_setup(hass)
+    component = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
+    assert component is not None
+    hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = component
+    entry, _api, account, *_ = entities(hass)
+    entry.runtime_data = SimpleNamespace(coordinator=account)
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": CONFIG}}
+    )
+    local_coordinator = LocalRtspCoordinator(account, "CAM001")
+    physical = False
+    threads: list[int] = []
+    client = MagicMock()
+
+    def read() -> EzvizLanServicesSwitchState:
+        threads.append(get_ident())
+        return response(int(physical))
+
+    def write(_payload: object, *, rtsp: int) -> SimpleNamespace:
+        nonlocal physical
+        physical = bool(rtsp)
+        return SimpleNamespace(succeeded=True, json=lambda: {"statusCode": 1})
+
+    client.services_switch_state.side_effect = read
+    client.services_switch_set.side_effect = write
+    monkeypatch.setattr(
+        local, "HcNetSdkPurePythonClient", lambda *_args, **_kwargs: client
+    )
+    account.async_request_refresh = AsyncMock()
+    local_coordinator.last_update_success = False
+    await local_coordinator.async_refresh()
+    component_owner = EntityComponent[SwitchEntity](
+        logging.getLogger(__name__), "switch", hass
+    )
+    hass.data[DATA_COMPONENT] = component_owner
+    async_setup_services(hass)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="switch",
+        platform_name=DOMAIN,
+        platform=None,
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = entry
+    entity = switch.EzvizRtspSwitch(local_coordinator)
+    try:
+        await platform.platform_data.async_load_translations()
+        await platform.async_add_entities([entity])
+        assert entity.name == "RTSP service"
+        assert hass.states.get(entity.entity_id).state == "off"
+        assert local_coordinator._unsub_refresh is not None
+        assert local_coordinator.update_interval == timedelta(minutes=5)
+        registry = er.async_get(hass)
+        registered = registry.async_get(entity.entity_id)
+        assert registered is not None and registered.device_id
+        for service, expected in (("turn_on", "on"), ("turn_off", "off")):
+            await hass.services.async_call(
+                "switch", service, {"entity_id": entity.entity_id}, blocking=True
+            )
+            assert hass.states.get(entity.entity_id).state == expected
+        assert all(thread != get_ident() for thread in threads)
+        account.async_request_refresh.assert_not_awaited()
+        if hasattr(entity, "async_entity_id_changed"):
+            registry.async_update_entity(
+                entity.entity_id, new_entity_id="switch.renamed_rtsp"
+            )
+            await hass.async_block_till_done()
+            assert hass.states.get("switch.renamed_rtsp").state == "off"
+        # The device independently disables/enables RTSP: local polling, not cloud,
+        # must publish it through the same listener.
+        physical = True
+        await local_coordinator.async_refresh()
+        assert hass.states.get(entity.entity_id).state == "on"
+        client.services_switch_state.side_effect = PyEzvizError("LAN_SECRET_MARKER")
+        await local_coordinator.async_refresh()
+        assert hass.states.get(entity.entity_id).state == "unavailable"
+        await platform.async_reset()
+        assert local_coordinator._unsub_refresh is None
+    finally:
+        await platform.async_reset()
+        await local_coordinator.async_shutdown()
+        await account.async_close()
+
+
+@pytest.mark.parametrize("options", [True, "unknown", "encryption_key"])
+async def test_invalid_saved_lan_options_do_not_fail_cloud_platform(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, options: object
+) -> None:
+    """Malformed optional LAN configuration must not prevent cloud setup."""
+    entry, _api, account, *_ = entities(hass)
+    entry.runtime_data = SimpleNamespace(coordinator=account)
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": {"local_control_auth": options}}}
+    )
+    factory = MagicMock()
+    monkeypatch.setattr(local, "HcNetSdkPurePythonClient", factory)
+    monkeypatch.setattr(switch, "migrate_unique_ids_with_coordinator", AsyncMock())
+    added: list[SwitchEntity] = []
+    try:
+        await switch.async_setup_entry(hass, entry, added.extend)
+        assert not any(isinstance(item, switch.EzvizRtspSwitch) for item in added)
+        factory.assert_not_called()
+        assert account.last_update_success
+    finally:
+        await account.async_close()
+
+
+async def test_lan_credentials_and_address_never_enter_diagnostics(
+    hass: HomeAssistant,
+) -> None:
+    """The diagnostic allowlist excludes the entire optional LAN configuration."""
+    entry, _api, account, *_ = entities(hass)
+    entry.runtime_data = RuntimeCleanup(hass, account)
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": CONFIG}}
+    )
+    try:
+        report = await async_get_config_entry_diagnostics(hass, entry)
+        assert CONFIG["password"] not in str(report)
+        assert "192.0.2.1" not in str(report)
+    finally:
+        await account.async_close()
+
+
+async def test_recovering_local_service_does_not_block_cloud_switch_dispatch(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Real service dispatch must use independent cloud and per-camera locks."""
+    loader.async_setup(hass)
+    component = loader.Integration.resolve_from_root(hass, custom_components, DOMAIN)
+    assert component is not None
+    hass.data[loader.DATA_INTEGRATIONS][DOMAIN] = component
+    entry, _api, account, *_ = entities(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": CONFIG}}
+    )
+    local_coordinator = LocalRtspCoordinator(account, "CAM001")
+    entered, release = Event(), Event()
+    written = False
+    client = MagicMock()
+    cloud_write = MagicMock(return_value=True)
+
+    def read() -> EzvizLanServicesSwitchState:
+        if written:
+            entered.set()
+            assert release.wait(5)
+            return response(0)
+        return response(1)
+
+    def write(_payload: object, *, rtsp: int) -> None:
+        nonlocal written
+        assert rtsp == 0
+        written = True
+
+    client.services_switch_state.side_effect = read
+    client.services_switch_set.side_effect = write
+    monkeypatch.setattr(local, "HcNetSdkPurePythonClient", lambda *_a, **_k: client)
+    account.async_request_refresh = AsyncMock()
+    await local_coordinator.async_refresh()
+    hass.data[DATA_COMPONENT] = EntityComponent[SwitchEntity](
+        logging.getLogger(__name__), "switch", hass
+    )
+    async_setup_services(hass)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="switch",
+        platform_name=DOMAIN,
+        platform=cast(EntityPlatformModule, switch),
+        scan_interval=timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = entry
+    rtsp = switch.EzvizRtspSwitch(local_coordinator)
+    cloud = switch.EzvizSwitch(
+        account,
+        "CAM001",
+        switch.EzvizSwitchEntityDescription(
+            key="cloud_test",
+            name="Cloud test",
+            value_fn=lambda _: False,
+            method=cloud_write,
+        ),
+    )
+    task = None
+    try:
+        await platform.platform_data.async_load_translations()
+        await platform.async_add_entities([rtsp, cloud])
+        task = asyncio.create_task(
+            hass.services.async_call(
+                "switch", "turn_off", {"entity_id": rtsp.entity_id}, blocking=True
+            )
+        )
+        assert await asyncio.to_thread(entered.wait, 2)
+        async with asyncio.timeout(1):
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": cloud.entity_id}, blocking=True
+            )
+        cloud_write.assert_called_once()
+        assert not task.done()
+        assert hass.states.get(rtsp.entity_id).state == "on"  # Not optimistic.
+        release.set()
+        await task
+        assert hass.states.get(rtsp.entity_id).state == "off"
+        client.services_switch_set.assert_called_once()
+    finally:
+        release.set()
+        if task is not None:
+            await task
+        await platform.async_reset()
+        await local_coordinator.async_shutdown()
+        await account.async_close()

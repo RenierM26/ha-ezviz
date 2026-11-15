@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from pyezvizapi.client import EzvizClient
-from pyezvizapi.constants import DeviceCatagories
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
     DeviceException,
@@ -23,6 +22,8 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_FETCH_MY_KEY,
 )
+from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth
+from .local_rtsp import LocalRtspUnsupported, read_local_rtsp
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
@@ -95,12 +96,6 @@ def _wake_camera(data: dict, ezviz_client: EzvizClient) -> None:
     _test_camera_rtsp_creds(data)
 
 
-def _infer_supports_rtsp_from_category(cam_info: dict) -> bool:
-    """Heuristic: most battery categories lack RTSP; some do support it though."""
-    cat = cam_info["device_category"]
-    return DeviceCatagories.BATTERY_CAMERA_DEVICE_CATEGORY.value not in cat
-
-
 def _credential_fetch_error(
     field: str, data: dict, baseline: dict[str, Any], serial: str
 ) -> CameraCredentialFetchError:
@@ -118,6 +113,8 @@ async def async_resolve_camera_credentials(
     data: dict,
     baseline: dict[str, Any],
     serial: str,
+    *,
+    test_rtsp: bool = True,
 ) -> dict:
     """Resolve/fetch creds; run RTSP wake+probe only when explicitly requested.
 
@@ -156,7 +153,7 @@ async def async_resolve_camera_credentials(
             _LOGGER.info("Fetched verification code for camera %s", data[ATTR_SERIAL])
 
         # Optional one-time RTSP test: only if user requested
-        if data.get("ephemeral_test_rtsp"):
+        if test_rtsp and data.get("ephemeral_test_rtsp"):
             await coordinator.async_execute(_wake_camera, data, ezviz_client)
             _LOGGER.debug("RTSP credentials verified for camera %s", data[ATTR_SERIAL])
 
@@ -204,3 +201,38 @@ async def async_resolve_camera_credentials(
     data.pop("cloud_account_username")
 
     return data
+
+
+class LocalControlValidationError(PyEzvizError):
+    """Keep resolved camera fields for correction without logging device failures."""
+
+    def __init__(self, error_key: str, data: dict[str, Any]) -> None:
+        """Retain form inputs, not a credential-bearing error message."""
+        super().__init__("Local control validation failed")
+        self.error_key = error_key
+        self.data = data
+
+
+async def async_validate_local_controls(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, resolved: dict[str, Any]
+) -> bool | None:
+    """Always test enabled LAN access; return known RTSP state, never infer off."""
+    if (
+        resolved.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED)
+        == LocalControlAuth.DISABLED
+    ):
+        return None
+    try:
+        return await coordinator.local_device(serial).async_execute(
+            read_local_rtsp, options=resolved
+        )
+    except KeyError, TypeError, ValueError:
+        raise LocalControlValidationError("local_control_invalid", resolved) from None
+    except LocalRtspUnsupported:
+        raise LocalControlValidationError(
+            "local_control_unsupported", resolved
+        ) from None
+    except PyEzvizError, OSError:
+        raise LocalControlValidationError(
+            "local_control_cannot_connect", resolved
+        ) from None

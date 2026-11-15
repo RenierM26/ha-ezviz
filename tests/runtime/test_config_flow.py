@@ -291,7 +291,7 @@ async def start_camera(hass, monkeypatch, *, cameras=True, battery=False):
 async def test_camera_success(hass, monkeypatch, battery, fetch, verification):
     entry, client, rtsp, result = await start_camera(hass, monkeypatch, battery=battery)
     defaults = result["data_schema"]({})
-    assert defaults["ephemeral_test_rtsp"] is not battery
+    assert defaults["ephemeral_test_rtsp"] is False
     payload = {
         **CAMERA,
         "rtsp_uses_verification_code": verification,
