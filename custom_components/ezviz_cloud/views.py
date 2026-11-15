@@ -12,6 +12,7 @@ from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
 from aiohttp.resolver import ThreadedResolver
 from pyezvizapi.devices.images import process_image_bytes
 from pyezvizapi.exceptions import PyEzvizError
+from yarl import URL
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.image import infer_image_type
@@ -46,12 +47,13 @@ class PublicImageResolver(ThreadedResolver):
 
 
 def _public_image_url(url: str) -> bool:
-    """Require HTTPS and reject literal private targets (which bypass DNS)."""
+    """Check the transport-normalized host, including literals that bypass DNS."""
     try:
         parsed = urlsplit(url)
+        host = URL(url).raw_host
         if (
             parsed.scheme != "https"
-            or not parsed.hostname
+            or not host
             or parsed.username
             or parsed.password
             or parsed.port not in (None, 443)
@@ -60,13 +62,11 @@ def _public_image_url(url: str) -> bool:
         ):
             return False
         try:
-            return ip_address(parsed.hostname).is_global
+            return ip_address(host).is_global
         except ValueError:
             # aiohttp bypasses the resolver for all-numeric/dotted hosts,
             # including legacy IPv4 forms such as 127.1 and integer literals.
-            return not (
-                ":" in parsed.hostname or parsed.hostname.replace(".", "").isdigit()
-            )
+            return not (":" in host or host.replace(".", "").isdigit())
     except ValueError:
         return False
 

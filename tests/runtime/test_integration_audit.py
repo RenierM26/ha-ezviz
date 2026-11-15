@@ -129,11 +129,18 @@ async def test_control_awaits_observation_through_partial_push(hass, monkeypatch
     _, _api, data, *_ = entities(hass)
     data.data["CAM001"].update(switches={1: int(not on)}, alarm_light_luminance=10)
     data.data["OTHER"] = deepcopy(data.data["CAM001"])
+    physical = deepcopy(data.data["CAM001"])
+    def power(*_):
+        physical["switches"][1] = int(on)
+        return True
+    def brightness(_client, _serial, percent):
+        physical["alarm_light_luminance"] = percent
+        return True
     if kind == "light":
-        desc = light.EzvizLightEntityDescription(key="synthetic", is_on_value=lambda row: row["switches"][1], brightness_value=lambda row: row["alarm_light_luminance"], power_on=lambda *_: True, power_off=lambda *_: True, set_brightness=lambda *_: True)
+        desc = light.EzvizLightEntityDescription(key="synthetic", is_on_value=lambda row: row["switches"][1], brightness_value=lambda row: row["alarm_light_luminance"], power_on=power, power_off=power, set_brightness=brightness)
         entity = light.EzvizLight(data, "CAM001", desc)
     else:
-        desc = switch.EzvizSwitchEntityDescription(key="synthetic", value_fn=lambda row: row["switches"][1], method=lambda *_: True)
+        desc = switch.EzvizSwitchEntityDescription(key="synthetic", value_fn=lambda row: row["switches"][1], method=power)
         entity = switch.EzvizSwitch(data, "CAM001", desc)
     entity.hass = hass
     entity.async_write_ha_state = MagicMock()
@@ -141,8 +148,8 @@ async def test_control_awaits_observation_through_partial_push(hass, monkeypatch
     async def refresh():
         entered.set()
         await release.wait()
-        data.data["CAM001"]["switches"][1] = int(on)
-        data.data["CAM001"]["alarm_light_luminance"] = 80
+        data.data["CAM001"]["switches"][1] = physical["switches"][1]
+        data.data["CAM001"]["alarm_light_luminance"] = physical["alarm_light_luminance"]
         entity._handle_coordinator_update()
     monkeypatch.setattr(data, "async_request_refresh", refresh)
     method = entity.async_turn_on if on else entity.async_turn_off

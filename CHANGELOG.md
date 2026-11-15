@@ -39,13 +39,17 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   reject caller URLs and private DNS/IP targets. Follow at most five validated
   public HTTPS CDN redirects within one 30-second download deadline, keeping
   connection-time DNS checks on every hop. Reject downgrades, unsafe/malformed
-  targets and missing locations. Old proxy links require browsing again.
+  targets and missing locations. Validate yarl's transport-normalized hostname
+  before public-IP/numeric checks, including Unicode-dot/fullwidth IP forms;
+  keep the original signed request string. Old proxy links require browsing again.
 - Decode media-browser images through the SDK even without a key (first lens),
   reject unresolved encryption and serve the decoded image content type.
 - Publish siren availability on coordinator failure/recovery without polling or
   changing local assumed state/timer semantics.
 - Camera switches/lights now await shared authoritative refresh rather than
   publishing optimistic values that unrelated alarm pushes could roll back.
+  Light turn-on completes brightness/power writes before one observation refresh;
+  accepted brightness is still reconciled if the later power write fails.
 
 - Recognize clear image signatures before rejecting embedded encryption markers,
   including legal JPEG metadata in fresh/cached Last motion and Snapshot images.

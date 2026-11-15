@@ -159,6 +159,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on light (optionally set brightness first)."""
+        refresh_required = False
         try:
             # If brightness provided, set luminance first (1-255 -> 0-100 %)
             if (
@@ -182,7 +183,7 @@ class EzvizLight(EzvizEntity, LightEntity):
                         "EZVIZ did not accept the brightness command"
                     )
                 if ok:
-                    await self.coordinator.async_request_refresh()
+                    refresh_required = True
 
             # Then power on
             ok = await self.coordinator.async_execute(
@@ -193,10 +194,15 @@ class EzvizLight(EzvizEntity, LightEntity):
             if ok is False:
                 raise HomeAssistantError("EZVIZ did not accept the light command")
             if ok:
-                await self.coordinator.async_request_refresh()
+                refresh_required = True
 
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn on light", err) from err
+        finally:
+            # Observe the compound write once, after power has been attempted.
+            # Reconcile accepted brightness even if the later power write fails.
+            if refresh_required:
+                await self.coordinator.async_request_refresh()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
