@@ -1,6 +1,7 @@
 """Support for EZVIZ number controls."""
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
@@ -311,7 +312,13 @@ class EzvizNumber(EzvizEntity, NumberEntity):
     @override
     def native_value(self) -> float | None:
         """Return the current numeric value from coordinator data."""
-        return self.entity_description.get_value(self.data)
+        observed = self.entity_description.get_value(self.data)
+        if observed is None:
+            return None
+        return self.setting_value(
+            f"number:{self.entity_description.key}",
+            observed,
+        )
 
     @property
     @override
@@ -325,15 +332,17 @@ class EzvizNumber(EzvizEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value to the device and refresh coordinator state."""
         try:
-            await self.coordinator.async_execute(
+            await self.async_write_setting(
+                f"number:{self.entity_description.key}",
+                value,
+                lambda: self.entity_description.get_value(
+                    self.coordinator.inventory_data[self.serial]
+                ),
                 self.entity_description.set_value,
                 self.coordinator.ezviz_client,
                 self._serial,
                 value,
-                self.data,
+                deepcopy(self.data),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Set numeric value", err) from err
-
-        self._attr_native_value = value
-        await self.coordinator.async_request_refresh()

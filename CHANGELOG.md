@@ -26,6 +26,17 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Share delayed command confirmation across ordinary cloud settings: camera
+  switches/lights, number/select controls, plug/bulb power, camera name and
+  motion detection. An accepted command has a separate pending display value
+  for at most 60 seconds. Start one account-wide confirmation request about
+  two seconds after the latest acknowledgment; retain pending values through
+  stale polls/pushes until a fresh, generation-fenced poll confirms them.
+  Expiry restores observed state; availability and authentication failures
+  remain authoritative. No optimistic mutation of SDK/coordinator snapshots,
+  getter sleeps, secret retention or change to siren/alarm/action semantics.
+  Two seconds is an initial propagation allowance, not a universal guarantee.
+
 - Coalesce concurrent cold reads per image generation and share in-flight image
   downloads across lenses. Viewer cancellation does not cancel other viewers;
   stale URL/key/capture results stay uncached and shutdown owns the work.

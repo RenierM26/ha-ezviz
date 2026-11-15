@@ -1,6 +1,6 @@
 """An abstract class common to all EZVIZ entities."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import re
 from typing import Any, override
 
@@ -109,6 +109,23 @@ class EzvizEntity(
     def data(self) -> dict[str, Any]:
         """Return coordinator data for this entity."""
         return self.coordinator.device_data(self._serial)
+
+    def setting_value(self, key: str, observed: Any) -> Any:
+        """Overlay only accepted pending settings, never availability or data."""
+        return self.coordinator.settings.value(self._serial, key, observed)
+
+    async def async_write_setting(
+        self,
+        key: str,
+        value: Any,
+        read_observed: Callable[[], Any],
+        func: Callable,
+        *args: Any,
+    ) -> None:
+        """Use the shared setting command/confirmation path."""
+        await self.coordinator.settings.async_write(
+            self._serial, key, value, read_observed, func, *args
+        )
 
     @property
     @override

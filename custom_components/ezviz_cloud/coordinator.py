@@ -24,6 +24,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .confirmation import SettingConfirmation
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
@@ -51,6 +52,9 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.ezviz_client = api
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
+        self.settings = SettingConfirmation(self)
+        self._poll_setting_generation = 0
+        self._update_lock = asyncio.Lock()
         self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
@@ -73,12 +77,19 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     @override
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Fetch data from EZVIZ."""
+        async with self._update_lock:
+            return await self._async_fetch_inventory()
+
+    async def _async_fetch_inventory(self) -> dict[str, dict[str, Any]]:
+        """Serialize complete poll acceptance, including timed-out worker reuse."""
         try:
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
             if self._poll_future is None or self._poll_future.done():
+                self._poll_setting_generation = self.settings.generation
                 self._poll_future = create_executor_task(self.hass, self._poll_sync)
                 self._poll_future.add_done_callback(_retrieve_worker_error)
+            generation = self._poll_setting_generation
             async with asyncio.timeout(self._api_timeout):
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
@@ -86,6 +97,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             inventory, cameras = await self.async_execute(_project_snapshot, result)
             self.inventory_snapshot = result
             self.inventory_data = inventory
+            self.settings.accept_poll(generation)
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error
@@ -197,6 +209,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def begin_shutdown(self) -> None:
         """Reject new polling work before waiting for optional push cleanup."""
         self._closing = True
+        if task := self.settings.close():
+            self._action_futures.add(task)
 
     async def async_close(self) -> None:
         """Keep HTTP session ownership until the last polling worker has finished."""

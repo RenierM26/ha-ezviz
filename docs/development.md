@@ -67,7 +67,53 @@ See [the release checklist](releasing.md) for version/tag/source/SDK evidence an
 and intentionally moving Core policy. `tools/check_release.py` is a read-only
 source/metadata preflight, not a publisher or substitute for runtime tests.
 
-### Whole-integration audit regressions
+### Cloud setting confirmation
+
+Ordinary setting writes share `confirmation.SettingConfirmation`, owned by the
+account coordinator. Camera switches/lights, numbers, selects, plug/bulb power,
+camera name and camera motion detection all use `EzvizEntity.async_write_setting`.
+The camera motion-detection control and its switch share the same pending key.
+Buttons, captures, firmware operations, sirens, alarm panels and encryption-key
+text keep their existing action/security semantics; reads and getters never wait.
+
+After an accepted SDK write (`False` means rejection; void-returning setters are
+supported), the manager records an entry-local pending value keyed by serial
+and setting, not an entity ID. Snapshots and coordinator data remain observations.
+Serialized, owned writes preserve order even if the service caller is cancelled.
+Number/select SDK adapters receive detached input so they cannot mutate accepted
+camera data. Pending display values survive unrelated pushes and stale reads;
+missing number capabilities still render unknown. Availability is never overlaid.
+
+One account-wide refresh request is scheduled two seconds after the latest
+accepted write, not immediately after every entity setter. Compound brightness/
+power writes restart this delay after the final ACK; accepted brightness remains
+pending if power fails. Confirmation uses Core's shared refresh/debouncer (including
+its existing cooldown), so two seconds is a request delay, not a promised total
+latency. While pending, retry requests are spaced ten seconds apart; normal polls
+also confirm. Authentication failures do not start a confirmation retry loop.
+
+Each actual SDK poll captures the current accepted-command generation when its
+worker starts. A reused timed-out worker retains that original generation.
+Only current, online device observations from a sufficiently new poll can clear
+matching pending values. Full poll acceptance is serialized so an older poll
+cannot overwrite a newer accepted result. Pushes/manual data notifications cannot
+confirm commands. A later accepted setting supersedes its predecessor.
+
+Each pending setting expires 60 seconds after its ACK, publishing the latest
+observed value without waiting for another poll. New commands for other settings
+do not extend that deadline. Confirmation/expiry callbacks and the confirmation
+task are cancelled on unload; owned command/poll workers finish before HTTP close.
+Nothing is persisted, including pending camera names; no key text enters this map.
+
+These initial timing constants reflect read-after-write delay measured on one
+camera's status LED in both directions. They are not a universal propagation
+bound. No new live device timing claim is made by this implementation.
+`tests/runtime/test_setting_confirmation.py` exercises all supported control
+families with real HA coordinator/debouncer behavior and detached synthetic SDK
+network snapshots, including stale-to-stale-to-matching reads, failure, ordering,
+pre-command/timed-out polls, account isolation, expiry, cancellation and unload.
+
+### Media and earlier audit coverage
 
 `tests/runtime/test_integration_audit.py` exercises the media proxy's server-owned
 reference boundary, private literal/DNS targets (including noncanonical numeric

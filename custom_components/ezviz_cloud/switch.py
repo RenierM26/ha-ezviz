@@ -19,8 +19,7 @@ from homeassistant.components.switch import (
     SwitchEntity,
     SwitchEntityDescription,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
@@ -530,48 +529,43 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_is_on = bool(description.value_fn(self.data))
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Show a bounded accepted setting while the cloud read catches up."""
+        return self.setting_value(
+            f"switch:{self.entity_description.key}",
+            bool(self.entity_description.value_fn(self.data)),
+        )
+
+    async def _async_set_switch(self, on: bool) -> None:
+        try:
+            await self.async_write_setting(
+                f"switch:{self.entity_description.key}",
+                on,
+                lambda: bool(
+                    self.entity_description.value_fn(
+                        self.coordinator.inventory_data[self.serial]
+                    )
+                ),
+                self.entity_description.method,
+                self.coordinator.ezviz_client,
+                self._serial,
+                int(on),
+            )
+        except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
+            raise request_error("Set switch", err) from err
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the switch on on the device."""
-        try:
-            result = await self.coordinator.async_execute(
-                self.entity_description.method,
-                self.coordinator.ezviz_client,
-                self._serial,
-                1,
-            )
-        except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
-            raise request_error("Turn on switch", err) from err
-
-        if result is False:
-            raise HomeAssistantError("EZVIZ did not accept the switch command")
-        await self.coordinator.async_request_refresh()
+        """Turn on through the shared confirmation owner."""
+        await self._async_set_switch(True)
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off on the device."""
-        try:
-            result = await self.coordinator.async_execute(
-                self.entity_description.method,
-                self.coordinator.ezviz_client,
-                self._serial,
-                0,
-            )
-        except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
-            raise request_error("Turn off switch", err) from err
-
-        if result is False:
-            raise HomeAssistantError("EZVIZ did not accept the switch command")
-        await self.coordinator.async_request_refresh()
-
-    @callback
-    @override
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self._attr_is_on = bool(self.entity_description.value_fn(self.data))
-        super()._handle_coordinator_update()
+        """Turn off through the shared confirmation owner."""
+        await self._async_set_switch(False)
 
 
 class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
@@ -590,7 +584,9 @@ class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
         state = self.device_state
-        return state.is_on if isinstance(state, PlugState) else None
+        return self.setting_value(
+            "power", state.is_on if isinstance(state, PlugState) else None
+        )
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:

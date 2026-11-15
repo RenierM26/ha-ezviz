@@ -220,20 +220,31 @@ class EzvizCamera(EzvizEntity, Camera):
     @override
     def is_recording(self) -> bool:
         """Return True if the device is currently recording."""
-        return bool(self.data["alarm_notify"])
+        return self.setting_value(
+            "switch:motion_detection", bool(self.data["alarm_notify"])
+        )
 
     @property
     @override
     def motion_detection_enabled(self) -> bool:
         """Return True if motion detection is enabled."""
-        return bool(self.data["alarm_notify"])
+        return self.setting_value(
+            "switch:motion_detection", bool(self.data["alarm_notify"])
+        )
 
     @override
     async def async_enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
-            await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.set_camera_defence, self._serial, 1
+            await self.async_write_setting(
+                "switch:motion_detection",
+                True,
+                lambda: bool(
+                    self.coordinator.inventory_data[self.serial]["alarm_notify"]
+                ),
+                self.coordinator.ezviz_client.set_camera_defence,
+                self._serial,
+                1,
             )
 
         except InvalidHost as err:
@@ -243,8 +254,15 @@ class EzvizCamera(EzvizEntity, Camera):
     async def async_disable_motion_detection(self) -> None:
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
-            await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.set_camera_defence, self._serial, 0
+            await self.async_write_setting(
+                "switch:motion_detection",
+                False,
+                lambda: bool(
+                    self.coordinator.inventory_data[self.serial]["alarm_notify"]
+                ),
+                self.coordinator.ezviz_client.set_camera_defence,
+                self._serial,
+                0,
             )
 
         except InvalidHost as err:

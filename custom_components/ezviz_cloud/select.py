@@ -1,6 +1,7 @@
 """Support for EZVIZ select controls."""
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, override
 
@@ -402,7 +403,10 @@ class EzvizSelect(EzvizEntity, SelectEntity):
     @override
     def current_option(self) -> str | None:
         """Return the currently selected option."""
-        current_value = self.entity_description.get_current_option(self.data)
+        current_value = self.setting_value(
+            f"select:{self.entity_description.key}",
+            self.entity_description.get_current_option(self.data),
+        )
 
         try:
             idx = self.entity_description.option_range.index(current_value)
@@ -428,14 +432,17 @@ class EzvizSelect(EzvizEntity, SelectEntity):
 
         try:
             # Run potentially blocking client call in executor
-            await self.coordinator.async_execute(
+            await self.async_write_setting(
+                f"select:{self.entity_description.key}",
+                set_value,
+                lambda: self.entity_description.get_current_option(
+                    self.coordinator.inventory_data[self.serial]
+                ),
                 self.entity_description.set_current_option,
                 self.coordinator.ezviz_client,
                 self._serial,
                 set_value,
-                self.data,
+                deepcopy(self.data),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Select option", err) from err
-
-        await self.coordinator.async_request_refresh()

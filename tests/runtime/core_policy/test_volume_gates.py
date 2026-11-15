@@ -284,8 +284,9 @@ async def test_real_service_ranges_executor_errors_and_runtime_capability_loss(
             blocking=True,
         )
         assert threads and all(thread != get_ident() for thread in threads)
-        assert entity.native_value == current
-        refresh.assert_awaited_once()
+        assert entity.native_value == accepted
+        assert description.get_value(coordinator.data["CAM001"]) == current
+        refresh.assert_not_awaited()
         failure = PyEzvizError("Denied: response code=403, fields=2")
         api.set_dev_config_kv.side_effect = failure
         refresh.reset_mock()
@@ -388,8 +389,8 @@ async def test_microphone_service_preserves_siblings_and_uses_sdk_worker(
         assert worker_threads and all(
             thread != get_ident() for thread in worker_threads
         )
-        refresh.assert_awaited_once()
-        assert entity.native_value == 15
+        refresh.assert_not_awaited()
+        assert entity.native_value == 30
         assert coordinator.data == before
         api.set_dev_config_kv.reset_mock()
         refresh.reset_mock()
