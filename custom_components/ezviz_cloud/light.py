@@ -15,8 +15,7 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
@@ -144,9 +143,19 @@ class EzvizLight(EzvizEntity, LightEntity):
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
         self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
-        self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
+
+    @property
+    @override
+    def is_on(self) -> bool:
+        """Return the SDK-observed light power."""
+        return bool(self.entity_description.is_on_value(self.data))
+
+    @property
+    @override
+    def brightness(self) -> int | None:
+        """Read brightness without changing the accepted camera snapshot."""
         percent = self.entity_description.brightness_value(self.data)
-        self._attr_brightness = (
+        return (
             round(
                 percentage_to_ranged_value(
                     self.entity_description.brightness_range, percent
@@ -156,12 +165,19 @@ class EzvizLight(EzvizEntity, LightEntity):
             else None
         )
 
+    async def _async_power(self, on: bool) -> None:
+        await self.async_write_setting(
+            self.entity_description.power_on
+            if on
+            else self.entity_description.power_off,
+            self.coordinator.ezviz_client,
+            self.serial,
+        )
+
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on light (optionally set brightness first)."""
-        refresh_required = False
+        """Set related values before the shared delayed observation."""
         try:
-            # If brightness provided, set luminance first (1-255 -> 0-100 %)
             if (
                 ATTR_BRIGHTNESS in kwargs
                 and self.entity_description.set_brightness is not None
@@ -172,73 +188,23 @@ class EzvizLight(EzvizEntity, LightEntity):
                         kwargs[ATTR_BRIGHTNESS],
                     )
                 )
-                ok = await self.coordinator.async_execute(
+                await self.async_write_setting(
                     self.entity_description.set_brightness,
                     self.coordinator.ezviz_client,
-                    self._serial,
+                    self.serial,
                     percent,
                 )
-                if ok is False:
-                    raise HomeAssistantError(
-                        "EZVIZ did not accept the brightness command"
-                    )
-                if ok:
-                    refresh_required = True
-
-            # Then power on
-            ok = await self.coordinator.async_execute(
-                self.entity_description.power_on,
-                self.coordinator.ezviz_client,
-                self._serial,
-            )
-            if ok is False:
-                raise HomeAssistantError("EZVIZ did not accept the light command")
-            if ok:
-                refresh_required = True
-
+            await self._async_power(True)
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn on light", err) from err
-        finally:
-            # Observe the compound write once, after power has been attempted.
-            # Reconcile accepted brightness even if the later power write fails.
-            if refresh_required:
-                await self.coordinator.async_request_refresh()
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off light."""
+        """Turn off through the shared setting writer."""
         try:
-            ok = await self.coordinator.async_execute(
-                self.entity_description.power_off,
-                self.coordinator.ezviz_client,
-                self._serial,
-            )
-            if ok is False:
-                raise HomeAssistantError("EZVIZ did not accept the light command")
-            if ok:
-                await self.coordinator.async_request_refresh()
-
+            await self._async_power(False)
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn off light", err) from err
-
-    @callback
-    @override
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self._attr_is_on = bool(self.entity_description.is_on_value(self.data))
-
-        percent = self.entity_description.brightness_value(self.data)
-        self._attr_brightness = (
-            round(
-                percentage_to_ranged_value(
-                    self.entity_description.brightness_range, percent
-                )
-            )
-            if isinstance(percent, int)
-            else None
-        )
-
-        super()._handle_coordinator_update()
 
 
 class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):

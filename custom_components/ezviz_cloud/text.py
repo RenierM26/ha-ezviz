@@ -162,20 +162,22 @@ class EzvizCameraNameText(EzvizEntity, TextEntity):
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_{CAMERA_NAME_TEXT.key}"
         self.entity_description = CAMERA_NAME_TEXT
-        self._attr_native_value = self._camera_name
+
+    @property
+    @override
+    def native_value(self) -> str:
+        """Read the observed camera name."""
+        return self.data["name"]
 
     @override
     async def async_set_value(self, value: str) -> None:
         """Rename the camera through the EZVIZ API."""
 
         try:
-            await self.coordinator.async_execute(
+            await self.async_write_setting(
                 self.coordinator.ezviz_client.update_device_name,
                 self._serial,
                 value,
             )
         except (HTTPError, PyEzvizError) as err:
             raise HomeAssistantError(f"Cannot rename camera {self.name}") from err
-
-        self._attr_native_value = value
-        self.async_write_ha_state()

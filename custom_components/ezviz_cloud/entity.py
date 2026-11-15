@@ -1,6 +1,6 @@
 """An abstract class common to all EZVIZ entities."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import re
 from typing import Any, override
 
@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .availability import device_available
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
+from .setting_writes import SettingCommand
 
 _MAC_REGEX = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 
@@ -109,6 +110,17 @@ class EzvizEntity(
     def data(self) -> dict[str, Any]:
         """Return coordinator data for this entity."""
         return self.coordinator.device_data(self._serial)
+
+    async def async_write_setting(
+        self,
+        func: Callable | None = None,
+        *args: Any,
+        prepare: Callable[[], SettingCommand] | None = None,
+    ) -> None:
+        """Send an owned setting command and request a delayed account refresh."""
+        await self.coordinator.settings.async_write(
+            self._serial, func, *args, prepare=prepare
+        )
 
     @property
     @override

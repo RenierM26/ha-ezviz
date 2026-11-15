@@ -76,20 +76,17 @@ def power_command(
 
 
 async def async_set_power(entity: EzvizInventoryEntity, on: bool) -> None:
-    """No optimistic update; a successful command is followed by shared polling."""
+    """Refresh observed power settings through the shared account owner."""
     state = entity.device_state
     if not entity.available or state is None:
         raise HomeAssistantError("EZVIZ device is unavailable")
     try:
-        result = await entity.coordinator.async_execute(
+        await entity.async_write_setting(
             power_command,
             entity.coordinator.ezviz_client,
             entity.serial,
             state,
             on,
         )
-        if result is False:
-            raise HomeAssistantError("EZVIZ did not accept the power command")
     except (HTTPError, PyEzvizError, OSError, TimeoutError) as error:
         raise request_error("Set device power", error) from error
-    await entity.coordinator.async_request_refresh()

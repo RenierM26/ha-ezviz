@@ -232,8 +232,10 @@ class EzvizCamera(EzvizEntity, Camera):
     async def async_enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
-            await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.set_camera_defence, self._serial, 1
+            await self.async_write_setting(
+                self.coordinator.ezviz_client.set_camera_defence,
+                self._serial,
+                1,
             )
 
         except InvalidHost as err:
@@ -243,8 +245,10 @@ class EzvizCamera(EzvizEntity, Camera):
     async def async_disable_motion_detection(self) -> None:
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
-            await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.set_camera_defence, self._serial, 0
+            await self.async_write_setting(
+                self.coordinator.ezviz_client.set_camera_defence,
+                self._serial,
+                0,
             )
 
         except InvalidHost as err:

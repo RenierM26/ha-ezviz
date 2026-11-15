@@ -67,7 +67,55 @@ See [the release checklist](releasing.md) for version/tag/source/SDK evidence an
 and intentionally moving Core policy. `tools/check_release.py` is a read-only
 source/metadata preflight, not a publisher or substitute for runtime tests.
 
-### Whole-integration audit regressions
+### Observed-only cloud settings
+
+Ordinary setting writes share `setting_writes.SettingWrites`, owned by the account
+coordinator. Camera switches/lights, numbers, selects, plug/bulb power, camera name
+and motion detection use `EzvizEntity.async_write_setting`. Buttons, captures,
+firmware, sirens, alarm panels and encryption-key text keep their action/security
+semantics. All displayed values and availability come from observations. There
+are no optimistic display overlays, confirmation readers, generation fences,
+confirmation retries or expiry notifications. Getters never wait.
+
+Accepted SDK writes (explicit `False` rejects; void setters are supported) restart
+one account-wide refresh timer, about two seconds after the latest ACK. The timer
+waits for any related write to finish before requesting a refresh through Core's
+existing coordinator/debouncer. Two seconds is a request delay, not a total-latency
+or propagation guarantee. An accepted brightness write still schedules a refresh
+if the subsequent power write fails. A write during an active refresh retains its
+own delayed request. There is no custom retry loop: subsequent ordinary polls
+provide eventual observations if the first refresh remains stale or fails.
+Controls can therefore retain their previous displayed value until the cloud
+reports the change. This is intentional, including during unrelated MQTT pushes.
+
+Writes are serialized and owned across service-caller cancellation. Number/select
+SDK adapters receive detached data prepared inside the write lock. For compound
+settings only, a command-only cache retains accepted sibling-field projections
+for 60 seconds. Day/night, night-vision and speaker/microphone commands compose
+these fields with fresh observations so rapid related writes do not clobber each
+other. SDK payload helpers preserve normalization and unknown fields; raw user
+inputs still pass through SDK validation before projections are recorded. Cached
+audio fields cannot recreate missing/invalid inputs required by SDK validation.
+The cache is never displayed and makes no confirmation claim. Its TTL is checked
+lazily on command preparation, without a timer. Within that brief window a related
+command preserves the last accepted sibling even if another client changes it;
+after expiry it uses observed data. This bounded command-construction policy is
+separate from displayed state. No camera names or encryption keys enter the cache.
+
+On unload the refresh callback/task is cancelled and the cache cleared; owned
+command and poll workers finish before HTTP session close. No persisted state,
+entity IDs, options, migration or dependency minimum changes are introduced.
+
+The two-second allowance originates from one status LED's read-after-write timing;
+no new live-device timing validation is claimed. `test_setting_writes.py` exercises
+eight control families, stale/matching/external observations, coalescing, failure,
+account isolation, caller cancellation, slow compound writes, writes during an
+active refresh and unload with a real HA coordinator/debouncer and synthetic
+network snapshots. `test_setting_commands.py` covers compound sibling preservation,
+encoded SDK layouts, normalized payloads, queued-before-ACK preparation, original
+SDK validation, lazy context expiry and complete/partial audio capability loss.
+
+### Media and earlier audit coverage
 
 `tests/runtime/test_integration_audit.py` exercises the media proxy's server-owned
 reference boundary, private literal/DNS targets (including noncanonical numeric

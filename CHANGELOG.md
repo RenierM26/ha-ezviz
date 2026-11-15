@@ -26,6 +26,16 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Coalesce ordinary cloud-setting refreshes about two seconds after the latest
+  accepted command. Camera switches/lights, numbers/selects, plug/bulb power,
+  camera name and motion detection display only SDK-observed state; the old value
+  may remain until the cloud catches up. No optimistic overlay, confirmation
+  matching, custom retries or display-expiry timers. Serialized, owned writes use
+  detached SDK input and short-lived command-only sibling context to prevent rapid
+  compound settings from overwriting each other. Availability remains authoritative;
+  no getter waits, snapshot mutation, secret retention or siren/alarm/action change.
+  Two seconds is an initial propagation allowance, not a universal guarantee.
+
 - Coalesce concurrent cold reads per image generation and share in-flight image
   downloads across lenses. Viewer cancellation does not cancel other viewers;
   stale URL/key/capture results stay uncached and shutdown owns the work.

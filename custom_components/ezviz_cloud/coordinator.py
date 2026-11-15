@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
+from .setting_writes import SettingWrites
 from .workers import create_critical_task, create_executor_task
 
 if TYPE_CHECKING:
@@ -51,6 +52,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.ezviz_client = api
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
+        self.settings = SettingWrites(self)
+        self._update_lock = asyncio.Lock()
         self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
@@ -73,6 +76,11 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     @override
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Fetch data from EZVIZ."""
+        async with self._update_lock:
+            return await self._async_fetch_inventory()
+
+    async def _async_fetch_inventory(self) -> dict[str, dict[str, Any]]:
+        """Serialize complete poll acceptance, including timed-out worker reuse."""
         try:
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
@@ -197,6 +205,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def begin_shutdown(self) -> None:
         """Reject new polling work before waiting for optional push cleanup."""
         self._closing = True
+        if task := self.settings.close():
+            self._action_futures.add(task)
 
     async def async_close(self) -> None:
         """Keep HTTP session ownership until the last polling worker has finished."""

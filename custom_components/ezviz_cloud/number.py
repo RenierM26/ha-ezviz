@@ -37,6 +37,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
 from .runtime import EzvizConfigEntry
+from .setting_commands import prepare_number
 from .utility import passes_description_gates
 
 SCAN_INTERVAL = timedelta(seconds=3600)
@@ -109,7 +110,7 @@ def _night_vision_luminance_setter() -> Callable[
             mode=night_vision_mode_value(camera_data),
             luminance=round(value),
         )
-        client.set_dev_config_kv(
+        return client.set_dev_config_kv(
             serial,
             resolve_channel(camera_data),
             "NightVision_Model",
@@ -133,7 +134,7 @@ def _night_vision_duration_setter() -> Callable[
             mode=night_vision_mode_value(camera_data),
             duration=round(value),
         )
-        client.set_dev_config_kv(
+        return client.set_dev_config_kv(
             serial,
             resolve_channel(camera_data),
             "NightVision_Model",
@@ -325,15 +326,8 @@ class EzvizNumber(EzvizEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value to the device and refresh coordinator state."""
         try:
-            await self.coordinator.async_execute(
-                self.entity_description.set_value,
-                self.coordinator.ezviz_client,
-                self._serial,
-                value,
-                self.data,
+            await self.async_write_setting(
+                prepare=lambda: prepare_number(self, value),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Set numeric value", err) from err
-
-        self._attr_native_value = value
-        await self.coordinator.async_request_refresh()

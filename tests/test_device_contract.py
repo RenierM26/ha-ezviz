@@ -47,6 +47,9 @@ def coordinator_module(monkeypatch):
             super().__init__(*args or (translation_key,))
     for name in ("homeassistant", "homeassistant.core", "homeassistant.helpers"):
         monkeypatch.setitem(sys.modules, name, MagicMock())
+    monkeypatch.setattr(sys.modules["homeassistant.core"], "callback", lambda fn: fn)
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.event", SimpleNamespace(
+        async_call_later=MagicMock(side_effect=AssertionError("Poll-only controls must not schedule setting timers"))))
     monkeypatch.setitem(sys.modules, "homeassistant.exceptions", SimpleNamespace(ConfigEntryAuthFailed=Failed, HomeAssistantError=Failed))
     monkeypatch.setitem(sys.modules, "homeassistant.helpers.update_coordinator",
                         SimpleNamespace(DataUpdateCoordinator=Base, UpdateFailed=Failed))

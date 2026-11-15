@@ -125,43 +125,31 @@ async def test_registered_siren_publishes_failure_recovery_and_removes_listener(
 @pytest.mark.parametrize("kind", ["switch", "light"])
 @pytest.mark.parametrize("on", [False, True])
 @pytest.mark.parametrize("push_serial", ["CAM001", "OTHER"])
-async def test_control_awaits_observation_through_partial_push(hass, monkeypatch, kind, on, push_serial):
+async def test_control_display_remains_observed_through_partial_push(hass, monkeypatch, kind, on, push_serial):
     _, _api, data, *_ = entities(hass)
     data.data["CAM001"].update(switches={1: int(not on)}, alarm_light_luminance=10)
     data.data["OTHER"] = deepcopy(data.data["CAM001"])
-    physical = deepcopy(data.data["CAM001"])
-    def power(*_):
-        physical["switches"][1] = int(on)
-        return True
-    def brightness(_client, _serial, percent):
-        physical["alarm_light_luminance"] = percent
-        return True
     if kind == "light":
-        desc = light.EzvizLightEntityDescription(key="synthetic", is_on_value=lambda row: row["switches"][1], brightness_value=lambda row: row["alarm_light_luminance"], power_on=power, power_off=power, set_brightness=brightness)
+        desc = light.EzvizLightEntityDescription(key="synthetic", is_on_value=lambda row: row["switches"][1], brightness_value=lambda row: row["alarm_light_luminance"], power_on=lambda *_: True, power_off=lambda *_: True, set_brightness=lambda *_: True)
         entity = light.EzvizLight(data, "CAM001", desc)
     else:
-        desc = switch.EzvizSwitchEntityDescription(key="synthetic", value_fn=lambda row: row["switches"][1], method=power)
+        desc = switch.EzvizSwitchEntityDescription(key="synthetic", value_fn=lambda row: row["switches"][1], method=lambda *_: True)
         entity = switch.EzvizSwitch(data, "CAM001", desc)
     entity.hass = hass
     entity.async_write_ha_state = MagicMock()
-    entered, release = asyncio.Event(), asyncio.Event()
-    async def refresh():
-        entered.set()
-        await release.wait()
-        data.data["CAM001"]["switches"][1] = physical["switches"][1]
-        data.data["CAM001"]["alarm_light_luminance"] = physical["alarm_light_luminance"]
-        entity._handle_coordinator_update()
+    refresh = AsyncMock()
     monkeypatch.setattr(data, "async_request_refresh", refresh)
     method = entity.async_turn_on if on else entity.async_turn_off
-    task = asyncio.create_task(method(**({"brightness": 205} if kind == "light" and on else {})))
-    await entered.wait()
-    data.merge_mqtt_update(push_serial, {"ext": {"image": "https://images.example.invalid/new"}})
-    entity._handle_coordinator_update()
-    assert entity.is_on is (not on)
-    release.set()
-    await task
-    assert entity.is_on is on
-    await data.async_close()
+    await method(**({"brightness": 205} if kind == "light" and on else {}))
+    try:
+        assert entity.is_on is (not on)
+        data.merge_mqtt_update(push_serial, {"ext": {"image": "https://images.example.invalid/new"}})
+        entity._handle_coordinator_update()
+        assert entity.is_on is (not on)
+        assert data.data["CAM001"]["switches"][1] == int(not on)
+        refresh.assert_not_called()
+    finally:
+        await data.async_close()
 
 
 @pytest.mark.parametrize("stale", [None, "url", "key", "capture", "shutdown"])

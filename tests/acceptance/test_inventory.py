@@ -197,13 +197,18 @@ async def test_power_commands_use_cached_metadata_without_optimistic_state(
     set_feature, set_switch = MagicMock(return_value=True), MagicMock(return_value=True)
     monkeypatch.setattr(api, "set_device_feature_by_key", set_feature)
     monkeypatch.setattr(api, "set_switch", set_switch)
-    assert bulb.is_on is True and plug.is_on is False
-    await bulb.async_turn_off()
-    await plug.async_turn_on()
-    set_feature.assert_called_once_with("LIGHT1", "synthetic-product", False, "light_switch")
-    set_switch.assert_called_once_with("PLUG01", DeviceSwitchType.PLUG.value, 1)
-    assert len(calls) == 1 and data.async_request_refresh.await_count == 2
-    assert bulb.is_on is True and plug.is_on is False
+    try:
+        assert bulb.is_on is True and plug.is_on is False
+        await bulb.async_turn_off()
+        await plug.async_turn_on()
+        set_feature.assert_called_once_with("LIGHT1", "synthetic-product", False, "light_switch")
+        set_switch.assert_called_once_with("PLUG01", DeviceSwitchType.PLUG.value, 1)
+        assert len(calls) == 1 and data.async_request_refresh.await_count == 0
+        assert bulb.is_on is True and plug.is_on is False
+        assert data.device_state("LIGHT1").is_on is True
+        assert data.device_state("PLUG01").is_on is False
+    finally:
+        await data.async_close()
 
 
 async def test_push_copy_does_not_make_stale_poll_available_or_change_detectors(hass, client):

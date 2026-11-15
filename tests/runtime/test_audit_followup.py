@@ -2,6 +2,7 @@
 
 import asyncio
 from copy import deepcopy
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,11 +10,12 @@ from aiohttp import ClientError, ClientSession, TCPConnector
 import pytest
 from yarl import URL
 
-from custom_components.ezviz_cloud import light, views
+from custom_components.ezviz_cloud import light, setting_writes, views
 from homeassistant.exceptions import HomeAssistantError
 
 from .test_hardening import entities
 from .test_integration_audit import jpeg, proxy_fixture
+from .test_setting_writes import snapshot
 
 UNICODE_PRIVATE_HOSTS = (
     "127\u30020\u30020\u30021",
@@ -124,7 +126,8 @@ async def test_normalized_public_host_keeps_signed_request_string(hass, monkeypa
 )
 async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypatch, power_result):
     """Use real Core refresh/debouncer and observe actual command side effects."""
-    _, _, data, *_ = entities(hass)
+    _, api, data, *_ = entities(hass)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
     physical = deepcopy(data.data)
     physical["CAM001"].update(switches={1: 0}, alarm_light_luminance=10)
     data.data = deepcopy(physical)
@@ -155,20 +158,18 @@ async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypa
             power_off=power,
         ),
     )
-    entity.hass = hass
-    entity.async_write_ha_state = MagicMock()
     remove_listener = data.async_add_listener(entity._handle_coordinator_update)
-    entered, release = asyncio.Event(), asyncio.Event()
+    entered, release = asyncio.Event(), Event()
 
-    async def poll():
+    def poll(_options):
         calls.append("poll")
-        observed = deepcopy(physical)
-        entered.set()
-        await release.wait()
+        observed = snapshot(data, **deepcopy(physical["CAM001"]))
+        hass.loop.call_soon_threadsafe(entered.set)
+        assert release.wait(5)
         return observed
 
     # Only replace the cloud polling boundary, not Core refresh or its debouncer.
-    monkeypatch.setattr(data, "_async_update_data", poll)
+    api.poll_devices = MagicMock(side_effect=poll)
     task = asyncio.create_task(entity.async_turn_on(brightness=205))
     try:
         async with asyncio.timeout(5):
@@ -176,14 +177,15 @@ async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypa
         # Power has already been attempted even while the observation is blocked.
         assert calls == ["brightness", "power", "poll"]
         assert not entity.is_on and entity.brightness == 26
+        refresh_task = data.settings._refresh_task
         release.set()
         if power_result is True:
             await task
         else:
             with pytest.raises(HomeAssistantError):
                 await task
+        await refresh_task
         assert entity.is_on is (power_result is True)
-        assert physical["CAM001"]["alarm_light_luminance"] == 80
         assert entity.brightness == 204
         assert data.data == physical
         assert calls == ["brightness", "power", "poll"]
