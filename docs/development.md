@@ -67,79 +67,53 @@ See [the release checklist](releasing.md) for version/tag/source/SDK evidence an
 and intentionally moving Core policy. `tools/check_release.py` is a read-only
 source/metadata preflight, not a publisher or substitute for runtime tests.
 
-### Cloud setting confirmation
+### Observed-only cloud settings
 
-Ordinary setting writes share `confirmation.SettingConfirmation`, owned by the
-account coordinator. Camera switches/lights, numbers, selects, plug/bulb power,
-camera name and camera motion detection all use `EzvizEntity.async_write_setting`.
-The camera motion-detection control and its switch share the same pending key.
-Buttons, captures, firmware operations, sirens, alarm panels and encryption-key
-text keep their existing action/security semantics; reads and getters never wait.
+Ordinary setting writes share `setting_writes.SettingWrites`, owned by the account
+coordinator. Camera switches/lights, numbers, selects, plug/bulb power, camera name
+and motion detection use `EzvizEntity.async_write_setting`. Buttons, captures,
+firmware, sirens, alarm panels and encryption-key text keep their action/security
+semantics. All displayed values and availability come from observations. There
+are no optimistic display overlays, confirmation readers, generation fences,
+confirmation retries or expiry notifications. Getters never wait.
 
-After an accepted SDK write (`False` means rejection; void-returning setters are
-supported), the manager records an entry-local pending value keyed by serial
-and setting, not an entity ID. Snapshots and coordinator data remain observations.
-Serialized, owned writes preserve order even if the service caller is cancelled.
-Number/select SDK adapters receive detached input so they cannot mutate accepted
-camera data. Pending display values survive unrelated pushes and stale reads;
-missing number capabilities still render unknown. Availability is never overlaid.
+Accepted SDK writes (explicit `False` rejects; void setters are supported) restart
+one account-wide refresh timer, about two seconds after the latest ACK. The timer
+waits for any related write to finish before requesting a refresh through Core's
+existing coordinator/debouncer. Two seconds is a request delay, not a total-latency
+or propagation guarantee. An accepted brightness write still schedules a refresh
+if the subsequent power write fails. A write during an active refresh retains its
+own delayed request. There is no custom retry loop: subsequent ordinary polls
+provide eventual observations if the first refresh remains stale or fails.
+Controls can therefore retain their previous displayed value until the cloud
+reports the change. This is intentional, including during unrelated MQTT pushes.
 
-`setting_commands` prepares number/select payloads only after acquiring the write
-lock, using detached observations plus unexpired accepted sibling effects. SDK
-optional-data precedence (`statusInfo`, flattened `optionals`, raw `STATUS`) is
-preserved. Day/night, night-vision and speaker/microphone compound writes retain
-accepted siblings and unknown fields, instead of resending stale values. A
-sensitivity change also records its forced auto-mode effect; night-mode aliases
-share one internal setting key. SDK helpers build normalized night payloads.
-Effective numeric targets use the writer's rounding, truncation and clamping;
-effects register only after SDK acceptance, and original inputs still reach SDK
-validation unchanged. Pending audio fields cannot supply their own missing or
-invalid validation input, even when the surrounding configuration remains nonempty. Full payload writes update all the fields they actually
-write, so an implicitly changed sibling cannot keep displaying an older target.
+Writes are serialized and owned across service-caller cancellation. Number/select
+SDK adapters receive detached data prepared inside the write lock. For compound
+settings only, a command-only cache retains accepted sibling-field projections
+for 60 seconds. Day/night, night-vision and speaker/microphone commands compose
+these fields with fresh observations so rapid related writes do not clobber each
+other. SDK payload helpers preserve normalization and unknown fields; raw user
+inputs still pass through SDK validation before projections are recorded. Cached
+audio fields cannot recreate missing/invalid inputs required by SDK validation.
+The cache is never displayed and makes no confirmation claim. Its TTL is checked
+lazily on command preparation, without a timer. Within that brief window a related
+command preserves the last accepted sibling even if another client changes it;
+after expiry it uses observed data. This bounded command-construction policy is
+separate from displayed state. No camera names or encryption keys enter the cache.
 
-`setting_observations` requires actual known property evidence, not just an online
-device and a compatibility getter's default. Retained raw SDK fields distinguish
-missing/null encryption, motion and notification state from explicit bool/0/1;
-compound configuration readers likewise reject default-only observations.
-SDK2.4's intelligent-app iterator discards enabled-field presence/type. Those
-controls therefore use bounded pending expiry rather than claim confirmation.
-Port controls require explicit retained canonical raw enabled fields; other
-unprovable shapes use the same bounded fallback. No private SDK traversal is
-copied into HA. A future public SDK known-state helper can improve these cases.
-Malformed compatibility getters are isolated from whole-account poll health.
+On unload the refresh callback/task is cancelled and the cache cleared; owned
+command and poll workers finish before HTTP session close. No persisted state,
+entity IDs, options, migration or dependency minimum changes are introduced.
 
-One account-wide refresh request is scheduled two seconds after the latest
-accepted write, not immediately after every entity setter. Compound brightness/
-power writes restart this delay after the final ACK; accepted brightness remains
-pending if power fails. Confirmation uses Core's shared refresh/debouncer (including
-its existing cooldown), so two seconds is a request delay, not a promised total
-latency. While pending, retry requests are spaced ten seconds apart; normal polls
-also confirm. Authentication failures do not start a confirmation retry loop.
-
-Each actual SDK poll captures the current accepted-command generation when its
-worker starts. A reused timed-out worker retains that original generation.
-Only current, online device observations from a sufficiently new poll can clear
-matching pending values. Full poll acceptance is serialized so an older poll
-cannot overwrite a newer accepted result. Pushes/manual data notifications cannot
-confirm commands. A later accepted setting supersedes its predecessor.
-
-Each pending setting expires 60 seconds after its ACK, publishing the latest
-observed value without waiting for another poll. New commands for other settings
-do not extend that deadline unless the compound command actually rewrites those
-related fields. Confirmation/expiry callbacks and the confirmation
-task are cancelled on unload; owned command/poll workers finish before HTTP close.
-Nothing is persisted, including pending camera names; no key text enters this map.
-
-These initial timing constants reflect read-after-write delay measured on one
-camera's status LED in both directions. They are not a universal propagation
-bound. No new live device timing claim is made by this implementation.
-`tests/runtime/test_setting_confirmation.py` exercises all supported control
-families with real HA coordinator/debouncer behavior and detached synthetic SDK
-network snapshots, including stale-to-stale-to-matching reads, failure, ordering,
-pre-command/timed-out polls, account isolation, expiry, cancellation and unload.
-`test_confirmation_audit.py` additionally verifies producer-normalized effective
-values, compound siblings/implicit effects, queue-time preparation, SDK validation,
-real SDK source defaults/nulls and conservative helper-provenance fallbacks.
+The two-second allowance originates from one status LED's read-after-write timing;
+no new live-device timing validation is claimed. `test_setting_writes.py` exercises
+eight control families, stale/matching/external observations, coalescing, failure,
+account isolation, caller cancellation, slow compound writes, writes during an
+active refresh and unload with a real HA coordinator/debouncer and synthetic
+network snapshots. `test_setting_commands.py` covers compound sibling preservation,
+encoded SDK layouts, normalized payloads, queued-before-ACK preparation, original
+SDK validation, lazy context expiry and complete/partial audio capability loss.
 
 ### Media and earlier audit coverage
 

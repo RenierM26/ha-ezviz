@@ -162,13 +162,12 @@ class EzvizCameraNameText(EzvizEntity, TextEntity):
         super().__init__(coordinator, serial)
         self._attr_unique_id = f"{serial}_{CAMERA_NAME_TEXT.key}"
         self.entity_description = CAMERA_NAME_TEXT
-        self._attr_native_value = self._camera_name
 
     @property
     @override
     def native_value(self) -> str:
-        """Read the observed name with a bounded accepted rename overlay."""
-        return self.setting_value("camera_name", self.data["name"])
+        """Read the observed camera name."""
+        return self.data["name"]
 
     @override
     async def async_set_value(self, value: str) -> None:
@@ -176,9 +175,6 @@ class EzvizCameraNameText(EzvizEntity, TextEntity):
 
         try:
             await self.async_write_setting(
-                "camera_name",
-                value,
-                lambda: self.coordinator.inventory_data[self.serial]["name"],
                 self.coordinator.ezviz_client.update_device_name,
                 self._serial,
                 value,

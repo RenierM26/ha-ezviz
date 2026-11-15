@@ -125,7 +125,7 @@ async def test_registered_siren_publishes_failure_recovery_and_removes_listener(
 @pytest.mark.parametrize("kind", ["switch", "light"])
 @pytest.mark.parametrize("on", [False, True])
 @pytest.mark.parametrize("push_serial", ["CAM001", "OTHER"])
-async def test_control_pending_survives_partial_push(hass, monkeypatch, kind, on, push_serial):
+async def test_control_display_remains_observed_through_partial_push(hass, monkeypatch, kind, on, push_serial):
     _, _api, data, *_ = entities(hass)
     data.data["CAM001"].update(switches={1: int(not on)}, alarm_light_luminance=10)
     data.data["OTHER"] = deepcopy(data.data["CAM001"])
@@ -142,10 +142,10 @@ async def test_control_pending_survives_partial_push(hass, monkeypatch, kind, on
     method = entity.async_turn_on if on else entity.async_turn_off
     await method(**({"brightness": 205} if kind == "light" and on else {}))
     try:
-        assert entity.is_on is on
+        assert entity.is_on is (not on)
         data.merge_mqtt_update(push_serial, {"ext": {"image": "https://images.example.invalid/new"}})
         entity._handle_coordinator_update()
-        assert entity.is_on is on
+        assert entity.is_on is (not on)
         assert data.data["CAM001"]["switches"][1] == int(not on)
         refresh.assert_not_called()
     finally:

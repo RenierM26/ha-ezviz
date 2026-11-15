@@ -10,12 +10,12 @@ from aiohttp import ClientError, ClientSession, TCPConnector
 import pytest
 from yarl import URL
 
-from custom_components.ezviz_cloud import confirmation, light, views
+from custom_components.ezviz_cloud import light, setting_writes, views
 from homeassistant.exceptions import HomeAssistantError
 
 from .test_hardening import entities
 from .test_integration_audit import jpeg, proxy_fixture
-from .test_setting_confirmation import snapshot
+from .test_setting_writes import snapshot
 
 UNICODE_PRIVATE_HOSTS = (
     "127\u30020\u30020\u30021",
@@ -127,7 +127,7 @@ async def test_normalized_public_host_keeps_signed_request_string(hass, monkeypa
 async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypatch, power_result):
     """Use real Core refresh/debouncer and observe actual command side effects."""
     _, api, data, *_ = entities(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.01)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
     physical = deepcopy(data.data)
     physical["CAM001"].update(switches={1: 0}, alarm_light_luminance=10)
     data.data = deepcopy(physical)
@@ -158,7 +158,6 @@ async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypa
             power_off=power,
         ),
     )
-    entity.async_write_ha_state = MagicMock()
     remove_listener = data.async_add_listener(entity._handle_coordinator_update)
     entered, release = asyncio.Event(), Event()
 
@@ -177,14 +176,15 @@ async def test_light_batches_writes_before_real_debounced_refresh(hass, monkeypa
             await entered.wait()
         # Power has already been attempted even while the observation is blocked.
         assert calls == ["brightness", "power", "poll"]
-        confirmation_task = data.settings._refresh_task
+        assert not entity.is_on and entity.brightness == 26
+        refresh_task = data.settings._refresh_task
         release.set()
         if power_result is True:
             await task
         else:
             with pytest.raises(HomeAssistantError):
                 await task
-        await confirmation_task
+        await refresh_task
         assert entity.is_on is (power_result is True)
         assert entity.brightness == 204
         assert data.data == physical

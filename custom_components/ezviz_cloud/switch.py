@@ -28,7 +28,6 @@ from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
-from .setting_observations import observed_switch
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
@@ -534,18 +533,12 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     @property
     @override
     def is_on(self) -> bool:
-        """Show a bounded accepted setting while the cloud read catches up."""
-        return self.setting_value(
-            f"switch:{self.entity_description.key}",
-            bool(self.entity_description.value_fn(self.data)),
-        )
+        """Return the SDK-observed switch state."""
+        return bool(self.entity_description.value_fn(self.data))
 
     async def _async_set_switch(self, on: bool) -> None:
         try:
             await self.async_write_setting(
-                f"switch:{self.entity_description.key}",
-                on,
-                lambda: observed_switch(self),
                 self.entity_description.method,
                 self.coordinator.ezviz_client,
                 self._serial,
@@ -556,12 +549,12 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on through the shared confirmation owner."""
+        """Turn on through the shared setting writer."""
         await self._async_set_switch(True)
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off through the shared confirmation owner."""
+        """Turn off through the shared setting writer."""
         await self._async_set_switch(False)
 
 
@@ -581,9 +574,7 @@ class EzvizInventoryPlug(EzvizInventoryEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
         state = self.device_state
-        return self.setting_value(
-            "power", state.is_on if isinstance(state, PlugState) else None
-        )
+        return state.is_on if isinstance(state, PlugState) else None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:

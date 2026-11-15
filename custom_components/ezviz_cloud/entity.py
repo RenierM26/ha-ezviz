@@ -16,9 +16,9 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .availability import device_available
-from .confirmation import SettingCommand
 from .const import DOMAIN, MANUFACTURER
 from .coordinator import EzvizDataUpdateCoordinator
+from .setting_writes import SettingCommand
 
 _MAC_REGEX = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 
@@ -111,32 +111,16 @@ class EzvizEntity(
         """Return coordinator data for this entity."""
         return self.coordinator.device_data(self._serial)
 
-    def setting_value(self, key: str, observed: Any) -> Any:
-        """Overlay only accepted pending settings, never availability or data."""
-        return self.coordinator.settings.value(self._serial, key, observed)
-
     async def async_write_setting(
         self,
-        key: str,
-        value: Any,
-        read_observed: Callable[[], Any],
-        func: Callable,
+        func: Callable | None = None,
         *args: Any,
         prepare: Callable[[], SettingCommand] | None = None,
     ) -> None:
-        """Use the shared setting command/confirmation path."""
+        """Send an owned setting command and request a delayed account refresh."""
         await self.coordinator.settings.async_write(
-            self._serial, key, value, read_observed, func, *args, prepare=prepare
+            self._serial, func, *args, prepare=prepare
         )
-
-    def observed_motion_detection(self) -> bool | None:
-        """Do not treat the SDK's missing-globalStatus default as observed off."""
-        data = self.coordinator.inventory_data[self.serial]
-        status = data.get("STATUS")
-        raw = status.get("globalStatus") if isinstance(status, Mapping) else None
-        if type(raw) not in (bool, int) or raw not in (0, 1):
-            return None
-        return data.get("alarm_notify")
 
     @property
     @override

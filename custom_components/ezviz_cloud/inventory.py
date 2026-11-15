@@ -76,17 +76,12 @@ def power_command(
 
 
 async def async_set_power(entity: EzvizInventoryEntity, on: bool) -> None:
-    """Confirm accepted power settings through the shared account owner."""
+    """Refresh observed power settings through the shared account owner."""
     state = entity.device_state
     if not entity.available or state is None:
         raise HomeAssistantError("EZVIZ device is unavailable")
     try:
         await entity.async_write_setting(
-            "power",
-            on,
-            lambda: getattr(
-                entity.coordinator.device_state(entity.serial), "is_on", None
-            ),
             power_command,
             entity.coordinator.ezviz_client,
             entity.serial,

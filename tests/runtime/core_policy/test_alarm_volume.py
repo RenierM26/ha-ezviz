@@ -234,8 +234,8 @@ async def test_real_number_service_uses_owned_executor_and_refreshes_observed_st
         assert worker_threads and all(
             thread != get_ident() for thread in worker_threads
         )
-        refresh.assert_not_awaited()  # Confirmation is delayed, not an immediate poll.
-        assert entity.native_value == 80  # Bounded pending display, not confirmation.
+        refresh.assert_not_awaited()  # Refresh is delayed, not an immediate poll.
+        assert entity.native_value == 25  # Only observed values are displayed.
         assert DESCRIPTION.get_value(coordinator.data["CAM001"]) == 25
         coordinator.data["CAM001"]["STATUS"]["optionals"]["ChimeMusic"]["volume"] = 80
         coordinator.async_set_updated_data(coordinator.data)

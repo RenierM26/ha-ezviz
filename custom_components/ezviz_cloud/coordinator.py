@@ -24,10 +24,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .confirmation import SettingConfirmation
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
+from .setting_writes import SettingWrites
 from .workers import create_critical_task, create_executor_task
 
 if TYPE_CHECKING:
@@ -52,8 +52,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.ezviz_client = api
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
-        self.settings = SettingConfirmation(self)
-        self._poll_setting_generation = 0
+        self.settings = SettingWrites(self)
         self._update_lock = asyncio.Lock()
         self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
@@ -86,10 +85,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
             if self._poll_future is None or self._poll_future.done():
-                self._poll_setting_generation = self.settings.generation
                 self._poll_future = create_executor_task(self.hass, self._poll_sync)
                 self._poll_future.add_done_callback(_retrieve_worker_error)
-            generation = self._poll_setting_generation
             async with asyncio.timeout(self._api_timeout):
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
@@ -97,7 +94,6 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             inventory, cameras = await self.async_execute(_project_snapshot, result)
             self.inventory_snapshot = result
             self.inventory_data = inventory
-            self.settings.accept_poll(generation)
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error

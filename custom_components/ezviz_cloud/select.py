@@ -29,7 +29,7 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
 from .runtime import EzvizConfigEntry
-from .setting_commands import prepare_select, select_setting_key
+from .setting_commands import prepare_select
 from .utility import (
     has_lens_defog,
     linked_tracking_takeover_enabled,
@@ -404,12 +404,9 @@ class EzvizSelect(EzvizEntity, SelectEntity):
     def current_option(self) -> str | None:
         """Return the currently selected option."""
         try:
-            observed = self.entity_description.get_current_option(self.data)
+            current_value = self.entity_description.get_current_option(self.data)
         except KeyError, TypeError, ValueError, AttributeError:
-            observed = None
-        current_value = self.setting_value(
-            select_setting_key(self.entity_description.key), observed
-        )
+            return None
 
         try:
             idx = self.entity_description.option_range.index(current_value)
@@ -436,15 +433,6 @@ class EzvizSelect(EzvizEntity, SelectEntity):
         try:
             # Run potentially blocking client call in executor
             await self.async_write_setting(
-                select_setting_key(self.entity_description.key),
-                set_value,
-                lambda: self.entity_description.get_current_option(
-                    self.coordinator.inventory_data[self.serial]
-                ),
-                self.entity_description.set_current_option,
-                self.coordinator.ezviz_client,
-                self._serial,
-                set_value,
                 prepare=lambda: prepare_select(self, set_value),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:

@@ -26,21 +26,15 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
-- Share delayed command confirmation across ordinary cloud settings: camera
-  switches/lights, number/select controls, plug/bulb power, camera name and
-  motion detection. An accepted command has a separate pending display value
-  for at most 60 seconds. Start one account-wide confirmation request about
-  two seconds after the latest acknowledgment; retain pending values through
-  stale polls/pushes until a fresh, generation-fenced poll confirms them.
-  Expiry restores observed state; availability and authentication failures
-  remain authoritative. No optimistic mutation of SDK/coordinator snapshots,
-  getter sleeps, secret retention or change to siren/alarm/action semantics.
+- Coalesce ordinary cloud-setting refreshes about two seconds after the latest
+  accepted command. Camera switches/lights, numbers/selects, plug/bulb power,
+  camera name and motion detection display only SDK-observed state; the old value
+  may remain until the cloud catches up. No optimistic overlay, confirmation
+  matching, custom retries or display-expiry timers. Serialized, owned writes use
+  detached SDK input and short-lived command-only sibling context to prevent rapid
+  compound settings from overwriting each other. Availability remains authoritative;
+  no getter waits, snapshot mutation, secret retention or siren/alarm/action change.
   Two seconds is an initial propagation allowance, not a universal guarantee.
-  Compound setters compose detached context from accepted pending siblings under
-  the write lock, retain related settings/unknown fields, and record all effective
-  effects (including SDK rounding/clamping and implicit mode changes). Unknown,
-  null and SDK-defaulted fields cannot falsely confirm a setting. Unprovable SDK
-  helper states use bounded expiry; no private SDK parsing is introduced.
 
 - Coalesce concurrent cold reads per image generation and share in-flight image
   downloads across lenses. Viewer cancellation does not cancel other viewers;

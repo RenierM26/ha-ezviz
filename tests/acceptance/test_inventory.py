@@ -186,7 +186,7 @@ async def test_per_device_render_failure_is_unavailable_not_global(hass, client,
     assert device_available(data, "CAM001")
 
 
-async def test_power_commands_use_cached_metadata_and_separate_pending_display(
+async def test_power_commands_use_cached_metadata_without_optimistic_state(
     hass, client, monkeypatch
 ):
     api, _, calls = client
@@ -204,7 +204,7 @@ async def test_power_commands_use_cached_metadata_and_separate_pending_display(
         set_feature.assert_called_once_with("LIGHT1", "synthetic-product", False, "light_switch")
         set_switch.assert_called_once_with("PLUG01", DeviceSwitchType.PLUG.value, 1)
         assert len(calls) == 1 and data.async_request_refresh.await_count == 0
-        assert bulb.is_on is False and plug.is_on is True
+        assert bulb.is_on is True and plug.is_on is False
         assert data.device_state("LIGHT1").is_on is True
         assert data.device_state("PLUG01").is_on is False
     finally:

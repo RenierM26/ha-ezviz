@@ -1,4 +1,4 @@
-"""Cloud propagation delay with real coordinator polling and pending settings."""
+"""Cloud propagation delay with real coordinator polling and observed-only settings."""
 
 import asyncio
 from copy import deepcopy
@@ -11,7 +11,7 @@ from pyezvizapi import DeviceSnapshot
 from pyezvizapi.devices.snapshot import CameraState, DeviceHealth, LightState, PlugState
 import pytest
 
-from custom_components.ezviz_cloud import confirmation, light, number, select, switch, text
+from custom_components.ezviz_cloud import light, number, select, setting_writes, switch, text
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 
 from .test_hardening import entities
@@ -209,7 +209,7 @@ KINDS = ("switch", "light", "number", "select", "name", "motion", "plug", "bulb"
 
 
 @pytest.mark.parametrize("kind", KINDS)
-async def test_stale_stale_matching_then_external_change(hass, kind):
+async def test_display_follows_only_stale_matching_and_external_observations(hass, kind):
     entity, api, data, command, write, read, target, old, matching = controls(hass, kind)
     original = data.inventory_snapshot
     stale = snapshot(data)
@@ -217,20 +217,19 @@ async def test_stale_stale_matching_then_external_change(hass, kind):
     try:
         assert read() == old
         await write()
-        assert command.called and read() == target
+        assert command.called and read() == old
         assert data.inventory_snapshot is original
         assert data.data["CAM001"] == original.as_dict()["CAM001"]
-        assert data.settings.pending
-        api.poll_devices.assert_not_called()  # No immediate stale poll/cooldown.
+        api.poll_devices.assert_not_called()
         for _ in range(2):
             await data.async_refresh()
-            assert read() == target and data.settings.pending
+            assert read() == old
         data.merge_mqtt_update("CAM001", {"ext": {"image": "https://images.example.invalid/new"}})
-        assert read() == target and data.settings.pending
+        assert read() == old
         await data.async_refresh()
-        assert read() == target and not data.settings.pending
+        assert read() == target
         await data.async_refresh()
-        assert read() == old  # No permanent optimism after confirmation.
+        assert read() == old
         assert entity.available
     finally:
         await data.async_close()
@@ -238,7 +237,7 @@ async def test_stale_stale_matching_then_external_change(hass, kind):
 
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("failure", [False, OSError("synthetic")])
-async def test_rejected_or_failed_write_never_creates_pending(hass, kind, failure):
+async def test_rejected_or_failed_write_does_not_schedule_refresh(hass, kind, failure):
     _, _, data, command, write, read, _, old, _ = controls(hass, kind)
     if isinstance(failure, Exception):
         command.side_effect = failure
@@ -247,50 +246,15 @@ async def test_rejected_or_failed_write_never_creates_pending(hass, kind, failur
     try:
         with pytest.raises((HomeAssistantError, OSError)):
             await write()
-        assert read() == old and not data.settings.pending
-        assert data.settings._confirm_cancel is None
+        assert read() == old
+        assert data.settings._refresh_cancel is None
     finally:
-        await data.async_close()
-
-
-async def test_opposite_commands_fence_precommand_poll_and_supersede_pending(hass):
-    entity, api, data, _, write, read, _, _, matching = controls(hass)
-    entered, release = Event(), Event()
-
-    def poll(_options):
-        entered.set()
-        assert release.wait(5)
-        return matching
-
-    api.poll_devices = MagicMock(side_effect=poll)
-    poll_task = asyncio.create_task(data.async_refresh())
-    try:
-        assert await asyncio.to_thread(entered.wait, 2)
-        await write()
-        assert read() is True
-        release.set()
-        await poll_task
-        assert read() is True and data.settings.pending  # Old poll cannot confirm.
-        await entity.async_turn_off()
-        latest = data.settings.generation
-        assert read() is False
-        api.poll_devices.side_effect = None
-        api.poll_devices.return_value = matching
-        await data.async_refresh()
-        assert read() is False and data.settings.pending
-        assert all(item.generation == latest for item in data.settings.pending.values())
-        api.poll_devices.return_value = snapshot(data, switches={1: 0})
-        await data.async_refresh()
-        assert read() is False and not data.settings.pending
-    finally:
-        release.set()
-        await poll_task
         await data.async_close()
 
 
 async def test_shared_delayed_refresh_coalesces_commands(hass, monkeypatch):
     entity, api, data, _, write, _, _, _, matching = controls(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.02)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.02)
     api.poll_devices = MagicMock(return_value=matching)
     try:
         await write()
@@ -298,34 +262,15 @@ async def test_shared_delayed_refresh_coalesces_commands(hass, monkeypatch):
         await write()
         api.poll_devices.assert_not_called()
         async with asyncio.timeout(2):
-            while data.settings.pending:
+            while not api.poll_devices.called or data.settings._refresh_task:
                 await asyncio.sleep(0.005)
         api.poll_devices.assert_called_once()
     finally:
         await data.async_close()
 
 
-async def test_pending_expiry_publishes_observed_value_without_poll(hass, monkeypatch):
-    entity, _api, data, _, write, read, _, old, _ = controls(hass)
-    monkeypatch.setattr(confirmation, "PENDING_TIMEOUT", 0.02)
-    notify = MagicMock()
-    remove = data.async_add_listener(notify)
-    try:
-        await write()
-        assert read() is True
-        async with asyncio.timeout(2):
-            while data.settings.pending:
-                await asyncio.sleep(0.005)
-        assert read() == old and entity.available
-        assert notify.call_count == 2  # Acceptance and expiry, no fake snapshot.
-        assert data.settings._confirm_cancel is None
-    finally:
-        remove()
-        await data.async_close()
-
-
 @pytest.mark.parametrize("failure", ["offline", "poll", "auth", "missing"])
-async def test_pending_does_not_mask_availability_or_confirm_failed_device(hass, failure):
+async def test_write_does_not_mask_device_or_poll_unavailability(hass, failure):
     entity, api, data, _, write, _, _, _, matching = controls(hass)
     try:
         await write()
@@ -339,19 +284,19 @@ async def test_pending_does_not_mask_availability_or_confirm_failed_device(hass,
         else:
             api.poll_devices = MagicMock(return_value=replace(matching, devices={}, health={}))
         await data.async_refresh()
-        assert not entity.available and data.settings.pending
+        assert not entity.available
     finally:
         await data.async_close()
 
 
-async def test_unload_cancels_both_callbacks_and_rejects_new_writes(hass):
+async def test_unload_cancels_refresh_and_rejects_new_writes(hass):
     _, api, data, _, write, read, _, old, _ = controls(hass)
     api.poll_devices = MagicMock()
     await write()
-    assert data.settings._confirm_cancel and data.settings._expiry_cancel
+    assert data.settings._refresh_cancel
     await data.async_close()
-    assert not data.settings.pending and read() == old
-    assert data.settings._confirm_cancel is data.settings._expiry_cancel is None
+    assert read() == old
+    assert data.settings._refresh_cancel is None
     api.poll_devices.assert_not_called()
     with pytest.raises(HomeAssistantError):
         await write()
@@ -369,7 +314,7 @@ async def test_sdk_writer_receives_detached_camera_data(hass, kind):
     command.side_effect = mutate  # A void-returning SDK setter is accepted.
     try:
         await write()
-        assert data.settings.pending and data.data == before
+        assert data.data == before
     finally:
         await data.async_close()
 
@@ -398,7 +343,7 @@ async def test_cancelled_service_still_commits_accepted_write_and_orders_next(ha
         await second
         assert command.call_args_list[0].args[-1] == 1
         assert command.call_args_list[1].args[-1] == 0
-        assert data.settings.generation == 2 and read() is False
+        assert read() is False
     finally:
         release.set()
         if second:
@@ -408,7 +353,7 @@ async def test_cancelled_service_still_commits_accepted_write_and_orders_next(ha
 
 async def test_slow_compound_write_restarts_delay_after_latest_ack(hass, monkeypatch):
     _, _, data, command, write, _, _, _, _ = controls(hass, "light")
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.03)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.03)
     entered, release = Event(), Event()
 
     def slow_power(*args):
@@ -438,9 +383,9 @@ async def test_slow_compound_write_restarts_delay_after_latest_ack(hass, monkeyp
         await data.async_close()
 
 
-async def test_unload_during_confirmation_waits_for_poll_worker(hass, monkeypatch):
+async def test_unload_during_delayed_refresh_waits_for_poll_worker(hass, monkeypatch):
     _, api, data, _, write, _, _, _, matching = controls(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.01)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
     entered, release = Event(), Event()
 
     def poll(_options):
@@ -460,8 +405,7 @@ async def test_unload_during_confirmation_waits_for_poll_worker(hass, monkeypatc
         release.set()
         await close
         api.close_session.assert_called_once()
-        assert not data.settings.pending
-        assert data.settings._confirm_cancel is data.settings._expiry_cancel is None
+        assert data.settings._refresh_cancel is None
     finally:
         release.set()
         if close:
@@ -469,112 +413,52 @@ async def test_unload_during_confirmation_waits_for_poll_worker(hass, monkeypatc
         await data.async_close()
 
 
-async def test_auth_failed_confirmation_has_no_retry_loop(hass, monkeypatch):
+async def test_auth_failed_refresh_has_no_retry_loop(hass, monkeypatch):
     _, api, data, _, write, _, _, _, _ = controls(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.01)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
     api.poll_devices = MagicMock(side_effect=ConfigEntryAuthFailed("synthetic"))
     try:
         await write()
         async with asyncio.timeout(2):
             while data.last_update_success or data.settings._refresh_task:
                 await asyncio.sleep(0.005)
-        assert data.settings.pending
-        assert data.settings._confirm_cancel is None
+        assert data.settings._refresh_cancel is None
         api.poll_devices.assert_called_once()
     finally:
         await data.async_close()
 
 
-async def test_timed_out_precommand_worker_retains_original_confirmation_fence(hass):
-    _, api, data, _, write, _, _, _, matching = controls(hass)
-    entered, release = Event(), Event()
-    data._api_timeout = 0.01
-
-    def poll(_options):
-        entered.set()
-        assert release.wait(5)
-        return matching
-
-    api.poll_devices = MagicMock(side_effect=poll)
-    second = None
-    try:
-        await data.async_refresh()
-        assert entered.is_set() and not data.last_update_success
-        await write()
-        data._api_timeout = 5
-        second = asyncio.create_task(data.async_refresh())
-        await asyncio.sleep(0)
-        release.set()
-        await second
-        api.poll_devices.assert_called_once()
-        assert data.settings.pending  # Reused old worker cannot confirm new write.
-        api.poll_devices.side_effect = None
-        api.poll_devices.return_value = matching
-        await data.async_refresh()
-        assert not data.settings.pending
-    finally:
-        release.set()
-        if second:
-            await second
-        await data.async_close()
-
-
-async def test_scheduled_retries_keep_pending_until_network_observation_matches(hass, monkeypatch):
-    _, api, data, _, write, read, _, _, matching = controls(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.01)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_RETRY", 0.02)
-    data._debounced_refresh.cooldown = 0.01  # Real Core debouncer, accelerated time.
-    stale = snapshot(data)
-    api.poll_devices = MagicMock(side_effect=[stale, stale, matching])
-    try:
-        await write()
-        async with asyncio.timeout(2):
-            while data.settings.pending:
-                assert read() is True
-                await asyncio.sleep(0.005)
-        assert read() is True
-        assert api.poll_devices.call_count == 3
-        assert data.settings._confirm_cancel is None
-    finally:
-        await data.async_close()
-
-
-async def test_different_controls_share_one_poll_but_not_another_accounts_pending(
-    hass, monkeypatch
-):
+async def test_different_controls_share_one_poll_but_accounts_are_independent(hass, monkeypatch):
     _, api, data, _, write, _, _, _, _ = controls(hass)
-    _, _, other_account, _, other_write, _, _, _, _ = controls(hass)
-    monkeypatch.setattr(confirmation, "CONFIRMATION_DELAY", 0.02)
+    _, other_api, other_account, _, other_write, _, _, _, _ = controls(hass)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.02)
     extra = number.EzvizNumber(
-        data,
-        "CAM001",
+        data, "CAM001",
         number.EzvizNumberEntityDescription(
-            key="test",
-            get_value=lambda d: d["numeric"],
-            set_value=lambda *_: True,
+            key="test", get_value=lambda d: d["numeric"], set_value=lambda *_: True
         ),
     )
     api.poll_devices = MagicMock(return_value=snapshot(data, switches={1: 1}, numeric=75))
+    other_api.poll_devices = MagicMock(return_value=snapshot(other_account))
     try:
         await write()
         await extra.async_set_native_value(75)
         await other_write()
-        # Keep the other account's poll outside this test; its state is independent.
-        other_account.settings._confirm_cancel()
-        other_account.settings._confirm_cancel = None
-        assert len(data.settings.pending) == 2
+        assert extra.native_value == 10
         async with asyncio.timeout(2):
-            while data.settings.pending:
+            while not api.poll_devices.called or not other_api.poll_devices.called:
+                await asyncio.sleep(0.005)
+            while data.settings._refresh_task or other_account.settings._refresh_task:
                 await asyncio.sleep(0.005)
         api.poll_devices.assert_called_once()
-        assert other_account.settings.pending
+        other_api.poll_devices.assert_called_once()
         assert extra.native_value == 75
     finally:
         await data.async_close()
         await other_account.async_close()
 
 
-async def test_unrenderable_confirmation_property_cannot_fail_inventory_poll(hass):
+async def test_unrenderable_property_cannot_fail_inventory_poll(hass):
     _, api, data, _, write, _, _, _, matching = controls(hass, "number")
     values = dict(matching.devices["CAM001"].values)
     values.pop("numeric")
@@ -583,6 +467,53 @@ async def test_unrenderable_confirmation_property_cannot_fail_inventory_poll(has
     try:
         await write()
         await data.async_refresh()
-        assert data.last_update_success and data.settings.pending
+        assert data.last_update_success
+    finally:
+        await data.async_close()
+
+
+async def test_write_during_inflight_refresh_gets_a_followup(hass, monkeypatch):
+    _, _, data, _, write, _, _, _, _ = controls(hass)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def refresh():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await release.wait()
+
+    monkeypatch.setattr(data, "async_request_refresh", refresh)
+    try:
+        await write()
+        await asyncio.wait_for(entered.wait(), 2)
+        await write()
+        await asyncio.sleep(0.03)
+        assert calls == 1
+        release.set()
+        async with asyncio.timeout(2):
+            while calls < 2 or data.settings._refresh_task:
+                await asyncio.sleep(0.005)
+        assert calls == 2
+    finally:
+        release.set()
+        await data.async_close()
+
+
+async def test_stale_refresh_does_not_start_retries(hass, monkeypatch):
+    _, api, data, _, write, read, _, old, _ = controls(hass)
+    monkeypatch.setattr(setting_writes, "REFRESH_DELAY", 0.01)
+    api.poll_devices = MagicMock(return_value=snapshot(data))
+    try:
+        await write()
+        async with asyncio.timeout(2):
+            while not api.poll_devices.called or data.settings._refresh_task:
+                await asyncio.sleep(0.005)
+        assert read() == old
+        assert data.settings._refresh_cancel is None
+        assert not data.settings._refresh_due
+        api.poll_devices.assert_called_once()
     finally:
         await data.async_close()

@@ -147,18 +147,14 @@ class EzvizLight(EzvizEntity, LightEntity):
     @property
     @override
     def is_on(self) -> bool:
-        """Read observed power with a bounded accepted-command overlay."""
-        return self.setting_value(
-            "light:power", bool(self.entity_description.is_on_value(self.data))
-        )
+        """Return the SDK-observed light power."""
+        return bool(self.entity_description.is_on_value(self.data))
 
     @property
     @override
     def brightness(self) -> int | None:
         """Read brightness without changing the accepted camera snapshot."""
-        percent = self.setting_value(
-            "light:brightness", self.entity_description.brightness_value(self.data)
-        )
+        percent = self.entity_description.brightness_value(self.data)
         return (
             round(
                 percentage_to_ranged_value(
@@ -171,11 +167,6 @@ class EzvizLight(EzvizEntity, LightEntity):
 
     async def _async_power(self, on: bool) -> None:
         await self.async_write_setting(
-            "light:power",
-            on,
-            lambda: self.entity_description.is_on_value(
-                self.coordinator.inventory_data[self.serial]
-            ),
             self.entity_description.power_on
             if on
             else self.entity_description.power_off,
@@ -198,11 +189,6 @@ class EzvizLight(EzvizEntity, LightEntity):
                     )
                 )
                 await self.async_write_setting(
-                    "light:brightness",
-                    percent,
-                    lambda: self.entity_description.brightness_value(
-                        self.coordinator.inventory_data[self.serial]
-                    ),
                     self.entity_description.set_brightness,
                     self.coordinator.ezviz_client,
                     self.serial,
@@ -214,7 +200,7 @@ class EzvizLight(EzvizEntity, LightEntity):
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off through the shared confirmation owner."""
+        """Turn off through the shared setting writer."""
         try:
             await self._async_power(False)
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
@@ -238,9 +224,7 @@ class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
     def is_on(self) -> bool | None:
         """Return the known power state, or unknown when unavailable."""
         state = self.device_state
-        return self.setting_value(
-            "power", state.is_on if isinstance(state, LightState) else None
-        )
+        return state.is_on if isinstance(state, LightState) else None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:

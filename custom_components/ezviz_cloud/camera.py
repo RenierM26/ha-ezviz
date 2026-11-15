@@ -220,26 +220,19 @@ class EzvizCamera(EzvizEntity, Camera):
     @override
     def is_recording(self) -> bool:
         """Return True if the device is currently recording."""
-        return self.setting_value(
-            "switch:motion_detection", bool(self.data["alarm_notify"])
-        )
+        return bool(self.data["alarm_notify"])
 
     @property
     @override
     def motion_detection_enabled(self) -> bool:
         """Return True if motion detection is enabled."""
-        return self.setting_value(
-            "switch:motion_detection", bool(self.data["alarm_notify"])
-        )
+        return bool(self.data["alarm_notify"])
 
     @override
     async def async_enable_motion_detection(self) -> None:
         """Enable motion detection (a.k.a. defence) on the device."""
         try:
             await self.async_write_setting(
-                "switch:motion_detection",
-                True,
-                self.observed_motion_detection,
                 self.coordinator.ezviz_client.set_camera_defence,
                 self._serial,
                 1,
@@ -253,9 +246,6 @@ class EzvizCamera(EzvizEntity, Camera):
         """Disable motion detection (a.k.a. defence) on the device."""
         try:
             await self.async_write_setting(
-                "switch:motion_detection",
-                False,
-                self.observed_motion_detection,
                 self.coordinator.ezviz_client.set_camera_defence,
                 self._serial,
                 0,

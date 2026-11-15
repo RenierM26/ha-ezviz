@@ -312,13 +312,7 @@ class EzvizNumber(EzvizEntity, NumberEntity):
     @override
     def native_value(self) -> float | None:
         """Return the current numeric value from coordinator data."""
-        observed = self.entity_description.get_value(self.data)
-        if observed is None:
-            return None
-        return self.setting_value(
-            f"number:{self.entity_description.key}",
-            observed,
-        )
+        return self.entity_description.get_value(self.data)
 
     @property
     @override
@@ -333,15 +327,6 @@ class EzvizNumber(EzvizEntity, NumberEntity):
         """Send a new value to the device and refresh coordinator state."""
         try:
             await self.async_write_setting(
-                f"number:{self.entity_description.key}",
-                value,
-                lambda: self.entity_description.get_value(
-                    self.coordinator.inventory_data[self.serial]
-                ),
-                self.entity_description.set_value,
-                self.coordinator.ezviz_client,
-                self._serial,
-                value,
                 prepare=lambda: prepare_number(self, value),
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
