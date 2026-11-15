@@ -4,13 +4,14 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Callable, Coroutine, Mapping
 from copy import deepcopy
-from datetime import timedelta
+from datetime import timedelta, tzinfo
 import logging
 from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.devices.intercom_events import intercom_event_type
 from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
@@ -27,6 +28,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
+from .intercom_events import IntercomEvents, event_zones
 from .local import LocalDevice
 from .local_rtsp import read_local_rtsp, write_local_rtsp
 from .setting_writes import SettingWrites
@@ -55,6 +57,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self._api_timeout = api_timeout
         self.credentials = CameraCredentials(hass, config_entry, self)
         self.settings = SettingWrites(self)
+        self.intercom_events = IntercomEvents(self)
         self._local_devices: dict[str, LocalDevice] = {}
         self._local_rtsp_coordinators: dict[str, LocalRtspCoordinator] = {}
         self._update_lock = asyncio.Lock()
@@ -95,9 +98,12 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
-            inventory, cameras = await self.async_execute(_project_snapshot, result)
+            inventory, cameras, zones = await self.async_execute(
+                _project_snapshot, result
+            )
             self.inventory_snapshot = result
             self.inventory_data = inventory
+            self.intercom_events.snapshot(result, zones)
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
             raise ConfigEntryAuthFailed from error
@@ -115,7 +121,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def _poll_sync(self) -> DeviceSnapshot:
         """Require the new SDK's single deadline-bound mixed-family poll."""
         return self.ezviz_client.poll_devices(
-            DevicePollOptions(timeout=self._api_timeout)
+            DevicePollOptions(timeout=self._api_timeout, include_intercom_events=True)
         )
 
     def register_image(self, serial: str, url: str) -> str:
@@ -223,6 +229,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def begin_shutdown(self) -> None:
         """Reject new polling work before waiting for optional push cleanup."""
         self._closing = True
+        self.intercom_events.close()
         if task := self.settings.close():
             self._action_futures.add(task)
 
@@ -257,15 +264,19 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         if self._closing or not self.data or serial not in self.data:
             return
         ext = mqtt_data.get("ext")
-        if not isinstance(ext, dict) or not ext.get("image"):
+        if not isinstance(ext, dict):
+            return
+        self.intercom_events.push(mqtt_data)
+        if not ext.get("image"):
             return
         changes = {
             "last_alarm_type_code": ext.get("alert_type_code"),
             "last_alarm_time": ext.get("time"),
             "last_alarm_pic": ext.get("image"),
             "last_alarm_type_name": mqtt_data.get("alert"),
-            "Motion_Trigger": True,
         }
+        if intercom_event_type(ext.get("alert_type_code")) is None:
+            changes["Motion_Trigger"] = True
         if all(self.data[serial].get(key) == value for key, value in changes.items()):
             return
         snapshot = dict(self.data)
@@ -280,13 +291,13 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
 
 def _project_snapshot(
     result: DeviceSnapshot,
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, tzinfo]]:
     """Thaw once off-loop, keeping SDK command adapters detached from inventory."""
     inventory = result.as_dict()
     cameras = {
         serial: deepcopy(inventory[serial]) for serial in result.select("camera")
     }
-    return inventory, cameras
+    return inventory, cameras, event_zones(inventory)
 
 
 def _retrieve_worker_error(future: asyncio.Future) -> None:

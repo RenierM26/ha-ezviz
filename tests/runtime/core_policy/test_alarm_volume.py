@@ -308,10 +308,16 @@ async def test_real_sdk_inventory_retains_the_volume_configuration(
         assert coordinator.last_update_success
         data = coordinator.device_data("CAM001")
         if category == "DBScreen":
-            # SDK 2.2.0 filters this category from the accepted camera projection.
-            # HA range controls elsewhere are defensive, not new discovery support.
-            assert data == {}
-            assert not number._is_desc_supported(data, DESCRIPTION)
+            # The intercom SDK now renders this as a monitor, never a camera.
+            assert "CAM001" not in coordinator.data
+            assert coordinator.device_state("CAM001").kind == "monitor"
+            assert (
+                number.intercom_numbers(
+                    coordinator, "CAM001", coordinator.device_state("CAM001")
+                )[0].native_value
+                == current
+            )
+            assert alarm_volume_config(data) == config
             return
         assert number._is_desc_supported(data, DESCRIPTION)
         assert DESCRIPTION.get_value(data) == current

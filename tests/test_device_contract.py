@@ -48,6 +48,9 @@ def coordinator_module(monkeypatch):
     for name in ("homeassistant", "homeassistant.core", "homeassistant.helpers"):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     monkeypatch.setattr(sys.modules["homeassistant.core"], "callback", lambda fn: fn)
+    monkeypatch.setitem(sys.modules, "homeassistant.util", SimpleNamespace(dt=SimpleNamespace(
+        utcnow=lambda: datetime.now(UTC),
+        get_time_zone=MagicMock(side_effect=AssertionError("Poll-only controls have no timezone")))))
     monkeypatch.setitem(sys.modules, "homeassistant.helpers.event", SimpleNamespace(
         async_call_later=MagicMock(side_effect=AssertionError("Poll-only controls must not schedule setting timers"))))
     monkeypatch.setitem(sys.modules, "homeassistant.exceptions", SimpleNamespace(ConfigEntryAuthFailed=Failed, HomeAssistantError=Failed))

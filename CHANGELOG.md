@@ -1,5 +1,16 @@
 # Change history
 
+## Unreleased
+
+- Add non-streaming intercom support: advertised indoor monitors, capability-qualified
+  door/gate buttons, chime settings and nameplate lighting. Preserve observed state
+  and existing volume entity identities.
+- Add doorbell/access event entities with bounded push/history deduplication, initial
+  history suppression and strict timestamp handling. Known ring/unlock events no
+  longer activate motion. See [intercom support](docs/intercom.md).
+- Requires the companion SDK intercom release (planned 2.5.0); this integration PR
+  remains draft until the published dependency is qualified. No streaming changes.
+
 ## 0.3.0
 
 A stable release of the shared-inventory and reliability overhaul, including

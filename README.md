@@ -85,3 +85,9 @@ establish live broker delivery, physical actions or browser/media compatibility.
 Report reproducible problems through [GitHub issues](https://github.com/RenierM26/ha-ezviz/issues)
 using the [support checklist](docs/troubleshooting.md#reporting-a-problem).
 Do not attach passwords, verification codes, keys, tokens or signed media URLs.
+
+## Video intercoms (unreleased)
+
+See [non-streaming intercom support](docs/intercom.md) for monitor inventory,
+relay buttons, chime settings and ringing/access events. This branch depends on
+the companion SDK release; it does not add streaming or talkback.

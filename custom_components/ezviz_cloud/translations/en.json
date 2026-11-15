@@ -82,6 +82,12 @@
             },
             "restart_device": {
                 "name": "Restart"
+            },
+            "unlock_door": {
+                "name": "Unlock door"
+            },
+            "unlock_gate": {
+                "name": "Unlock gate"
             }
         },
         "image": {
@@ -130,6 +136,9 @@
             },
             "alarm_voice_volume": {
                 "name": "Alarm voice volume"
+            },
+            "intercom_chime_volume": {
+                "name": "Chime volume"
             }
         },
         "select": {
@@ -464,6 +473,15 @@
             },
             "rtsp_service": {
                 "name": "RTSP service"
+            },
+            "intercom_doorbell_enable": {
+                "name": "Doorbell chime"
+            },
+            "intercom_label_light": {
+                "name": "Nameplate light"
+            },
+            "intercom_pir_enable": {
+                "name": "Motion chime"
             }
         },
         "text": {
@@ -472,6 +490,28 @@
             },
             "camera_name": {
                 "name": "Camera name"
+            }
+        },
+        "event": {
+            "intercom_lock_unlocked": {
+                "name": "Lock activity",
+                "state_attributes": {
+                    "event_type": {
+                        "state": {
+                            "lock_unlocked": "Unlocked"
+                        }
+                    }
+                }
+            },
+            "intercom_ring": {
+                "name": "Doorbell",
+                "state_attributes": {
+                    "event_type": {
+                        "state": {
+                            "ring": "Ring"
+                        }
+                    }
+                }
             }
         }
     },
@@ -495,7 +535,7 @@
             "message": "The saved EZVIZ login does not match this installation identity. Reauthenticate to create a fresh login."
         },
         "request_forbidden": {
-            "message": "{operation} failed: EZVIZ denied permission ({detail}). For a shared device, ask the owner to review Account → Family & Guests and test the same action in the EZVIZ app with this account. Some devices or shared accounts may not support this operation."
+            "message": "{operation} failed: EZVIZ denied permission ({detail}). For a shared device, ask the owner to review Account \u2192 Family & Guests and test the same action in the EZVIZ app with this account. Some devices or shared accounts may not support this operation."
         },
         "request_timeout": {
             "message": "{operation} failed: the EZVIZ request timed out ({detail}). This may be temporary; a timeout alone does not require a restart or reauthentication."
@@ -613,10 +653,10 @@
             },
             "camera_edit": {
                 "data": {
-                    "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+                    "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
                     "ephemeral_test_rtsp": "Test RTSP connection",
                     "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
-                    "password": "Verification code (older cams) or leave “fetch_my_key”",
+                    "password": "Verification code (older cams) or leave \u201cfetch_my_key\u201d",
                     "rtsp_uses_verification_code": "RTSP playback credential",
                     "username": "Username",
                     "local_control_auth": "Local LAN control (HCNetSDK)"
@@ -682,8 +722,8 @@
         "local_control_auth": {
             "options": {
                 "disabled": "Disabled",
-                "verification_code": "Enabled — verification/sticker code (legacy cameras)",
-                "encryption_key": "Enabled — encryption key (modern cameras)"
+                "verification_code": "Enabled \u2014 verification/sticker code (legacy cameras)",
+                "encryption_key": "Enabled \u2014 encryption key (modern cameras)"
             }
         },
         "rtsp_playback_auth": {

@@ -1,2 +1,2 @@
-# Published SDK minimum qualified by CI and development profiles.
-pyezvizapi==2.4.0
+# Planned SDK minimum. Draft intercom PR requires companion release publication.
+pyezvizapi==2.5.0

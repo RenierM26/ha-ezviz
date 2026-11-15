@@ -8,6 +8,12 @@ from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
+from pyezvizapi.devices.intercom import (
+    ChimeField,
+    chime_value,
+    label_light_value,
+    set_label_light,
+)
 from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
@@ -23,6 +29,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -35,6 +42,7 @@ from .entity import (
     _build_device_info,
 )
 from .errors import request_error
+from .intercom import prepare_chime
 from .inventory import async_add_inventory_entities, async_set_power
 from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
 from .migration import migrate_unique_ids_with_coordinator
@@ -505,6 +513,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up EZVIZ switches based on a config entry."""
     coordinator: EzvizDataUpdateCoordinator = entry.runtime_data.coordinator
+    for kind in ("camera", "monitor"):
+        async_add_inventory_entities(
+            coordinator, entry, async_add_entities, kind, intercom_switches
+        )
 
     await migrate_unique_ids_with_coordinator(
         hass=hass,
@@ -678,3 +690,79 @@ class EzvizRtspSwitch(
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable only RTSP and publish the verified configuration."""
         await self.coordinator.async_set_enabled(False)
+
+
+def intercom_switches(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
+) -> list[EzvizIntercomSwitch]:
+    """Discover only observed chime and nameplate-light settings."""
+    data = state.as_dict()
+    keys = [
+        field
+        for field in ("doorbell_enable", "pir_enable")
+        if chime_value(data, field) is not None
+    ]
+    if label_light_value(data) is not None:
+        keys.append("label_light")
+    return [EzvizIntercomSwitch(coordinator, serial, key) for key in keys]
+
+
+class EzvizIntercomSwitch(EzvizInventoryEntity, SwitchEntity):
+    """Observed-only settings shared by stations and actual indoor monitors."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, coordinator: EzvizDataUpdateCoordinator, serial: str, field: str
+    ) -> None:
+        """Associate one observed property with the SDK inventory device."""
+        super().__init__(coordinator, serial)
+        self._field = field
+        self._attr_unique_id = f"{serial}_intercom_{field}"
+        self._attr_translation_key = f"intercom_{field}"
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return unknown rather than a default for missing settings."""
+        if self._field == "label_light":
+            return label_light_value(self.data)
+        field: ChimeField = (
+            "doorbell_enable" if self._field == "doorbell_enable" else "pir_enable"
+        )
+        value = chime_value(self.data, field)
+        return value if isinstance(value, bool) else None
+
+    async def _async_set(self, enable: bool) -> None:
+        if not self.available:
+            raise HomeAssistantError("EZVIZ intercom is unavailable")
+        try:
+            if self._field == "label_light":
+                await self.async_write_setting(
+                    set_label_light,
+                    self.coordinator.ezviz_client,
+                    self.serial,
+                    enable,
+                    self.data,
+                )
+            else:
+                field: ChimeField = (
+                    "doorbell_enable"
+                    if self._field == "doorbell_enable"
+                    else "pir_enable"
+                )
+                await self.async_write_setting(
+                    prepare=lambda: prepare_chime(self, field, enable)
+                )
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Set intercom setting", err) from err
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the observed setting."""
+        await self._async_set(True)
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the observed setting."""
+        await self._async_set(False)
