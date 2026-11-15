@@ -93,7 +93,8 @@ sensitivity change also records its forced auto-mode effect; night-mode aliases
 share one internal setting key. SDK helpers build normalized night payloads.
 Effective numeric targets use the writer's rounding, truncation and clamping;
 effects register only after SDK acceptance, and original inputs still reach SDK
-validation unchanged. Full payload writes update all the fields they actually
+validation unchanged. Pending audio fields cannot supply their own missing or
+invalid validation input, even when the surrounding configuration remains nonempty. Full payload writes update all the fields they actually
 write, so an implicitly changed sibling cannot keep displaying an older target.
 
 `setting_observations` requires actual known property evidence, not just an online

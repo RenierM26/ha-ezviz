@@ -560,13 +560,19 @@ async def test_lossy_sdk_port_default_cannot_confirm(hass, raw, on):
         ("microphone_volume", "CustomVoice_Volume"),
     ],
 )
-async def test_pending_projection_does_not_resurrect_missing_audio_configuration(hass, key, group):
+@pytest.mark.parametrize("loss", ["group", "field"])
+async def test_pending_projection_does_not_resurrect_missing_audio_configuration(
+    hass, key, group, loss
+):
     api, data = configured(hass)
     entity = numeric(data, key)
     try:
         await entity.async_set_native_value(40)
         options = deepcopy(data.data["CAM001"]["STATUS"]["optionals"])
-        options.pop(group)
+        if loss == "group":
+            options.pop(group)
+        else:
+            options[group].pop("microphone_volume" if key == "microphone_volume" else "volume")
         api.poll_devices = MagicMock(return_value=snapshot(data, STATUS={"optionals": options}))
         await data.async_refresh()
         assert entity.native_value is None

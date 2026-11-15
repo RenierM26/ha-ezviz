@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pyezvizapi.devices.audio import (
     alarm_voice_volume_getter,
     alarm_volume_config,
+    alarm_volume_getter,
     alarm_volume_max,
     microphone_volume_getter,
     volume_config,
@@ -69,10 +70,16 @@ def _project(
     payload: dict[str, Any],
 ) -> None:
     config = getter(data)
-    if group in ("ChimeMusic", "CustomVoice_Volume") and not config:
-        # These SDK writers require a currently observed complete configuration.
-        # Pending state cannot resurrect a removed capability/configuration.
+    if group == "ChimeMusic" and alarm_volume_getter(data) is None:
         return
+    if group == "CustomVoice_Volume":
+        known_value = (
+            alarm_voice_volume_getter if field == "volume" else microphone_volume_getter
+        )(data)
+        if known_value is None:
+            # A pending field cannot supply its own missing SDK validation input,
+            # even when sibling/unknown fields keep the config nonempty.
+            return
     config = config or {}
     if field in payload:
         config[field] = payload[field]
