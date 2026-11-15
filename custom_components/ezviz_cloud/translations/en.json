@@ -598,7 +598,10 @@
             "verification_required": "Verification code required or invalid. Please try again.",
             "local_control_invalid": "The selected local credential or camera IPv4 address is missing or invalid. Check the chosen field on this screen.",
             "local_control_unsupported": "This camera does not report the local RTSP service setting.",
-            "local_control_cannot_connect": "Cannot validate local controls with the selected credential. Check that credential and local TCP port 8000; no other credential will be tried."
+            "local_control_cannot_connect": "Cannot validate local controls with the selected credential. Check that credential and local TCP port 8000; no other credential will be tried.",
+            "rtsp_enable_unverified": "RTSP enablement was refused or could not be verified. The outcome may be unknown; no automatic write retry was made. Wait for camera services to recover, then test again to read its actual status.",
+            "rtsp_enabled_test_failed": "RTSP configuration was verified enabled, but the connection/credential test failed. No camera options were saved. Review the playback credential and connection before testing again.",
+            "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings."
         },
         "step": {
             "camera": {
@@ -611,15 +614,19 @@
             "camera_edit": {
                 "data": {
                     "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
-                    "ephemeral_test_rtsp": "Test RTSP now (wakes device and probes stream)",
+                    "ephemeral_test_rtsp": "Test RTSP connection",
                     "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
                     "password": "Verification code (older cams) or leave “fetch_my_key”",
-                    "rtsp_uses_verification_code": "Use verification code for RTSP (instead of encryption key)",
+                    "rtsp_uses_verification_code": "RTSP playback credential",
                     "username": "Username",
-                    "local_control_auth": "Local device controls"
+                    "local_control_auth": "Local LAN control (HCNetSDK)"
                 },
-                "description": "Editing camera {serial} at {ip_address}. Set RTSP credentials for this camera. If you don't know them, choose \"fetch_my_key\" and provide one-time codes on the next step if prompted. Local device controls reuse the username and explicitly selected credential above for TCP 8000. They do not enable RTSP during setup and do not change the separate RTSP playback credential selection. Battery cameras are unsupported. The playback test is optional; leave it off when configuring a disabled RTSP service.",
-                "title": "Camera settings"
+                "description": "Editing camera {serial} at {ip_address}. Local LAN control (HCNetSDK, TCP 8000) uses the explicitly selected existing credential and is always tested when enabled. RTSP playback authentication is separate. Failed LAN validation returns here with your selections and resolved fields retained; no other credential is tried. Test RTSP connection is optional. If requested and validated LAN status explicitly reports RTSP off, the next screen offers to enable it. No service is changed without confirmation.",
+                "title": "Camera settings",
+                "data_description": {
+                    "rtsp_uses_verification_code": "Credential used only for the RTSP connection, independently of Local LAN control (HCNetSDK).",
+                    "ephemeral_test_rtsp": "Runs the existing SDK RTSP DESCRIBE credential check on default port 554, not a media-playback test. Enabled LAN control is always validated first, even when this test is off."
+                }
             },
             "camera_edit_2fa": {
                 "data": {
@@ -650,7 +657,17 @@
                     "cloud": "Cloud Settings"
                 },
                 "title": "EZVIZ Options"
+            },
+            "rtsp_enable": {
+                "title": "RTSP service is disabled",
+                "description": "For camera {serial}, local LAN authentication succeeded and the camera explicitly reports RTSP off. Enable RTSP and then test the selected playback credential? No camera change or option save has occurred yet. Check the box to permit one enable attempt; leave it unchecked to return to Camera settings with your selections retained.",
+                "data": {
+                    "enable_rtsp": "Enable RTSP and test the connection"
+                }
             }
+        },
+        "create_entry": {
+            "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback."
         }
     },
     "selector": {
@@ -666,6 +683,12 @@
                 "disabled": "Disabled",
                 "verification_code": "Enabled — verification/sticker code (legacy cameras)",
                 "encryption_key": "Enabled — encryption key (modern cameras)"
+            }
+        },
+        "rtsp_playback_auth": {
+            "options": {
+                "encryption_key": "Encryption key",
+                "verification_code": "Verification/sticker code"
             }
         }
     },

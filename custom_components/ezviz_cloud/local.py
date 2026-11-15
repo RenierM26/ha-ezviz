@@ -119,12 +119,18 @@ class LocalDevice:
         )
 
     async def async_execute(
-        self, func: Callable, *args: Any, options: Mapping[str, Any] | None = None
+        self,
+        func: Callable,
+        *args: Any,
+        options: Mapping[str, Any] | None = None,
+        precondition: Callable[[], Any] | None = None,
     ) -> Any:
         """Retain the per-camera lock until the owned SDK worker really completes."""
 
         async def operation() -> Any:
             async with self._lock:
+                if precondition is not None:
+                    precondition()
                 config = (
                     self.configuration()
                     if options is None

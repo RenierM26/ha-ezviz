@@ -31,8 +31,12 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   excludes battery families. A three-choice Local device controls dropdown in
   Camera settings reuses the existing username and chosen verification/sticker
   code or encryption key, without another stored credential or fallback. The
-  shared local backend is reusable by future controls; the separate playback
-  credential choice is unchanged, and its one-time test now defaults off.
+  shared local backend is reusable by future controls. A separate RTSP playback
+  credential dropdown retains boolean storage compatibility. Enabled LAN control
+  is always tested first; failed checks preserve the form. Explicit RTSP testing
+  can offer a confirmed enable only after a known off response. No write occurs
+  without affirmative consent; verified enable and connection-test results are
+  distinguished. The optional connection test defaults off.
   Local status is polled every five minutes, independently of cloud health.
   Writes preserve unrelated services and publish only verified read-back; no
   automatic port opening, credential fallback, watchdog or write retry.

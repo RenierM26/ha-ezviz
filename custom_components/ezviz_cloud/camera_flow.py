@@ -113,6 +113,8 @@ async def async_resolve_camera_credentials(
     data: dict,
     baseline: dict[str, Any],
     serial: str,
+    *,
+    test_rtsp: bool = True,
 ) -> dict:
     """Resolve/fetch creds; run RTSP wake+probe only when explicitly requested.
 
@@ -151,7 +153,7 @@ async def async_resolve_camera_credentials(
             _LOGGER.info("Fetched verification code for camera %s", data[ATTR_SERIAL])
 
         # Optional one-time RTSP test: only if user requested
-        if data.get("ephemeral_test_rtsp"):
+        if test_rtsp and data.get("ephemeral_test_rtsp"):
             await coordinator.async_execute(_wake_camera, data, ezviz_client)
             _LOGGER.debug("RTSP credentials verified for camera %s", data[ATTR_SERIAL])
 
@@ -213,15 +215,15 @@ class LocalControlValidationError(PyEzvizError):
 
 async def async_validate_local_controls(
     coordinator: EzvizDataUpdateCoordinator, serial: str, resolved: dict[str, Any]
-) -> None:
-    """Read-only validation after cloud/MFA resolution of the chosen source."""
+) -> bool | None:
+    """Always test enabled LAN access; return known RTSP state, never infer off."""
     if (
         resolved.get(CONF_LOCAL_CONTROL_AUTH, LocalControlAuth.DISABLED)
         == LocalControlAuth.DISABLED
     ):
-        return
+        return None
     try:
-        await coordinator.local_device(serial).async_execute(
+        return await coordinator.local_device(serial).async_execute(
             read_local_rtsp, options=resolved
         )
     except KeyError, TypeError, ValueError:

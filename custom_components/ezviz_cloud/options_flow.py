@@ -1,7 +1,7 @@
 """Options UI for live account settings and per-camera credentials."""
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 import probatio
 from pyezvizapi.exceptions import (
@@ -21,6 +21,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
 
 from .camera_flow import (
@@ -45,12 +46,24 @@ from .const import (
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .flow_validation import validate_timeout
 from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
+from .local_rtsp import write_local_rtsp
 
 if TYPE_CHECKING:
     from .coordinator import EzvizDataUpdateCoordinator
     from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _PlaybackCredentialSelector(selector.SelectSelector):
+    """Render a native dropdown while retaining the existing boolean storage/API."""
+
+    @override
+    def __call__(self, data: Any) -> bool:
+        """Accept old boolean submissions and normalize native dropdown values."""
+        if type(data) is bool:
+            return data
+        return super().__call__(data) == "verification_code"
 
 
 class EzvizOptionsFlowHandler(OptionsFlowWithReload):
@@ -60,6 +73,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Initialize options flow."""
         self._cam_serial: str
         self._camera_baseline: dict[str, Any] = {}
+        self._rtsp_pending: dict[str, Any] | None = None
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = (
             None  # one-shot defaults when returning from 2FA fallback
@@ -123,6 +137,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         }
 
         if user_input is not None:
+            self._rtsp_pending = None
             self._cam_serial = user_input["serial"]
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
             return await self.async_step_camera_edit()
@@ -209,6 +224,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             }
 
         if user_input is not None:
+            self._rtsp_pending = None
             payload = {
                 **user_input,
                 CONF_IP_ADDRESS: inferred_ip,
@@ -240,8 +256,13 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 )
 
             except EzvizAuthVerificationCode:
-                self._pending = payload
-                self._prefill = _make_prefill(user_input, None)
+                self._pending = {
+                    **payload,
+                    "ephemeral_test_rtsp": user_input.get("ephemeral_test_rtsp", False),
+                    "cloud_account_username": self.config_entry.unique_id,
+                    ATTR_SERIAL: self._cam_serial,
+                }
+                self._prefill = _make_prefill(payload, user_input)
                 return await self.async_step_camera_edit_2fa()
 
             except AuthTestResultFailed as err:
@@ -268,8 +289,16 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 probatio.Required(CONF_ENC_KEY, default=pf[CONF_ENC_KEY]): str,
                 probatio.Required(
                     CONF_RTSP_USES_VERIFICATION_CODE,
-                    default=pf[CONF_RTSP_USES_VERIFICATION_CODE],
-                ): bool,
+                    default="verification_code"
+                    if pf[CONF_RTSP_USES_VERIFICATION_CODE]
+                    else "encryption_key",
+                ): _PlaybackCredentialSelector(
+                    selector.SelectSelectorConfig(
+                        options=["encryption_key", "verification_code"],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="rtsp_playback_auth",
+                    )
+                ),
                 probatio.Optional(
                     CONF_LOCAL_CONTROL_AUTH, default=pf[CONF_LOCAL_CONTROL_AUTH]
                 ): selector.SelectSelector(
@@ -333,7 +362,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
 
             except LocalControlValidationError as err:
                 self._pending = None
-                self._prefill = {**err.data, "ephemeral_test_rtsp": False}
+                self._prefill = err.data
                 return await self.async_step_camera_edit(
                     errors={CONF_LOCAL_CONTROL_AUTH: err.error_key}
                 )
@@ -396,8 +425,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         )
 
     @callback
-    def _camera_options_result(self, resolved: dict[str, Any]) -> ConfigFlowResult:
-        """One fresh-read patch/compare path for normal and MFA completion."""
+    def _validated_camera_options(self, resolved: dict[str, Any]) -> dict[str, Any]:
+        """Compare the proposed patch against the current entry without saving."""
         patch = {
             CONF_USERNAME: resolved[CONF_USERNAME],
             CONF_PASSWORD: resolved[CONF_PASSWORD],
@@ -427,19 +456,125 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             patch[
                 "local_rtsp"
             ] = {}  # Clear credentials from the superseded, unpublished form.
-        options = build_camera_options(
+        return build_camera_options(
             self.config_entry, self._cam_serial, patch, expected=self._camera_baseline
         )
-        self._pending = None
-        self._prefill = None
-        return self.async_create_entry(title="", data=options)
 
-    async def _test_rtsp_credentials(self, data: dict) -> dict:
-        """Delegate resolution while retaining the live coordinator and edit baseline."""
-        resolved = await async_resolve_camera_credentials(
+    @callback
+    def _camera_options_result(
+        self, resolved: dict[str, Any], *, description: str | None = None
+    ) -> ConfigFlowResult:
+        """Offer an explicit action or save only after the requested checks pass."""
+        if resolved.pop("ephemeral_enable_rtsp", False):
+            self._pending = None
+            self._rtsp_pending = resolved
+            return self._rtsp_enable_form()
+        options = self._validated_camera_options(resolved)
+        self._pending = self._prefill = self._rtsp_pending = None
+        return self.async_create_entry(title="", data=options, description=description)
+
+    @callback
+    def _rtsp_enable_form(self) -> ConfigFlowResult:
+        """No writes or option commits occur while presenting the offer."""
+        return self.async_show_form(
+            step_id="rtsp_enable",
+            data_schema=probatio.Schema(
+                {probatio.Required("enable_rtsp", default=False): bool}
+            ),
+            description_placeholders={"serial": self._cam_serial},
+        )
+
+    async def async_step_rtsp_enable(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """A consumed affirmative submission permits one owned enable attempt."""
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None or runtime.coordinator.shutting_down:
+            self._rtsp_pending = None
+            return self.async_abort(reason="integration_unavailable")
+        if self._cam_serial not in (self.coordinator.data or {}):
+            self._rtsp_pending = None
+            return self.async_abort(reason="no_cameras")
+        if self._rtsp_pending is None:
+            return await self.async_step_camera_edit()
+        if user_input is None:
+            return self._rtsp_enable_form()
+        resolved, self._rtsp_pending = self._rtsp_pending, None
+        self._prefill = {**resolved, "ephemeral_test_rtsp": True}
+        if user_input["enable_rtsp"] is not True:
+            return await self.async_step_camera_edit()
+        try:
+            # Check again inside the shared lock, not before potentially queued IO.
+            await self.coordinator.local_device(self._cam_serial).async_execute(
+                write_local_rtsp,
+                True,
+                options=resolved,
+                precondition=lambda: self._validated_camera_options(resolved),
+            )
+        except CameraOptionsConflict:
+            self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
+            self._prefill = None
+            return await self.async_step_camera_edit(errors={"base": "options_changed"})
+        except (
+            HomeAssistantError,
+            PyEzvizError,
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ):
+            return await self.async_step_camera_edit(
+                errors={"base": "rtsp_enable_unverified"}
+            )
+        try:
+            await self._probe_rtsp(resolved)
+            return self._camera_options_result(
+                resolved, description="rtsp_enabled_and_tested"
+            )
+        except CameraOptionsConflict:
+            self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
+            self._prefill = None
+            return await self.async_step_camera_edit(
+                errors={"base": "rtsp_enabled_options_changed"}
+            )
+        except PyEzvizError, OSError, ValueError:
+            return await self.async_step_camera_edit(
+                errors={"base": "rtsp_enabled_test_failed"}
+            )
+
+    async def _probe_rtsp(self, resolved: dict[str, Any]) -> None:
+        """Run the existing explicit SDK wake/DESCRIBE probe, not a media test."""
+        data = {
+            **resolved,
+            CONF_IP_ADDRESS: self.coordinator.data[self._cam_serial]["local_ip"],
+            "cloud_account_username": self.config_entry.unique_id,
+            ATTR_SERIAL: self._cam_serial,
+            "ephemeral_test_rtsp": True,
+        }
+        await async_resolve_camera_credentials(
             self.coordinator, data, self._camera_baseline, self._cam_serial
         )
-        await async_validate_local_controls(
-            self.coordinator, self._cam_serial, resolved
+
+    async def _test_rtsp_credentials(self, data: dict) -> dict:
+        """Resolve keys, always validate enabled LAN control, then optionally test RTSP."""
+        requested = bool(data.get("ephemeral_test_rtsp"))
+        resolved = await async_resolve_camera_credentials(
+            self.coordinator,
+            data,
+            self._camera_baseline,
+            self._cam_serial,
+            test_rtsp=False,
         )
+        try:
+            rtsp_state = await async_validate_local_controls(
+                self.coordinator, self._cam_serial, resolved
+            )
+        except LocalControlValidationError as err:
+            err.data = {**err.data, "ephemeral_test_rtsp": requested}
+            raise
+        if requested:
+            if rtsp_state is False:
+                resolved["ephemeral_enable_rtsp"] = True
+            else:
+                await self._probe_rtsp(resolved)
         return resolved

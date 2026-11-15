@@ -7,7 +7,7 @@ It is not a playback test or a new streaming implementation.
 ## Configure in Camera settings
 
 Open **Settings → Devices & services → EZVIZ Cloud → Configure → Camera settings**
-and select a camera. **Local device controls** is a dropdown on the existing
+and select a camera. **Local LAN control (HCNetSDK)** is a dropdown on the existing
 credential screen:
 
 | Choice | Local-control credential |
@@ -23,15 +23,43 @@ field contains `fetch_my_key`, the existing credential-fetch/MFA flow resolves i
 before the local read-only validation. A missing or rejected selected credential
 never causes the other credential to be tried.
 
-This shared selection is for local device controls, with RTSP service control as
-the first consumer. It is **independent of Use verification code for RTSP**, which
-still chooses the credential for stream playback. The legacy/modern wording is a
+This shared selection is for local LAN device controls, with RTSP service control as
+the first consumer. It is **independent of RTSP playback credential**, a separate two-choice
+dropdown that retains the existing boolean storage key for compatibility. The legacy/modern wording is a
 hint; choose the source accepted by your firmware rather than relying on a model
-guess. Saving these options never enables or disables the camera's RTSP service.
+guess. The initial submission only validates. A service change requires the separate
+affirmative confirmation described below.
 
-**Test RTSP now** is unchecked by default and remains an explicit wake/playback
-credential probe. Leave it unchecked to configure local service control while
-RTSP is off. The local validation tests the command-port API, not port 554.
+## Validation and guided RTSP setup
+
+1. Resolve the requested camera credentials, including the existing MFA flow.
+2. **Always validate enabled LAN control**, whether or not RTSP testing is checked.
+   A failed or unknown LAN result returns to Camera settings with the selected
+   source, entered/resolved fields and requested-test flag retained. Nothing is
+   saved; select another source or correct a field explicitly. No fallback occurs.
+3. If **Test RTSP connection** is checked and the authenticated LAN response
+   explicitly reports RTSP off, show **RTSP service is disabled**. The enable
+   checkbox is unchecked by default. Declining returns to the previous form;
+   configuring LAN control alone never offers or enables RTSP.
+4. An affirmative submission permits one enable attempt through the shared local
+   executor. The current saved settings are checked inside its lock first; a stale
+   offer returns to fresh settings without writing. The operation re-reads current
+   service state, changes only RTSP if needed, verifies the ACK and reads back.
+5. Only after verified on, run the explicitly requested RTSP credential test and
+   save the camera options. Success distinguishes verified service configuration
+   from the DESCRIBE result. A successful enable followed by a failed test is
+   reported as such; it is not called rollback and does not save the options.
+
+Unknown LAN state, closed ports, timeouts and authentication errors are never
+interpreted as RTSP off. Failed/unverified writes return to the form without an
+automatic retry. A new explicit test reads actual state again before any new offer.
+The offer is consumed before the write, and removal/shutdown invalidates it.
+
+The two authentication dropdowns are independent. **Test RTSP connection** is
+unchecked by default; if LAN is disabled it simply runs the existing RTSP probe
+without any enable offer. This SDK probe is an RTSP DESCRIBE authentication check
+on default port 554—not full playback or proof for every custom port/path. A
+failed playback test alone never causes a camera setting to be changed.
 
 ## Requirements and limits
 

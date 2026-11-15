@@ -70,10 +70,10 @@ camera, and review **Camera settings**. The entry must be loaded and not stoppin
 | Username | Local RTSP username, default `admin`; not necessarily the cloud login. |
 | Verification code | Device sticker/verification credential, **not** the temporary SMS/MFA code. Enter a known value or `fetch_my_key` to request it from EZVIZ. |
 | Encryption key | Device video/image encryption credential. Enter a known value or `fetch_my_key` to request it. It can differ from the sticker code and cloud password. |
-| Use verification code for RTSP | On selects the saved verification credential; off selects the saved encryption key (default). It does not change device encryption or sharing permissions. |
+| RTSP playback credential | A two-choice dropdown selecting encryption key (default) or verification/sticker code for the RTSP connection. The stored `rtsp_uses_verification_code` boolean is unchanged; this is independent of the LAN-control source. |
 | RTSP path | Path only, default `/Streaming/Channels/102` (commonly sub-stream). `/Streaming/Channels/101` is a common main-stream path, not a promise for every model/NVR. This legacy `ffmpeg_arguments` option is **not** an FFmpeg command line. |
-| Test RTSP now | An opt-in one-time wake request and RTSP credential probe, unchecked by default. Leave it off to configure local service controls while RTSP is disabled. |
-| Local device controls | Disabled, enabled using the existing verification/sticker code, or enabled using the existing encryption key. This shared LAN authentication choice is independent of the playback credential checkbox; see [local RTSP service control](local-rtsp.md). |
+| Test RTSP connection | An opt-in existing SDK wake/DESCRIBE credential probe, unchecked by default. Enabled LAN control is always validated first. A known off service leads to an explicit enable offer; no write occurs merely by selecting a LAN source. |
+| Local LAN control (HCNetSDK) | Disabled, enabled using the existing verification/sticker code, or enabled using the existing encryption key. This shared LAN authentication choice is independent of the playback credential checkbox; see [local RTSP service control](local-rtsp.md). |
 
 The camera IP and playback port come from the device's cached discovery data;
 there is no IP/port field in this form. HA builds the RTSP URL from those values,
@@ -115,6 +115,6 @@ See [upgrading/storage recovery](upgrading.md) and the
 
 See [local RTSP service control](local-rtsp.md) to add a configuration switch for
 supported non-battery cameras whose firmware disables RTSP periodically. This
-uses the Local device controls dropdown on the existing Camera settings form,
+uses the Local LAN control (HCNetSDK) dropdown on the existing Camera settings form,
 reusing its username and explicitly selected credential. It does not change the
 separate RTSP playback credential choice.

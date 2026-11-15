@@ -162,7 +162,9 @@ The camera-settings `local_control_auth` selector is disabled, verification code
 or encryption key. Only that source enum is saved; the existing username/key
 fields and SDK-observed address supply the connection profile. This does not
 change `rtsp_uses_verification_code`, which still selects playback authentication.
-The optional RTSP wake/playback test now defaults off.
+The optional RTSP wake/DESCRIBE test defaults off. Its playback-credential
+selector renders native string choices through a small boolean adapter so old
+`rtsp_uses_verification_code` storage/API submissions remain compatible.
 
 | Module | Responsibility |
 | --- | --- |
@@ -189,3 +191,21 @@ idempotence, off-loop IO, read-back, cancellation and unknown-outcome controls.
 Core-policy RTSP tests retain actual registered services, translated names,
 device association, rename, optional setup isolation, polling teardown and
 allowlisted diagnostic privacy. All transport remains synthetic/network-denied.
+
+
+#### Guided RTSP setup
+
+Credential resolution can defer its RTSP probe. Options always validate enabled
+LAN control before that optional test, and a failed validation retains the source,
+resolved fields and requested-test flag through both normal and MFA paths. Only
+known off plus requested RTSP testing sets an ephemeral enable offer. The one-shot
+`rtsp_enable` form defaults false and saves nothing. An affirmative submission
+uses the shared executor's in-lock precondition to reject stale camera settings,
+then performs one idempotent write/verified read-back. The requested probe follows;
+only success saves options. The result distinguishes configured-on from DESCRIBE
+success; failures after a verified enable explicitly retain that fact. No rollback
+or write retry is claimed. New flow fields/one-time codes never enter the saved
+allowlisted patch. `test_rtsp_setup.py` covers normal/MFA ordering, retained fields,
+HTTP selector/form serialization, decline, replay/no-offer guards, conflict before
+and during queued IO, post-write conflict, unverified outcomes, and disabled-LAN
+or unknown-state cases that must not offer a write.
