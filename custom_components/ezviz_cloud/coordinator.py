@@ -27,6 +27,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN
 from .credentials import CameraCredentials
 from .errors import request_error
+from .local_rtsp import (
+    POLL_INTERVAL,
+    LocalRtspConfig,
+    read_local_rtsp,
+    write_local_rtsp,
+)
 from .setting_writes import SettingWrites
 from .workers import create_critical_task, create_executor_task
 
@@ -273,3 +279,54 @@ def _retrieve_worker_error(future: asyncio.Future) -> None:
     """Retrieve late failures without cancelling a still-owned executor job."""
     if not future.cancelled():
         future.exception()
+
+
+class LocalRtspCoordinator(DataUpdateCoordinator[bool]):
+    """Poll one opted-in camera independently of cloud health and refreshes."""
+
+    def __init__(
+        self, account: EzvizDataUpdateCoordinator, serial: str, config: LocalRtspConfig
+    ) -> None:
+        """Initialize an account-owned local IO lifetime and per-camera lock."""
+        super().__init__(
+            account.hass,
+            _LOGGER,
+            config_entry=account.config_entry,
+            name="EZVIZ local RTSP",
+            update_interval=POLL_INTERVAL,
+        )
+        self.account = account
+        self.serial = serial
+        self.config = config
+        self._io_lock = asyncio.Lock()
+
+    @override
+    async def _async_update_data(self) -> bool:
+        try:
+            async with self._io_lock:
+                return await self.account.async_execute(
+                    read_local_rtsp, self.config, self.serial
+                )
+        except PyEzvizError, OSError, ValueError:
+            # Never include device responses, addresses or credential-bearing errors.
+            raise UpdateFailed("Local RTSP configuration unavailable") from None
+
+    async def async_set_enabled(self, enabled: bool) -> None:
+        """Own the complete write/read-back even if the service caller cancels."""
+
+        async def operation() -> None:
+            async with self._io_lock:
+                try:
+                    observed = await self.account.async_execute(
+                        write_local_rtsp, self.config, self.serial, enabled
+                    )
+                except PyEzvizError, OSError, ValueError:
+                    error = UpdateFailed("Local RTSP change refused or not verified")
+                    self.async_set_update_error(error)
+                    raise HomeAssistantError(
+                        translation_domain=DOMAIN,
+                        translation_key="local_rtsp_unverified",
+                    ) from None
+                self.async_set_updated_data(observed)
+
+        await self.account.async_execute_owned(operation)

@@ -109,3 +109,9 @@ See [permission and RTSP troubleshooting](troubleshooting.md).
 
 See [upgrading/storage recovery](upgrading.md) and the
 [detailed storage contract](shared-inventory.md#channel-99-and-credentials).
+
+## Optional local RTSP service control
+
+See [local RTSP service control](local-rtsp.md) to add a configuration switch for
+supported non-battery cameras whose firmware disables RTSP periodically. This
+is a separate opt-in, not part of the RTSP credential or stream-path form.

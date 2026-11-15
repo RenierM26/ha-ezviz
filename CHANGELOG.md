@@ -26,6 +26,14 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
 
 ### Integration and reliability
 
+- Add an opt-in per-camera **RTSP service** configuration switch using the
+  published SDK's local command-port API (TCP 8000). Setup is read-only and
+  excludes battery families; separate local device credentials are required.
+  Local status is polled every five minutes, independently of cloud health.
+  Writes preserve unrelated services and publish only verified read-back; no
+  automatic port opening, credential fallback, watchdog or write retry.
+
+
 - Coalesce ordinary cloud-setting refreshes about two seconds after the latest
   accepted command. Camera switches/lights, numbers/selects, plug/bulb power,
   camera name and motion detection display only SDK-observed state; the old value

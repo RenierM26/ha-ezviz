@@ -154,3 +154,33 @@ Old proxy references expire on unload/restart or bounded-registry eviction;
 browse again to obtain a current reference. No new SDK/HA minimum or migration.
 Host checks use `yarl.URL(raw_url).raw_host`, matching aiohttp's literal-IP path
 which bypasses DNS resolvers; the original URL string is still sent unchanged.
+
+
+### Opt-in local RTSP service control
+
+`local_rtsp.py` validates explicit LAN configuration and uses the published
+`HcNetSdkPurePythonClient.services_switch_state` / `services_switch_set` API.
+`coordinator.LocalRtspCoordinator` polls independently of the cloud coordinator;
+only the observed boolean is cached. A per-camera lock serializes reads and the
+complete read/modify/read-back write. Existing account-owned executor/critical
+tasks retain operations across cancellation and wait for workers during unload.
+Core coordinator listeners own periodic scheduling; entry unload shuts it down.
+
+The options flow probes read-only before saving a per-camera `local_rtsp` object.
+Blank passwords retain the existing LAN password without echoing it; opting out
+clears the object, including its credential, without changing camera services.
+The password is independent of cloud, sticker and media-key selection; no fetching
+or guessing is performed. Existing camera option patches preserve this unknown
+sibling, while the LAN form uses the same conflict-aware patch helper. Diagnostics
+remain allowlisted and exclude LAN credentials/addresses.
+
+Core-policy `test_local_rtsp.py` covers actual HA switch registration/services,
+translated naming, device association, in-place rename, observed external change,
+unavailability/recovery, polling subscription teardown, optional setup isolation
+and diagnostic privacy. Native `test_local_rtsp.py` covers SDK response semantics,
+known/malformed raw switches, true application-level ACKs, payload preservation,
+idempotence, unknown outcomes/no write retry, off-loop IO, cancellation ownership,
+read-only options flows, credential masking, conflict preservation and battery
+exclusion. The public SDK parser/payload helper is exercised; no private protocol
+implementation is copied into HA. All transport is synthetic and network-denied.
+No hardware/firmware compatibility or working-playback claim follows from tests.

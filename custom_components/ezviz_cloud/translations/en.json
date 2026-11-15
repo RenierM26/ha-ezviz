@@ -461,6 +461,9 @@
             },
             "wifi_status_light": {
                 "name": "Wi-Fi status light"
+            },
+            "rtsp_service": {
+                "name": "RTSP service"
             }
         },
         "text": {
@@ -508,6 +511,9 @@
         },
         "request_failed": {
             "message": "{operation} failed: EZVIZ request error ({detail})."
+        },
+        "local_rtsp_unverified": {
+            "message": "The local RTSP change was refused or could not be verified. Wait for the camera's services to recover and refresh its status before retrying."
         }
     },
     "issues": {
@@ -578,7 +584,8 @@
     },
     "options": {
         "abort": {
-            "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
+            "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available.",
+            "no_local_rtsp_cameras": "No eligible non-battery cameras are currently available."
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -589,7 +596,10 @@
             "rtsp_auth_failed": "RTSP authentication failed",
             "unknown": "Unexpected error",
             "verification_code_fetch_failed": "EZVIZ could not retrieve the verification/sticker code. Any encryption key already fetched is retained in this form. Saved credentials are unchanged; keep the existing verification code or retry later.",
-            "verification_required": "Verification code required or invalid. Please try again."
+            "verification_required": "Verification code required or invalid. Please try again.",
+            "local_rtsp_cannot_connect": "Cannot read local RTSP configuration. Check the address, local device credentials and TCP port 8000.",
+            "local_rtsp_invalid": "Enter a unicast camera IPv4 address, local username and local device password.",
+            "local_rtsp_unsupported": "This device did not report a recognized RTSP service setting."
         },
         "step": {
             "camera": {
@@ -637,9 +647,27 @@
                 "description": "Configure cloud or camera options.",
                 "menu_options": {
                     "camera_select": "Camera Settings",
-                    "cloud": "Cloud Settings"
+                    "cloud": "Cloud Settings",
+                    "local_rtsp_select": "Local RTSP service"
                 },
                 "title": "EZVIZ Options"
+            },
+            "local_rtsp": {
+                "data": {
+                    "enabled": "Manage RTSP service locally",
+                    "host": "Camera IPv4 address",
+                    "password": "Local device password",
+                    "username": "Local username"
+                },
+                "description": "Opt in to a configuration switch and five-minute local status checks. Setup only reads the service setting; it does not enable RTSP. Enter the current local device password, not your EZVIZ account password or an assumed media key. Leave password blank to keep the saved LAN password. Turning management off removes these LAN credentials and stops monitoring; it does not disable RTSP on the camera. No battery-camera support or automatic port opening.",
+                "title": "Local RTSP service"
+            },
+            "local_rtsp_select": {
+                "data": {
+                    "serial": "Camera"
+                },
+                "description": "Choose a non-battery camera. Local TCP port 8000 must already be reachable.",
+                "title": "Local RTSP service"
             }
         }
     },
