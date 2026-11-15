@@ -80,7 +80,9 @@ class IntercomEvents:
             if device_category(state.values) == "BDoorBell"
             and (health := snapshot.health.get(serial)) is not None
             and health.present
-            and health.current
+            # Retained rows can have fresh history despite a render failure.
+            # Unsupported records were excluded from the SDK history query.
+            and health.error_type != "UnsupportedCategory"
         }
         first = serials - self._seeded
         for event in reversed(snapshot.intercom_events):

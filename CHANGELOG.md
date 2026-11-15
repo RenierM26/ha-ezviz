@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Suppress the first successful intercom history window even while a known
+  doorbell has stale camera rendering. Keep valid push delivery independent,
+  and do not baseline unsupported devices excluded from the history query.
+
 - Add non-streaming intercom support: advertised indoor monitors, capability-qualified
   door/gate buttons, chime settings and nameplate lighting. Preserve observed state
   and existing volume entity identities.

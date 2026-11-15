@@ -48,7 +48,11 @@ person/card, arbitrary unlock method or household/button identity from a transla
 message. They are occurrences, not physical door/contact state.
 
 The first successful history window per device is a baseline and is not replayed
-as new activity. Push/history messages share a bounded 1024-ID deduplication cache.
+as new activity, even if the SDK retains a known doorbell row after an isolated
+camera-render failure. An unsupported-category row excluded from the SDK history
+query does not establish that device's baseline. Valid push events remain usable
+while rendering is stale or history requests fail.
+Push/history messages share a bounded 1024-ID deduplication cache.
 Events older than five minutes, more than 30 seconds in the future, or without a
 usable source timestamp do not emit. Unknown push times do not poison later
 history enrichment. Source strings without offsets use only a valid explicit IANA
