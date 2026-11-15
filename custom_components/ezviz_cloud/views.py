@@ -1,11 +1,12 @@
 """Ezviz Integration views (proxy and decrypt images)."""
 
+from asyncio import timeout
 from http import HTTPStatus
 from ipaddress import ip_address
 import logging
 import socket
 from typing import override
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
 from aiohttp.resolver import ThreadedResolver
@@ -23,6 +24,9 @@ from .const import CONF_ENC_KEY, DOMAIN, OPTIONS_KEY_CAMERAS
 from .image import _has_residual_encryption
 
 _LOGGER = logging.getLogger(__name__)
+
+_MAX_IMAGE_REDIRECTS = 5
+_IMAGE_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
 
 class PublicImageResolver(ThreadedResolver):
@@ -151,29 +155,58 @@ class ImageProxyView(HomeAssistantView):
             "Accept": "*/*",
         }
 
-        resp = None
         try:
-            resp = await self.session.get(
-                raw_url,
-                headers=headers,
-                allow_redirects=False,
-                timeout=ClientTimeout(
-                    total=30, connect=10, sock_connect=10, sock_read=20
-                ),
-            )
-            if resp.status != HTTPStatus.OK:
-                return web.Response(
-                    text="Unable to fetch image", status=HTTPStatus.BAD_GATEWAY
-                )
-            body = await resp.read()
-        except (ClientError, TimeoutError) as err:
+            # One deadline covers all hops and the final response body. Each
+            # connection still uses our public-only resolver and minimal headers.
+            async with timeout(30):
+                for hop in range(_MAX_IMAGE_REDIRECTS + 1):
+                    resp = await self.session.get(
+                        raw_url,
+                        headers=headers,
+                        allow_redirects=False,
+                        timeout=ClientTimeout(
+                            total=30, connect=10, sock_connect=10, sock_read=20
+                        ),
+                    )
+                    try:
+                        if resp.status == HTTPStatus.OK:
+                            body = await resp.read()
+                            break
+                        if (
+                            resp.status not in _IMAGE_REDIRECT_STATUSES
+                            or hop == _MAX_IMAGE_REDIRECTS
+                        ):
+                            return web.Response(
+                                text="Unable to fetch image",
+                                status=HTTPStatus.BAD_GATEWAY,
+                            )
+                        location = resp.headers.get("Location")
+                        if not location or any(ord(char) <= 32 for char in location):
+                            return web.Response(
+                                text="Unable to fetch image",
+                                status=HTTPStatus.BAD_GATEWAY,
+                            )
+                        try:
+                            raw_url = (
+                                ""
+                                if urlsplit(location).scheme
+                                and not _public_image_url(location)
+                                else urljoin(str(resp.url), location)
+                            )
+                        except ValueError:
+                            raw_url = ""
+                        if not _public_image_url(raw_url):
+                            return web.Response(
+                                text="Unable to fetch image",
+                                status=HTTPStatus.BAD_GATEWAY,
+                            )
+                    finally:
+                        resp.release()
+        except (ClientError, TimeoutError, ValueError) as err:
             _LOGGER.debug("Error fetching EZVIZ image (%s)", type(err).__name__)
             return web.Response(
                 text="Unable to fetch image", status=HTTPStatus.BAD_REQUEST
             )
-        finally:
-            if resp is not None:
-                resp.release()
 
         try:
             # Media browser defaults to the first SDK lens, with or without a key.

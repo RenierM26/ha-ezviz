@@ -71,7 +71,8 @@ source/metadata preflight, not a publisher or substitute for runtime tests.
 
 `tests/runtime/test_integration_audit.py` exercises the media proxy's server-owned
 reference boundary, private literal/DNS targets (including noncanonical numeric
-IPv4), redirect rejection, published-SDK keyless/encrypted multi-image decoding,
+IPv4), safe CDN/relative redirects and unsafe/over-limit/deadline rejection,
+published-SDK keyless/encrypted multi-image decoding,
 decoded MIME types, registered siren failure/recovery, and camera control writes
 across unrelated alarm pushes. All transport is synthetic; these are not live
 camera or vendor-CDN validation claims. Existing registry rename/timer/unload
@@ -83,9 +84,13 @@ and decoding; lenses share in-flight downloads but SDK 2.4.0 still decodes each
 lens independently. A future SDK batch-selection API can optimize that remaining
 CPU duplication without moving channel/framing rules into this integration.
 
-The media proxy accepts only direct public HTTPS sources registered while browsing
+The media proxy starts only from public HTTPS sources registered while browsing
 SDK-backed camera/alarm records, never a URL supplied by the HTTP caller. Its
-resolver rejects private targets at connection time and it does not follow
-redirects. Old proxy references expire on unload/restart or bounded-registry
-eviction; browse again to obtain a current reference. A redirecting vendor image
-will fail closed rather than being fetched. No new SDK/HA minimum or migration.
+resolver rejects private targets at every connection. It manually follows at
+most five redirects (301/302/303/307/308), resolving relative locations against
+the actual response URL and rechecking HTTPS, public IPs, credentials and ports
+on every hop. Intermediate responses are released; a single 30-second deadline
+covers the chain and final body. Missing/malformed locations, downgrades, private
+DNS/IP targets and excessive chains fail closed. Only minimal headers are sent.
+Old proxy references expire on unload/restart or bounded-registry eviction;
+browse again to obtain a current reference. No new SDK/HA minimum or migration.

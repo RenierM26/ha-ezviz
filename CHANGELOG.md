@@ -36,8 +36,10 @@ release. Historical published notes remain on [GitHub Releases](https://github.c
   projection so SDK write adapters cannot mutate accepted inventory.
 
 - Bind media-proxy requests to bounded, account/camera-owned image references;
-  reject caller URLs, private DNS/IP targets and redirects. Old proxy links must
-  be refreshed by browsing again. Only direct public HTTPS image targets work.
+  reject caller URLs and private DNS/IP targets. Follow at most five validated
+  public HTTPS CDN redirects within one 30-second download deadline, keeping
+  connection-time DNS checks on every hop. Reject downgrades, unsafe/malformed
+  targets and missing locations. Old proxy links require browsing again.
 - Decode media-browser images through the SDK even without a key (first lens),
   reject unresolved encryption and serve the decoded image content type.
 - Publish siren availability on coordinator failure/recovery without polling or

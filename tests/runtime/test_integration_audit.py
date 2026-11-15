@@ -33,7 +33,7 @@ def jpeg():
 def proxy_fixture(hass, monkeypatch, body):
     entry, _api, data, *_ = entities(hass)
     entry.runtime_data = SimpleNamespace(coordinator=data)
-    response = SimpleNamespace(status=200, read=AsyncMock(return_value=body), release=MagicMock())
+    response = SimpleNamespace(status=200, url="https://images.example.invalid/image", read=AsyncMock(return_value=body), release=MagicMock())
     session = SimpleNamespace(get=AsyncMock(return_value=response), close=AsyncMock())
     monkeypatch.setattr(views, "ClientSession", lambda **kwargs: session)
     return entry, data, views.ImageProxyView(hass), session, response
@@ -63,8 +63,8 @@ async def test_actual_resolver_rejects_private_dns(hass, monkeypatch, address):
         await resolver.close()
 
 
-@pytest.mark.parametrize("location", ["http://127.0.0.1/private", "https://other.example/image"])
-async def test_proxy_does_not_follow_any_redirect(hass, monkeypatch, location):
+@pytest.mark.parametrize("location", ["http://127.0.0.1/private", "https://127.0.0.1/a", "https://192.168.1.1/a", "https://127.1/a", "https://2130706433/a", "http://cdn.example/image", "https://user:pass@cdn.example/a", "https://cdn.example:8443/a", "https://[invalid/a", "https:///missing-host", "https:", "", " ", "/a\n"])
+async def test_proxy_rejects_unsafe_redirect(hass, monkeypatch, location):
     entry, data, proxy, session, response = proxy_fixture(hass, monkeypatch, jpeg())
     response.status = 302
     response.headers = {"Location": location}
@@ -264,3 +264,107 @@ async def test_proxy_owns_actual_connector_until_ha_close(hass):
     assert not proxy.session.closed
     await hass.async_stop()
     assert proxy.session.closed
+
+
+@pytest.mark.parametrize("encrypted", [False, True])
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize("location", ["https://cdn.example/image", "../image", "//cdn.example/image"])
+async def test_proxy_follows_validated_cdn_redirect_and_decodes(hass, monkeypatch, status, location, encrypted):
+    plain = jpeg()
+    block = plain
+    if encrypted:
+        padding = 16 - len(plain) % 16
+        cipher = AES.new(b"TESTONLY" + b"\0" * 8, AES.MODE_CBC, b"01234567" + b"\0" * 8)
+        block = HIK_ENCRYPTION_HEADER + b"ac837ab144ae11d771426037bf46479e" + cipher.encrypt(plain + bytes([padding]) * padding)
+    envelope = b"mutichhikpic\0\1" + b"".join(pack(">HHII", channel, 1, 4 + len(block), len(block)) + block for channel in (1, 2))
+    entry, data, proxy, session, final = proxy_fixture(hass, monkeypatch, envelope)
+    hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": {"enc_key": "TESTONLY" if encrypted else ""}}})
+    redirect = SimpleNamespace(status=status, url="https://images.example.invalid/actual/dir/image", headers={"Location": location}, release=MagicMock())
+    session.get.side_effect = [redirect, final]
+    reference = data.register_image("CAM001", "https://images.example.invalid/image")
+    result = await proxy.get(None, entry.entry_id, "CAM001", reference)
+    assert result.status == 200 and result.body == plain
+    assert result.content_type == "image/jpeg"
+    expected = "https://images.example.invalid/actual/image" if location == "../image" else "https://cdn.example/image"
+    assert session.get.call_args.args == (expected,)
+    for call in session.get.call_args_list:
+        assert call.kwargs["allow_redirects"] is False
+        assert call.kwargs["headers"] == {"User-Agent": "HomeAssistant/ezviz_cloud", "Accept": "*/*"}
+    redirect.release.assert_called_once()
+    final.release.assert_called_once()
+    await data.async_close()
+
+
+async def test_proxy_redirect_limit_releases_every_response(hass, monkeypatch):
+    entry, data, proxy, session, response = proxy_fixture(hass, monkeypatch, jpeg())
+    response.status = 302
+    response.headers = {"Location": "/next"}
+    reference = data.register_image("CAM001", "https://images.example.invalid/image")
+    result = await proxy.get(None, entry.entry_id, "CAM001", reference)
+    assert result.status == 502
+    assert session.get.call_count == views._MAX_IMAGE_REDIRECTS + 1
+    assert response.release.call_count == session.get.call_count
+    response.read.assert_not_called()
+    await data.async_close()
+
+
+async def test_proxy_missing_redirect_location(hass, monkeypatch):
+    entry, data, proxy, session, response = proxy_fixture(hass, monkeypatch, jpeg())
+    response.status = 302
+    response.headers = {}
+    reference = data.register_image("CAM001", "https://images.example.invalid/image")
+    assert (await proxy.get(None, entry.entry_id, "CAM001", reference)).status == 502
+    assert session.get.call_count == 1
+    response.release.assert_called_once()
+    await data.async_close()
+
+
+async def test_proxy_rebound_redirect_uses_public_resolver(hass, monkeypatch):
+    entry, data, proxy, session, response = proxy_fixture(hass, monkeypatch, jpeg())
+    response.status = 302
+    response.headers = {"Location": "https://cdn.example/image"}
+    resolver = views.PublicImageResolver()
+    monkeypatch.setattr(views.ThreadedResolver, "resolve", AsyncMock(return_value=[{"host": "127.0.0.1"}]))
+
+    async def connect(url, **kwargs):
+        if url == "https://cdn.example/image":
+            try:
+                await resolver.resolve("cdn.example", 443)
+            except OSError as err:
+                raise views.ClientError("blocked") from err
+        return response
+
+    session.get.side_effect = connect
+    reference = data.register_image("CAM001", "https://images.example.invalid/image")
+    try:
+        assert (await proxy.get(None, entry.entry_id, "CAM001", reference)).status == 400
+        response.read.assert_not_called()
+        response.release.assert_called_once()
+    finally:
+        await resolver.close()
+        await data.async_close()
+
+
+async def test_proxy_deadline_spans_redirect_and_body(hass, monkeypatch):
+    entry, data, proxy, session, response = proxy_fixture(hass, monkeypatch, jpeg())
+    real_timeout = asyncio.timeout
+    deadlines = []
+
+    def short_timeout(seconds):
+        deadlines.append(seconds)
+        return real_timeout(0.01)
+
+    monkeypatch.setattr(views, "timeout", short_timeout)
+    redirect = SimpleNamespace(status=302, url=response.url, headers={"Location": "/next"}, release=MagicMock())
+    session.get.side_effect = [redirect, response]
+
+    async def stalled_body():
+        await asyncio.Event().wait()
+
+    response.read.side_effect = stalled_body
+    reference = data.register_image("CAM001", "https://images.example.invalid/image")
+    assert (await proxy.get(None, entry.entry_id, "CAM001", reference)).status == 400
+    assert deadlines == [30]
+    redirect.release.assert_called_once()
+    response.release.assert_called_once()
+    await data.async_close()
