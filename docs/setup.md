@@ -1,7 +1,7 @@
 # Installation and setup
 
-These instructions describe **unreleased main**, not the older published
-`0.2.0.25` release. Check the [release status](../README.md#release-status) first.
+These instructions describe **0.3.0**, not the older `0.2.0.25` release.
+Check the [release status](../README.md#release-status) first.
 UI names below match the integration's English strings; HA/app translations can
 vary. No account login or physical-device setup was performed to validate this
 rewrite; flow behavior is covered by the native HA tests.
@@ -11,7 +11,7 @@ rewrite; flow behavior is covered by the native HA tests.
 - Use an EZVIZ account that can already see the devices in the current EZVIZ app.
   Register/add/manage devices through that app and current vendor guidance. The
   old account-registration/web-login links are not prerequisites.
-- Check your selected release's HA/Python requirements. Main requires HA
+- Check your selected release's HA/Python requirements. 0.3.0 requires HA
   2026.10.4+ and Python 3.14.2+. Do not replace HA OS/Container's managed Python.
 - Do not run this alongside built-in EZVIZ: its `pyezvizapi==1.0.5.0` pin conflicts
   with this line's `>=2.4.0` requirement. The narrowly documented CI exception is
@@ -38,8 +38,8 @@ repository as a component or nest another `custom_components` folder inside it.
 Restart HA once after installing/replacing integration code. There is no
 `configuration.yaml` account block to add.
 
-Testing main manually requires recording the exact commit and accepting that it
-is unreleased; do not identify it only by the unchanged manifest version. Installing
+Testing a development commit manually requires recording its exact SHA; a
+manifest version alone does not identify untagged development changes. Installing
 files, a HACS download, and restarting HA are distinct from configuring an account.
 
 ## Add the cloud account

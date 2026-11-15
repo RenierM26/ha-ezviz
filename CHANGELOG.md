@@ -1,10 +1,22 @@
 # Change history
 
-## Unreleased — main
+## 0.3.0
 
-Not a published integration version. Manifest `0.2.0.25` is still the older
-published version number; these later changes require a new version/tag before
-release. Historical published notes remain on [GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
+A stable release of the shared-inventory and reliability overhaul, including
+opt-in local RTSP service control and integration branding. Read the
+[upgrade and rollback guide](docs/upgrading.md) before updating from `0.2.0.25`.
+
+**Minimum versions:** Home Assistant **2026.10.4**, Python **3.14.2** and published
+`pyezvizapi` **2.4.0**. Do not install alongside built-in EZVIZ's conflicting SDK
+pin. Back up the complete HA configuration before upgrading: credential storage
+migrations are not reversed by reinstalling older component files.
+
+**Highlights:** shared device inventory, independent optional push, safer image
+handling, observed-only cloud controls, and guided local RTSP service setup.
+Bulbs/plugs retain on/off controls only; the additional bulb brightness/color
+controls in draft PR #258 are not included. Physical device, broker and playback
+behavior remain distinct from automated qualification; see the feature-specific
+limits below. Historical notes remain on [GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
 
 ### Upgrade considerations
 

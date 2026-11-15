@@ -2,7 +2,7 @@
 
 A merge is not a release or deployment. This guide defines reviewable evidence;
 it does not authorize pushing a tag, publishing a GitHub release or changing HA.
-The F06 PR deliberately leaves the integration manifest at `0.2.0.25`.
+The 0.3.0 candidate versions the overhaul previously carried on untagged main.
 
 ## 1. Prepare a versioned candidate
 
@@ -10,7 +10,7 @@ The F06 PR deliberately leaves the integration manifest at `0.2.0.25`.
   versions**, e.g. `0.2.0.25`, exactly equal to `manifest.version`; do not add a
   `v` prefix or move an existing tag. A new source revision needs a new version.
 - Update `custom_components/ezviz_cloud/manifest.json` in a reviewed version PR.
-  Convert the relevant [Unreleased change notes](../CHANGELOG.md) to the chosen
+  Convert the relevant [change notes](../CHANGELOG.md) to the chosen
   version and update README/setup/upgrade release-status wording for that tag.
   Do not describe untagged main as an already published HACS update.
 - Review breaking changes, migration/rollback limits and HA/SDK minima. If the HA
@@ -21,8 +21,8 @@ The F06 PR deliberately leaves the integration manifest at `0.2.0.25`.
   installed test version aligned. Qualify the published wheel, not an editable
   SDK checkout. An SDK release does not publish this integration.
 
-Current main cannot be released again as `0.2.0.25`: the existing tag names older
-source. The new preflight rejects that condition instead of silently reusing it.
+Never reuse `0.2.0.25` for the overhaul: the existing tag names older source.
+The preflight rejects a tag at a different commit instead of silently reusing it.
 
 ## 2. Qualify the exact commit
 
@@ -111,8 +111,8 @@ After merging a **new versioned candidate**, run **Prepare draft release** from
 `main`. Supply the full candidate SHA already reachable from `main`, the new bare
 version, a full Core SHA to reproduce, and the desired prerelease flag (defaults
 to true). The candidate must include this automation and a nonempty
-`## VERSION` heading in `CHANGELOG.md` with reviewed upgrade notes. Current
-`0.2.0.25`/Unreleased main intentionally fails these prerequisites.
+`## VERSION` heading in `CHANGELOG.md` with reviewed upgrade notes. An unversioned
+Unreleased section alone does not meet these prerequisites.
 
 The workflow rejects branch-name SHAs, unmerged candidates, reused tags, version
 mismatches and missing notes. It runs the shared **full** qualification at that

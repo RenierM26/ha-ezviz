@@ -10,14 +10,15 @@ It is separate from Home Assistant's built-in **EZVIZ** integration.
 
 ## Release status
 
-**This README describes unreleased `main`.** The latest published integration
-release checked on 2026-11-14 is `0.2.0.25`; `main` still carries that manifest
-version but includes subsequent, untagged changes. Installing that published tag
-does **not** install the overhaul described here. Use the selected release's own
-documentation for its behavior. A new manifest version/tag and explicit release
-approval are still required; no release is implied by merging these PRs.
+This documentation describes **0.3.0**, the shared-inventory and reliability
+overhaul. For the published version and downloads, use
+[GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
+Read the [0.3.0 change notes](CHANGELOG.md#030) and
+[upgrade/rollback guide](docs/upgrading.md) before updating from `0.2.0.25`.
+The older tag does not contain these changes; a merge into `main` alone does not
+publish a HACS update. Development branches and draft PRs are not release contents.
 
-For this development line:
+For 0.3.0:
 
 | Requirement | Qualified baseline |
 | --- | --- |
