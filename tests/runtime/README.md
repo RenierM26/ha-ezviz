@@ -34,7 +34,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py`,
 both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.1'
 python tools/check.py native
 ```
 
@@ -236,3 +236,18 @@ Flow/diagnostic coverage percentages do not describe event-module coverage.
 Run these probes through the native harness, which denies sockets and DNS before
 SDK execution. Synthetic serials alone do not prevent network access: an empty
 prefetched-alarm mapping can cause the SDK renderer to perform a cloud fallback.
+
+
+## Point PTZ action (candidate until SDK patch publication)
+
+`core_policy/test_ptz_position.py` exercises native service registration/targeting,
+real SDK serialization, off-loop commands, strict coordinate/capability/route
+validation, unchanged observed state, no stream startup, API rejection, and
+cancellation/shutdown ownership. Ordinary directional PTZ is not proof of point
+control: direct586 and selected-point724 paths have distinct requirements.
+
+The planned 2.5.1 minimum includes the SDK point-payload correction in SDK #446.
+Before publication, candidate tests may explicitly use the companion SDK source;
+that does not satisfy the installed-version profile guard or qualify a PyPI
+release. Normal `tools/check.py` profiles intentionally remain blocked until the
+exact published pin is available and qualified without overrides.

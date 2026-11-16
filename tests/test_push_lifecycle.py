@@ -34,6 +34,7 @@ def integration(monkeypatch):
         "push_test.coordinator",
         "push_test.views",
         "push_test.repairs",
+        "push_test.services",
     ):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     constants = sys.modules["push_test.const"]

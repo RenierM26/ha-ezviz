@@ -1,2 +1,2 @@
-# Published SDK minimum qualified by the standard repository profiles.
-pyezvizapi==2.5.0
+# Planned patch minimum; draft PTZ PR awaits publication and wheel qualification.
+pyezvizapi==2.5.1

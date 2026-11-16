@@ -18,8 +18,10 @@ Read the [0.3.0 change notes](CHANGELOG.md#030) and
 The older tag does not contain these changes; a merge into `main` alone does not
 publish a HACS update. Development branches and draft PRs are not release contents.
 
-The development intercom changes require published SDK 2.5.0 and qualify that
-exact wheel in CI; they are not included in 0.3.0. See [intercom support](docs/intercom.md).
+The development intercom changes use the SDK 2.5.0 API and are not included in
+0.3.0. The new [point PTZ action](docs/ptz-position.md) additionally requires the
+planned SDK 2.5.1 patch; its publication and published-wheel qualification remain
+a draft gate. See [intercom support](docs/intercom.md).
 
 For 0.3.0:
 

@@ -8,3 +8,34 @@ capture_picture:
     entity:
       integration: ezviz_cloud
       domain: camera
+
+ptz_control_coordinates:
+  target:
+    entity:
+      integration: ezviz_cloud
+      domain: camera
+  fields:
+    x_axis:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+          mode: box
+    y_axis:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.01
+          mode: box
+    resource_identifier:
+      advanced: true
+      selector:
+        text:
+    local_index:
+      advanced: true
+      selector:
+        text:

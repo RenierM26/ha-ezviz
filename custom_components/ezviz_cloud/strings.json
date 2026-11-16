@@ -92,8 +92,8 @@
         "description": "Editing camera {serial} at {ip_address}. Local LAN control (HCNetSDK, TCP 8000) uses the explicitly selected existing credential and is always tested when enabled. RTSP playback authentication is separate. Failed LAN validation returns here with your selections and resolved fields retained; no other credential is tried. Test RTSP connection is optional. If requested and validated LAN status explicitly reports RTSP off, the next screen offers to enable it. No service is changed without confirmation.",
         "data": {
           "username": "[%key:common::config_flow::data::username%]",
-          "password": "Verification code (older cams) or leave “fetch_my_key”",
-          "enc_key": "Encryption key (newer cams) or leave “fetch_my_key”",
+          "password": "Verification code (older cams) or leave \u201cfetch_my_key\u201d",
+          "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
           "rtsp_uses_verification_code": "RTSP playback credential",
           "ephemeral_test_rtsp": "Test RTSP connection",
           "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
@@ -613,6 +613,28 @@
     "capture_picture": {
       "name": "Capture picture",
       "description": "Take a new picture through the EZVIZ cloud and show it in the snapshot image entity. Works without RTSP and wakes battery devices from standby."
+    },
+    "ptz_control_coordinates": {
+      "name": "Move to image position",
+      "description": "Point a supported PTZ camera at normalized image coordinates (0\u20131), not pan/tilt angles. No stream is started. The device must advertise point/direct PTZ support.",
+      "fields": {
+        "x_axis": {
+          "name": "Horizontal position",
+          "description": "0 is the left edge; 1 is the right edge of the image."
+        },
+        "y_axis": {
+          "name": "Vertical position",
+          "description": "0 is the top edge; 1 is the bottom edge of the image."
+        },
+        "resource_identifier": {
+          "name": "Camera resource",
+          "description": "Optional reported Video resource for cameras with multiple resources. Supply together with resource index."
+        },
+        "local_index": {
+          "name": "Resource index",
+          "description": "Optional vendor-reported local index, supplied together with camera resource. Never inferred from an RTSP channel."
+        }
+      }
     }
   },
   "selector": {
@@ -626,8 +648,8 @@
     "local_control_auth": {
       "options": {
         "disabled": "Disabled",
-        "verification_code": "Enabled — verification/sticker code (legacy cameras)",
-        "encryption_key": "Enabled — encryption key (modern cameras)"
+        "verification_code": "Enabled \u2014 verification/sticker code (legacy cameras)",
+        "encryption_key": "Enabled \u2014 encryption key (modern cameras)"
       }
     },
     "rtsp_playback_auth": {
@@ -723,7 +745,7 @@
       "message": "EZVIZ credentials could not be read or saved safely. Check storage; setup or migration will retry."
     },
     "request_forbidden": {
-      "message": "{operation} failed: EZVIZ denied permission ({detail}). For a shared device, ask the owner to review Account → Family & Guests and test the same action in the EZVIZ app with this account. Some devices or shared accounts may not support this operation."
+      "message": "{operation} failed: EZVIZ denied permission ({detail}). For a shared device, ask the owner to review Account \u2192 Family & Guests and test the same action in the EZVIZ app with this account. Some devices or shared accounts may not support this operation."
     },
     "request_timeout": {
       "message": "{operation} failed: the EZVIZ request timed out ({detail}). This may be temporary; a timeout alone does not require a restart or reauthentication."
@@ -742,6 +764,24 @@
     },
     "local_rtsp_unverified": {
       "message": "The local RTSP change could not be confirmed after checking the camera's reported state. The setting may already have changed. Wait for camera services to recover and refresh its status before retrying."
+    },
+    "ptz_point_unsupported": {
+      "message": "The camera does not report support for point-based PTZ control."
+    },
+    "ptz_route_pair_required": {
+      "message": "Specify both camera resource and resource index, or leave both unset."
+    },
+    "ptz_route_unknown": {
+      "message": "No unambiguous reported video resource matches this PTZ target. Specify its reported camera resource and index."
+    },
+    "ptz_point_unavailable": {
+      "message": "The camera is unavailable or being unloaded."
+    },
+    "ptz_point_invalid": {
+      "message": "Use numeric coordinates between 0 and 1 and valid resource identifiers."
+    },
+    "ptz_point_rejected": {
+      "message": "EZVIZ did not accept the point-based PTZ command."
     }
   }
 }

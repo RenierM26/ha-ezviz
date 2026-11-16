@@ -1,15 +1,23 @@
 """Register camera actions independently of account setup."""
 
+import probatio
+
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, SupportsResponse, callback
 from homeassistant.helpers.service import async_register_platform_entity_service
 
-from .const import DOMAIN, SERVICE_CAPTURE_PICTURE, SERVICE_WAKE_DEVICE
+from .const import (
+    DOMAIN,
+    SERVICE_CAPTURE_PICTURE,
+    SERVICE_PTZ_CONTROL_COORDINATES,
+    SERVICE_WAKE_DEVICE,
+)
+from .ptz import coordinate, route_part
 
 
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
-    """Register wake and capture against this integration's camera platforms."""
+    """Register camera actions independently of account setup/availability."""
     async_register_platform_entity_service(
         hass,
         DOMAIN,
@@ -26,4 +34,18 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=None,
         func="async_capture_picture",
         supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async_register_platform_entity_service(
+        hass,
+        DOMAIN,
+        SERVICE_PTZ_CONTROL_COORDINATES,
+        entity_domain=Platform.CAMERA,
+        schema={
+            probatio.Required("x_axis"): coordinate,
+            probatio.Required("y_axis"): coordinate,
+            probatio.Optional("resource_identifier"): route_part,
+            probatio.Optional("local_index"): route_part,
+        },
+        func="async_ptz_control_coordinates",
     )

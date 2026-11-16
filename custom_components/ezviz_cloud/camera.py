@@ -14,10 +14,12 @@ option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 import asyncio
 from collections.abc import Mapping
 from dataclasses import replace
+from functools import partial
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
 
+import probatio
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
@@ -26,7 +28,7 @@ from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -36,12 +38,14 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
+    DOMAIN,
     OPTIONS_KEY_CAMERAS,
     SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
+from .ptz import coordinate, point_route, route_part
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -321,3 +325,44 @@ class EzvizCamera(EzvizEntity, Camera):
             self.hass, SIGNAL_PICTURE_CAPTURED.format(self._serial), pic_url
         )
         return {"picture_url": pic_url}
+
+    async def async_ptz_control_coordinates(
+        self,
+        x_axis: float,
+        y_axis: float,
+        resource_identifier: str | None = None,
+        local_index: str | None = None,
+    ) -> None:
+        """Send one image-plane point command without fabricating motor state."""
+        if self._removed or not self.available:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
+        try:
+            x_axis, y_axis = coordinate(x_axis), coordinate(y_axis)
+            if resource_identifier is not None:
+                resource_identifier = route_part(resource_identifier)
+            if local_index is not None:
+                local_index = route_part(local_index)
+        except probatio.Invalid as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="ptz_point_invalid"
+            ) from err
+        resource, index = point_route(self.data, resource_identifier, local_index)
+        try:
+            accepted = await self.coordinator.async_execute(
+                partial(
+                    self.coordinator.ezviz_client.ptz_control_coordinates,
+                    self._serial,
+                    x_axis,
+                    y_axis,
+                    resource_identifier=resource,
+                    local_index=index,
+                )
+            )
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Move camera to image position", err) from err
+        if accepted is False:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_rejected"
+            )
