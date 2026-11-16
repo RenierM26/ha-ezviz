@@ -20,8 +20,8 @@ publish a HACS update. Development branches and draft PRs are not release conten
 
 The development intercom changes use the SDK 2.5.0 API and are not included in
 0.3.0. The new [point PTZ action](docs/ptz-position.md) additionally requires the
-planned SDK 2.5.1 patch; its publication and published-wheel qualification remain
-a draft gate. See [intercom support](docs/intercom.md).
+published SDK 2.5.1 patch; the development profiles qualify its exact PyPI wheel.
+See [intercom support](docs/intercom.md).
 
 For 0.3.0:
 

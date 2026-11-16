@@ -1,2 +1,2 @@
-# Planned patch minimum; draft PTZ PR awaits publication and wheel qualification.
+# Published patch minimum, qualified by all ordinary repository profiles.
 pyezvizapi==2.5.1
