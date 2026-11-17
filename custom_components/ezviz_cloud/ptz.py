@@ -36,8 +36,8 @@ def route_part(value: object) -> str:
     return value
 
 
-def _enabled(data: dict[str, Any], flag: str) -> bool:
-    value = SupportExtView.from_camera_data(data).get(flag)
+def _enabled(capabilities: SupportExtView, flag: str) -> bool:
+    value = capabilities.get(flag)
     if isinstance(value, str):
         try:
             value = int(value.strip())
@@ -50,7 +50,8 @@ def point_route(
     data: dict[str, Any], resource_identifier: str | None, local_index: str | None
 ) -> tuple[str, str]:
     """Use direct-tap defaults or a uniquely observed selected-video resource."""
-    direct, locate = _enabled(data, "586"), _enabled(data, "724")
+    capabilities = SupportExtView.from_camera_data(data)
+    direct, locate = _enabled(capabilities, "586"), _enabled(capabilities, "724")
     if not direct and not locate:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="ptz_point_unsupported"

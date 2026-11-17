@@ -777,9 +777,6 @@
     "ptz_point_unavailable": {
       "message": "The camera is unavailable or being unloaded."
     },
-    "ptz_point_invalid": {
-      "message": "Use numeric coordinates between 0 and 1 and valid resource identifiers."
-    },
     "ptz_point_rejected": {
       "message": "EZVIZ did not accept the point-based PTZ command."
     }

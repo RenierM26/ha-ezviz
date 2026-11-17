@@ -173,6 +173,36 @@ async def test_invalid_service_coordinates_do_not_reach_sdk(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize(
+    "value", ["", "../Video", "0/action", True, -1, 1.5, None, "x" * 65]
+)
+@pytest.mark.parametrize("field", ["resource_identifier", "local_index"])
+async def test_invalid_service_route_parts_do_not_reach_sdk(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, value: object, field: str
+) -> None:
+    """Reject unsafe route fields even when the camera supports the direct route."""
+    await ezviz_cloud.async_setup(hass, {})
+    coordinator, camera, sent, _ = camera_target(hass, monkeypatch)
+    platform = await add_camera(hass, camera)
+    try:
+        data = {
+            "entity_id": camera.entity_id,
+            "x_axis": 0.5,
+            "y_axis": 0.5,
+            "resource_identifier": "Video_1",
+            "local_index": "1",
+            field: value,
+        }
+        with pytest.raises(probatio.Invalid):
+            await hass.services.async_call(
+                DOMAIN, "ptz_control_coordinates", data, blocking=True
+            )
+        assert not sent
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
 @pytest.mark.parametrize("flag", [None, False, True, 0, "0", 2, "2", 1.0, "false", []])
 async def test_directional_ptz_is_not_proof_of_point_support(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, flag: object
@@ -232,8 +262,6 @@ async def test_selected_route_and_ambiguity_never_fall_back(
             ("Video", None),
             (None, "0"),
             ("Video_3", "3"),
-            ("../Video", "0"),
-            ("Video", "0/action"),
         ]:
             with pytest.raises(ServiceValidationError):
                 await camera.async_ptz_control_coordinates(0.5, 0.5, resource, index)

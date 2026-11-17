@@ -19,7 +19,6 @@ import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
 
-import probatio
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
@@ -28,7 +27,7 @@ from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -45,7 +44,7 @@ from .const import (
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
-from .ptz import coordinate, point_route, route_part
+from .ptz import point_route
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -338,16 +337,6 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
-        try:
-            x_axis, y_axis = coordinate(x_axis), coordinate(y_axis)
-            if resource_identifier is not None:
-                resource_identifier = route_part(resource_identifier)
-            if local_index is not None:
-                local_index = route_part(local_index)
-        except probatio.Invalid as err:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN, translation_key="ptz_point_invalid"
-            ) from err
         resource, index = point_route(self.data, resource_identifier, local_index)
         try:
             accepted = await self.coordinator.async_execute(

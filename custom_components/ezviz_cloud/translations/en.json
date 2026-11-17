@@ -555,9 +555,6 @@
         "local_rtsp_unverified": {
             "message": "The local RTSP change could not be confirmed after checking the camera's reported state. The setting may already have changed. Wait for camera services to recover and refresh its status before retrying."
         },
-        "ptz_point_invalid": {
-            "message": "Use numeric coordinates between 0 and 1 and valid resource identifiers."
-        },
         "ptz_point_rejected": {
             "message": "EZVIZ did not accept the point-based PTZ command."
         },
