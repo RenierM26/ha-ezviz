@@ -1,2 +1,2 @@
-# Published patch minimum, qualified by all ordinary repository profiles.
-pyezvizapi==2.5.1
+# Planned release; keep HA draft until the SDK is published and qualified.
+pyezvizapi==2.6.0

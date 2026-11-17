@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.devices.channels import (
+    camera_channel_notification,
+    camera_channels,
+    resolve_camera_channel,
+)
 from pyezvizapi.devices.intercom_events import intercom_event_type
 from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import (
@@ -23,6 +28,7 @@ from pyezvizapi.exceptions import (
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
@@ -66,7 +72,14 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
         self._image_downloads: dict[tuple[Any, ...], asyncio.Task] = {}
-        self.image_records: OrderedDict[str, tuple[str, str]] = OrderedDict()
+        self.image_records: OrderedDict[str, tuple[str, str] | tuple[str, str, str]] = (
+            OrderedDict()
+        )
+        self.channel_images: dict[tuple[str, str], tuple[str, int]] = {}
+        self._channel_image_revision = 0
+        self._channel_notification_ids: OrderedDict[tuple[str, str, str], None] = (
+            OrderedDict()
+        )
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
         self._close_succeeded = False
@@ -103,6 +116,16 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             )
             self.inventory_snapshot = result
             self.inventory_data = inventory
+            valid_channels = {
+                (serial, channel.key)
+                for serial, data in cameras.items()
+                for channel in camera_channels(data)
+            }
+            self.channel_images = {
+                key: value
+                for key, value in self.channel_images.items()
+                if key in valid_channels
+            }
             self.intercom_events.snapshot(result, zones)
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
@@ -124,11 +147,15 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             DevicePollOptions(timeout=self._api_timeout, include_intercom_events=True)
         )
 
-    def register_image(self, serial: str, url: str) -> str:
+    def register_image(
+        self, serial: str, url: str, channel_key: str | None = None
+    ) -> str:
         """Remember only SDK-provided images in a bounded account-local registry."""
         if serial not in (self.data or {}):
             raise ValueError("Unknown camera")
-        record = (serial, url)
+        if channel_key is not None:
+            resolve_camera_channel(self.data[serial], channel_key)
+        record = (serial, url) if channel_key is None else (serial, url, channel_key)
         for reference, existing in self.image_records.items():
             if existing == record:
                 return reference
@@ -268,6 +295,35 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             return
         if ext.get("channel_type", 1) not in (1, "1"):
             return
+        notification = camera_channel_notification(self.data[serial], mqtt_data)
+        if notification is not None:
+            key = (serial, notification.channel.key)
+            already_seen = (
+                notification.event_id is not None
+                and (*key, notification.event_id) in self._channel_notification_ids
+            )
+            previous = self.channel_images.get(key)
+            if notification.image_url is not None and (
+                not already_seen
+                or previous is None
+                or previous[0] != notification.image_url
+            ):
+                self._channel_image_revision += 1
+                self.channel_images[key] = (
+                    notification.image_url,
+                    self._channel_image_revision,
+                )
+            if notification.event_id is not None:
+                event_key = (*key, notification.event_id)
+                if event_key not in self._channel_notification_ids:
+                    self._channel_notification_ids[event_key] = None
+                    if len(self._channel_notification_ids) > 1024:
+                        self._channel_notification_ids.popitem(last=False)
+                    async_dispatcher_send(
+                        self.hass,
+                        "ezviz_cloud_channel_notification_{}_{}".format(*key),
+                        notification,
+                    )
         intercom_event = self.intercom_events.push(mqtt_data)
         if not ext.get("image"):
             return

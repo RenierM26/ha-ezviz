@@ -1,6 +1,7 @@
 """Ezviz Integration views (proxy and decrypt images)."""
 
 from asyncio import timeout
+from functools import partial
 from http import HTTPStatus
 from ipaddress import ip_address
 import logging
@@ -10,7 +11,8 @@ from urllib.parse import urljoin, urlsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
 from aiohttp.resolver import ThreadedResolver
-from pyezvizapi.devices.images import process_image_bytes
+from pyezvizapi.devices.channels import camera_channels, resolve_camera_channel
+from pyezvizapi.devices.images import process_channel_images, process_image_bytes
 from pyezvizapi.exceptions import PyEzvizError
 from yarl import URL
 
@@ -147,6 +149,14 @@ class ImageProxyView(HomeAssistantView):
             )
 
         enc_key = _encryption_key(self.hass, entry, serial)
+        channel_key = record[2] if len(record) == 3 else None
+        if channel_key is not None:
+            try:
+                resolve_camera_channel(coordinator.data[serial], channel_key)
+            except PyEzvizError:
+                return web.Response(
+                    text="Unknown image channel", status=HTTPStatus.NOT_FOUND
+                )
 
         # Security: never forward HA's incoming request headers (e.g., Authorization)
         # to third-party endpoints. Build a minimal, safe header set.
@@ -209,10 +219,28 @@ class ImageProxyView(HomeAssistantView):
             )
 
         try:
-            # Media browser defaults to the first SDK lens, with or without a key.
-            body = await coordinator.async_execute(
-                process_image_bytes, body, enc_key, 1, 1
-            )
+            if channel_key is None:
+                # Preserve the original media identifier's first-lens behavior.
+                body = await coordinator.async_execute(
+                    process_image_bytes, body, enc_key, 1, 1
+                )
+            else:
+                data = (coordinator.data or {}).get(serial, {})
+                channel = resolve_camera_channel(data, channel_key)
+                images = await coordinator.async_execute(
+                    partial(
+                        process_channel_images,
+                        body,
+                        enc_key,
+                        camera_channels(data),
+                        source_channel=channel,
+                    )
+                )
+                body = images.get(channel_key)
+                if body is None:
+                    return web.Response(
+                        text="Image channel is absent", status=HTTPStatus.NOT_FOUND
+                    )
         except HomeAssistantError:
             return web.Response(
                 text="EZVIZ integration is unavailable",

@@ -1,9 +1,14 @@
 # Point-based PTZ action
 
+> This branch now depends on the planned SDK 2.6.0 channel API. The published
+> 2.5.1 qualification below is historical; candidate development checks do not
+> satisfy the new publication gate. See [multi-lens support](multi-lens.md).
+
 The new `ezviz_cloud.ptz_control_coordinates` action uses the existing SDK point
 function, corrected in [SDK #446](https://github.com/RenierM26/pyEzvizApi/pull/446).
-It requires **published SDK 2.5.1 or newer**. The ordinary development and CI
-profiles qualify the exact 2.5.1 PyPI wheel, without SDK source overrides.
+The point payload was corrected in **published SDK 2.5.1**. This branch now
+requires the planned SDK 2.6.0 channel-routing API; its ordinary development/CI
+profiles keep a strict exact pin and remain gated on publication.
 The action is not in integration 0.3.0; a merged PR is not a HACS release.
 
 ## Usage
@@ -97,7 +102,7 @@ This is a confirmed app-contract mismatch, not evidence that a particular camera
 fails without the field. See the SDK's point-control documentation/PR for exact
 provenance. No latest-app, iOS or universal firmware compatibility is claimed.
 
-Tests use synthetic data, real HA dispatch and the published SDK 2.5.1 serializer
+Candidate tests use synthetic data, real HA dispatch and the SDK channel APIs
 with socket/DNS denial. Physical positioning, app UI and hardware behavior remain
 unverified. No live PTZ commands, deployment, HA reload or release is performed by
 these checks. No existing IDs/options/storage formats or streaming behavior change.

@@ -19,18 +19,31 @@ import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
 
+from pyezvizapi.devices.channels import (
+    CameraChannel,
+    capture_channel_number,
+    resolve_camera_channel,
+    validate_channel_rtsp_path,
+)
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
+from homeassistant.components.image import infer_image_type
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .channels import (
+    CONF_LENS_RTSP_PATHS,
+    async_add_channel_entities,
+    capture_signal,
+    channel_available,
+)
 from .const import (
     CONF_ENC_KEY,
     CONF_FFMPEG_ARGUMENTS,  # used here as RTSP path (main/sub)
@@ -39,11 +52,11 @@ from .const import (
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
-    SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
+from .image import async_channel_image
 from .ptz import point_route
 from .runtime import EzvizConfigEntry
 
@@ -97,12 +110,19 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities)
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: [
+            EzvizChannelCamera(hass, coordinator, serial, channel)
+        ],
+    )
 
 
 class EzvizCamera(EzvizEntity, Camera):
     """EZVIZ security camera entity."""
 
-    _attr_name: str | None = None
     _attr_supported_features: CameraEntityFeature = CameraEntityFeature.STREAM
 
     def __init__(
@@ -113,6 +133,8 @@ class EzvizCamera(EzvizEntity, Camera):
         camera_username: str,
         camera_password: str,
         rtsp_path: str,
+        *,
+        channel: CameraChannel | None = None,
     ) -> None:
         """Initialize the camera entity."""
         super().__init__(coordinator, serial)
@@ -126,6 +148,9 @@ class EzvizCamera(EzvizEntity, Camera):
         self._rtsp_path: str = rtsp_path
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
+        self._channel_key = channel.key if channel is not None else None
+        if channel is None:
+            self._attr_name = None
         self._stream_lifecycle_lock = asyncio.Lock()
         self._removed = False
         self._rtsp_stream: str = self._build_rtsp()
@@ -153,6 +178,22 @@ class EzvizCamera(EzvizEntity, Camera):
         ip = self.data["local_ip"]
         port = self.data["local_rtsp_port"]
         path = self._rtsp_path or ""
+        if self._channel_key is not None:
+            entry = self.coordinator.config_entry
+            options = (
+                entry.options.get(OPTIONS_KEY_CAMERAS, {}).get(self._serial, {})
+                if entry
+                else {}
+            )
+            try:
+                resolve_camera_channel(self.data, self._channel_key)
+                path = validate_channel_rtsp_path(
+                    options.get(CONF_LENS_RTSP_PATHS, {}).get(self._channel_key, "")
+                )
+            except PyEzvizError:
+                path = ""
+            if not path:
+                return ""
         if path and not path.startswith("/"):
             path = "/" + path
         return f"rtsp://{quote(self._username, safe='')}:{quote(self._password, safe='')}@{ip}:{port}{path}"
@@ -293,9 +334,14 @@ class EzvizCamera(EzvizEntity, Camera):
         Works without RTSP and wakes battery devices from standby. The picture
         is shown by the camera's snapshot image entity.
         """
+        if self._channel_key is not None and (self._removed or not self.available):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
         try:
+            channel_no = capture_channel_number(self.data, self._channel_key)
             result = await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.capture_picture, self._serial, 1
+                self.coordinator.ezviz_client.capture_picture, self._serial, channel_no
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Capture picture", err) from err
@@ -319,9 +365,13 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError("EZVIZ returned an invalid picture URL") from err
         if not valid_url:
             raise HomeAssistantError("EZVIZ returned an invalid picture URL")
+        if self._channel_key is not None and (self._removed or not self.available):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
 
         async_dispatcher_send(
-            self.hass, SIGNAL_PICTURE_CAPTURED.format(self._serial), pic_url
+            self.hass, capture_signal(self._serial, self._channel_key), pic_url
         )
         return {"picture_url": pic_url}
 
@@ -336,7 +386,7 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
-        resource, index = point_route(self.data, lens)
+        resource, index = point_route(self.data, lens, channel_key=self._channel_key)
         try:
             accepted = await self.coordinator.async_execute(
                 partial(
@@ -354,3 +404,116 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_rejected"
             )
+
+
+class EzvizChannelCamera(EzvizCamera):
+    """A channel-specific target sharing the physical camera's account/device."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        channel: CameraChannel,
+    ) -> None:
+        """Keep the existing camera ID and source separate from channel views."""
+        super().__init__(hass, coordinator, serial, "", "", "", channel=channel)
+        self._attr_unique_id = f"{serial}_channel_{channel.key}"
+        self._attr_translation_key = "camera_channel"
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+        self._channel_image_key: tuple[Any, ...] | None = None
+        self._channel_image: bytes | None = None
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Require both device health and the exact reported channel identity."""
+        return self._channel_key is not None and channel_available(
+            self.coordinator, self._serial, self._channel_key
+        )
+
+    @property
+    @override
+    def supported_features(self) -> CameraEntityFeature:
+        """An absent explicit stream path never inherits the primary stream."""
+        return (
+            CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
+        )
+
+    @property
+    @override
+    def is_recording(self) -> bool:
+        """No lens-specific recording state is inferred from device alarm settings."""
+        return False
+
+    @property
+    @override
+    def motion_detection_enabled(self) -> bool:
+        """Shared defence is not a reported per-lens setting."""
+        return False
+
+    @override
+    async def async_enable_motion_detection(self) -> None:
+        """Use the existing physical-device target for shared defence settings."""
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="channel_setting_shared"
+        )
+
+    @override
+    async def async_disable_motion_detection(self) -> None:
+        """Do not turn off every lens through an apparently lens-scoped target."""
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="channel_setting_shared"
+        )
+
+    @override
+    async def async_create_stream(self) -> Stream | None:
+        """Create only an explicitly configured, currently available lens stream."""
+        if not self.available or not self._build_rtsp():
+            return None
+        return await super().async_create_stream()
+
+    @override
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Use this lens's configured stream, or its channel-indexed cloud image."""
+        if not self.available:
+            return None
+        if self._build_rtsp():
+            return await super().async_camera_image(width, height)
+        key = self._channel_key
+        if key is None:
+            return None
+        observed = self.coordinator.channel_images.get((self._serial, key))
+        url = observed[0] if observed else self.data.get("last_alarm_pic")
+        password = self.coordinator.credentials.key(self._serial)
+        generation = observed[1] if observed else self.data.get("last_alarm_time")
+        image_key = (url, password, generation)
+        if image_key == self._channel_image_key:
+            return self._channel_image
+        result = await async_channel_image(
+            self.hass,
+            self.coordinator,
+            self._serial,
+            key,
+            url,
+            password,
+            known_source=observed is not None,
+            generation=generation,
+        )
+        if not self.available or password != self.coordinator.credentials.key(
+            self._serial
+        ):
+            return None
+        if observed != self.coordinator.channel_images.get((self._serial, key)):
+            return None
+        if observed is None and url != self.data.get("last_alarm_pic"):
+            return None
+        if observed is None and generation != self.data.get("last_alarm_time"):
+            return None
+        if result is not None:
+            self.content_type = infer_image_type(result) or "image/jpeg"
+            self._channel_image_key = image_key
+            self._channel_image = result
+        return result

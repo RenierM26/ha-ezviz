@@ -1,3 +1,8 @@
+> **Multi-lens branch:** `requirements/sdk.txt` now reserves SDK 2.6.0. It is not
+> published yet. The ordinary profiles remain strict and must be qualified on
+> the actual PyPI wheel before this draft can merge. Local candidate-wheel
+> results are explicitly development-only. See [multi-lens](multi-lens.md).
+
 # Development and checks
 
 Python **3.14.2+** is required. These profiles target Linux/devcontainers (or WSL),

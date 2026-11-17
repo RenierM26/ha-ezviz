@@ -31,6 +31,7 @@ from .camera_flow import (
     async_resolve_camera_credentials,
     async_validate_local_controls,
 )
+from .channel_flow import async_edit_stream, async_select_stream
 from .const import (
     ATTR_SERIAL,
     CONF_CAM_ENC_2FA_CODE,
@@ -73,6 +74,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Initialize options flow."""
         self._cam_serial: str
         self._camera_baseline: dict[str, Any] = {}
+        self.lens_target: tuple[str, str] | None = None
+        self.lens_baseline: dict[str, Any] = {}
         self._rtsp_pending: tuple[RuntimeCleanup, dict[str, Any]] | None = None
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = (
@@ -82,8 +85,20 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Entry menu (bootstrap coordinator)."""
         return self.async_show_menu(
-            step_id="init", menu_options=["cloud", "camera_select"]
+            step_id="init", menu_options=["cloud", "camera_select", "lens_streams"]
         )
+
+    async def async_step_lens_streams(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure independent streams only for reported camera lenses."""
+        return await async_select_stream(self, user_input)
+
+    async def async_step_lens_stream_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Keep the existing camera stream and shared credentials unchanged."""
+        return await async_edit_stream(self, user_input)
 
     @property
     def coordinator(self) -> EzvizDataUpdateCoordinator:

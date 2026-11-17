@@ -25,6 +25,8 @@ def load(monkeypatch, name, filename):
 
 @pytest.fixture
 def coordinator_module(monkeypatch):
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.dispatcher", SimpleNamespace(
+        async_dispatcher_send=MagicMock(side_effect=AssertionError("Poll-only controls must not emit lens notifications"))))
     package = ModuleType("contract_test")
     package.__path__ = [str(ROOT)]
     monkeypatch.setitem(sys.modules, "contract_test", package)

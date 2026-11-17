@@ -1,5 +1,10 @@
 # EZVIZ Cloud for Home Assistant — Ezviz(Beta)
 
+**Development dependency gate:** this multi-lens branch requires planned SDK 2.6.0.
+See [multi-lens support](docs/multi-lens.md). Keep its HA PR draft until publication
+and actual PyPI-wheel qualification; older published-SDK results below describe
+the existing released feature boundaries, not this candidate.
+
 [![HACS custom integration](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://www.hacs.xyz/docs/faq/custom_repositories/)
 [![Donate](https://img.shields.io/badge/donate-Coffee-yellow.svg)](https://www.buymeacoffee.com/renierm)
 
@@ -20,7 +25,9 @@ publish a HACS update. Development branches and draft PRs are not release conten
 
 The development intercom changes use the SDK 2.5.0 API and are not included in
 0.3.0. The new [point PTZ action](docs/ptz-position.md) additionally requires the
-published SDK 2.5.1 patch; the development profiles qualify its exact PyPI wheel.
+published SDK 2.5.1 patch, whose exact PyPI wheel was qualified before this work.
+This multi-lens branch requires the planned SDK 2.6.0 API and publication gate
+described above.
 See [intercom support](docs/intercom.md).
 
 For 0.3.0:
