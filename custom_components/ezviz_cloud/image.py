@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from functools import partial
 import logging
 from typing import Any, override
 
@@ -9,7 +10,16 @@ from typing import Any, override
 import httpx  # noqa: TID251
 from propcache.api import cached_property
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
-from pyezvizapi.devices.images import process_image_bytes as _process_image_bytes
+from pyezvizapi.devices.channels import (
+    CameraChannel,
+    CameraChannelError,
+    camera_channels,
+    resolve_camera_channel,
+)
+from pyezvizapi.devices.images import (
+    process_channel_images,
+    process_image_bytes as _process_image_bytes,
+)
 from pyezvizapi.exceptions import PyEzvizError
 
 from homeassistant.components.image import (
@@ -23,9 +33,11 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS, SIGNAL_PICTURE_CAPTURED
+from .channels import async_add_channel_entities, capture_signal, channel_available
+from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
@@ -99,6 +111,71 @@ async def async_setup_entry(
         for camera in coordinator.data
     )
     async_add_entities(entities)
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: [
+            EzvizChannelSnapshot(
+                hass, coordinator, serial, cams_options.get(serial, {}), channel
+            )
+        ],
+    )
+
+
+async def async_channel_image(
+    hass: HomeAssistant,
+    coordinator: EzvizDataUpdateCoordinator,
+    serial: str,
+    channel_key: str,
+    url: Any,
+    password: str | None,
+    *,
+    known_source: bool = False,
+    generation: object = None,
+) -> bytes | None:
+    """Share one download/decode across concurrent lens viewers; never cross lenses."""
+    if coordinator.shutting_down or not isinstance(url, str) or not url:
+        return None
+    data = coordinator.device_data(serial)
+    channels = camera_channels(data)
+    try:
+        channel = resolve_camera_channel(data, channel_key)
+    except CameraChannelError:
+        return None
+    source_key = channel_key if known_source else None
+    key = (serial, "channel_images", url, password, channels, source_key, generation)
+
+    async def download() -> dict[str, bytes]:
+        try:
+            response = await get_async_client(hass).get(
+                url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
+            )
+            response.raise_for_status()
+            return await coordinator.async_execute(
+                partial(
+                    process_channel_images,
+                    response.content,
+                    password,
+                    channels,
+                    source_channel=channel if known_source else None,
+                )
+            )
+        except httpx.HTTPError, ValueError, PyEzvizError:
+            return {}
+
+    try:
+        result = await coordinator.async_image_download(key, download)
+    except HomeAssistantError:
+        if coordinator.shutting_down:
+            return None
+        raise
+    body = result.get(channel_key)
+    if coordinator.shutting_down or not isinstance(body, bytes):
+        return None
+    if not body.startswith(b"\xff\xd8\xff") and infer_image_type(body) is None:
+        return None
+    return body
 
 
 class EzvizLastMotion(EzvizEntity, ImageEntity):
@@ -307,6 +384,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_unique_id = f"{serial}_{SNAPSHOT_TYPE.key}"
         self._attr_image_url = None
         self._attr_image_last_updated = None
+        self._channel_key: str | None = None
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -315,7 +393,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                SIGNAL_PICTURE_CAPTURED.format(self._serial),
+                capture_signal(self._serial, self._channel_key),
                 self._handle_picture_captured,
             )
         )
@@ -336,6 +414,54 @@ class EzvizSnapshot(EzvizLastMotion):
     @override
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
+
+
+class EzvizChannelSnapshot(EzvizSnapshot):
+    """Only a capture addressed to this channel updates this image."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        credentials: Mapping[str, Any],
+        channel: CameraChannel,
+    ) -> None:
+        """Preserve the existing legacy Snapshot entity and its subscription."""
+        super().__init__(hass, coordinator, serial, credentials)
+        self._channel_key = channel.key
+        self._attr_unique_id = f"{serial}_channel_{channel.key}_snapshot"
+        self.entity_description = ImageEntityDescription(
+            key="channel_snapshot", translation_key="channel_snapshot"
+        )
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Keep stale/missing lens identities unavailable without deleting IDs."""
+        return self._channel_key is not None and channel_available(
+            self.coordinator, self._serial, self._channel_key
+        )
+
+    @override
+    async def _async_load_image_from_url(self, url: str) -> Image | None:
+        """A targeted capture establishes the source channel of an unindexed JPEG."""
+        if self._channel_key is None or not self.available:
+            return None
+        body = await async_channel_image(
+            self.hass,
+            self.coordinator,
+            self._serial,
+            self._channel_key,
+            url,
+            self.alarm_image_password,
+            known_source=True,
+            generation=self._image_generation,
+        )
+        if body is None or not self.available:
+            return None
+        return Image(content=body, content_type=infer_image_type(body) or "image/jpeg")
 
 
 def _retrieve_image_error(task: asyncio.Task) -> None:

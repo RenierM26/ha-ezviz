@@ -63,7 +63,8 @@
         "description": "Configure cloud or camera options.",
         "menu_options": {
           "cloud": "Cloud Settings",
-          "camera_select": "Camera Settings"
+          "camera_select": "Camera Settings",
+          "lens_streams": "Lens streams"
         }
       },
       "cloud": {
@@ -118,6 +119,20 @@
         "data": {
           "enable_rtsp": "Enable RTSP before testing"
         }
+      },
+      "lens_streams": {
+        "title": "Lens streams",
+        "description": "Select a reported lens. Its stream path is independent of the existing camera stream; shared camera credentials are reused.",
+        "data": {
+          "channel": "Lens"
+        }
+      },
+      "lens_stream_edit": {
+        "title": "Lens {channel} stream",
+        "description": "Enter the RTSP path verified for this lens, beginning with /. Leave it empty to disable this lens stream. Do not enter a complete URL or credentials. Cloud channel numbers do not establish RTSP paths. Saving does not probe or move the camera.",
+        "data": {
+          "rtsp_path": "Lens RTSP path"
+        }
       }
     },
     "error": {
@@ -135,10 +150,13 @@
       "local_control_cannot_connect": "Cannot validate local controls with the selected credential. Check that credential and local TCP port 8000; no other credential will be tried.",
       "rtsp_enable_unverified": "RTSP enablement was refused or could not be verified. The outcome may be unknown; no automatic write retry was made. Wait for camera services to recover, then test again to read its actual status.",
       "rtsp_enabled_test_failed": "RTSP configuration was verified enabled, but the connection/credential test failed. No camera options were saved. Review the playback credential and connection before testing again.",
-      "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings."
+      "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings.",
+      "invalid_channel": "Select a currently reported camera lens.",
+      "invalid_rtsp_path": "Enter a path beginning with /, not a complete RTSP URL, or clear the field to disable this stream."
     },
     "abort": {
-      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
+      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available.",
+      "no_camera_channels": "No unambiguous multi-lens video channels are currently reported. Refresh the camera inventory before configuring lens streams."
     },
     "create_entry": {
       "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback.",
@@ -287,6 +305,9 @@
       },
       "snapshot": {
         "name": "Snapshot"
+      },
+      "channel_snapshot": {
+        "name": "Lens {channel} snapshot"
       }
     },
     "text": {
@@ -602,6 +623,21 @@
             }
           }
         }
+      },
+      "channel_notification": {
+        "name": "Lens {channel} notification",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "notification": "Notification"
+            }
+          }
+        }
+      }
+    },
+    "camera": {
+      "camera_channel": {
+        "name": "Lens {channel}"
       }
     }
   },
@@ -785,6 +821,9 @@
     },
     "ptz_lens_unavailable": {
       "message": "Lens {lens} has no unique supported video channel on this camera. Choose another lens, or use Automatic for a single-lens camera."
+    },
+    "channel_setting_shared": {
+      "message": "This setting is shared by the physical camera. Use its original camera entity rather than a lens entity."
     }
   }
 }

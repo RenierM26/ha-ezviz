@@ -111,7 +111,7 @@ def flow_setup(hass, monkeypatch):
 async def edit(hass, entry):
     manager = hass.config_entries.options
     result = await manager.async_init(entry.entry_id)
-    assert result["menu_options"] == ["cloud", "camera_select"]
+    assert result["menu_options"] == ["cloud", "camera_select", "lens_streams"]
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "camera_select"})
     return await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
 

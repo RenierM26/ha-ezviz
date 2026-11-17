@@ -8,6 +8,11 @@ import re
 from typing import Any, override
 from urllib.parse import urlsplit
 
+from pyezvizapi.devices.channels import (
+    alarm_camera_channel,
+    camera_channels,
+    resolve_camera_channel,
+)
 from pyezvizapi.exceptions import PyEzvizError
 
 from homeassistant.components.media_player import MediaClass, MediaType
@@ -46,6 +51,7 @@ class CameraMediaId:
     entry_id: str
     serial: str
     limit: int
+    channel_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +62,7 @@ class ImageMediaId:
     mime: str
     entry_id: str | None = None
     serial: str | None = None
+    channel_key: str | None = None
 
 
 def _valid_component(value: str) -> bool:
@@ -82,6 +89,24 @@ def _validated_camera_id(identifier: str) -> CameraMediaId:
     """Validate syntax before translating boundary errors."""
     parts = identifier.split("|")
     if (
+        len(identifier) <= MAX_IDENTIFIER_LENGTH
+        and len(parts) == 5
+        and parts[0] == "CLENS"
+    ):
+        _, entry_id, serial, encoded, raw_limit = parts
+        if (
+            not _valid_component(entry_id)
+            or not _valid_component(serial)
+            or not raw_limit.isascii()
+            or not raw_limit.isdigit()
+            or len(raw_limit) > 3
+        ):
+            raise ValueError
+        limit = int(raw_limit)
+        if not 1 <= limit <= MAX_LIMIT:
+            raise ValueError
+        return CameraMediaId(entry_id, serial, limit, _b64d(encoded))
+    if (
         len(identifier) > MAX_IDENTIFIER_LENGTH
         or len(parts) not in (3, 4)
         or parts[0] != "CAM"
@@ -101,7 +126,7 @@ def _validated_camera_id(identifier: str) -> CameraMediaId:
 def _parse_camera_id(identifier: str) -> CameraMediaId:
     try:
         result = _validated_camera_id(identifier)
-    except ValueError as err:
+    except (ValueError, UnicodeError, binascii.Error) as err:
         raise Unresolvable("Invalid EZVIZ camera media identifier") from err
     else:
         return result
@@ -112,12 +137,16 @@ def _validated_image_id(identifier: str) -> ImageMediaId:
     parts = identifier.split("|")
     if len(identifier) > MAX_IDENTIFIER_LENGTH:
         raise ValueError
-    if len(parts) == 4 and parts[0] == "EIMG":
-        _, entry_id, serial, encoded = parts
+    if len(parts) in (4, 5) and parts[0] == "EIMG":
+        _, entry_id, serial, encoded, *channel = parts
         if not _valid_component(entry_id) or not _valid_component(serial):
             raise ValueError
         return ImageMediaId(
-            _validate_image_url(_b64d(encoded)), "image/jpeg", entry_id, serial
+            _validate_image_url(_b64d(encoded)),
+            "image/jpeg",
+            entry_id,
+            serial,
+            _b64d(channel[0]) if channel else None,
         )
     if len(parts) == 3 and parts[0] == "IMG":
         _, encoded, mime = parts
@@ -161,7 +190,7 @@ class EzvizMediaSource(MediaSource):
 
         parsed = _parse_camera_id(item.identifier)
         return await self._async_camera_alarms(
-            parsed.entry_id, parsed.serial, parsed.limit
+            parsed.entry_id, parsed.serial, parsed.limit, channel_key=parsed.channel_key
         )
 
     @override
@@ -177,11 +206,16 @@ class EzvizMediaSource(MediaSource):
             if entry is None or entry.domain != DOMAIN or runtime is None:
                 raise Unresolvable("EZVIZ image is unavailable; browse again")
             coordinator = runtime.coordinator
+            expected = (
+                (parsed.serial, parsed.url)
+                if parsed.channel_key is None
+                else (parsed.serial, parsed.url, parsed.channel_key)
+            )
             reference = next(
                 (
                     ref
                     for ref, record in coordinator.image_records.items()
-                    if record == (parsed.serial, parsed.url)
+                    if record == expected
                 ),
                 None,
             )
@@ -191,6 +225,15 @@ class EzvizMediaSource(MediaSource):
                 or parsed.serial not in coordinator.data
             ):
                 raise Unresolvable("EZVIZ image is unavailable; browse again")
+            if parsed.channel_key is not None:
+                try:
+                    resolve_camera_channel(
+                        coordinator.data[parsed.serial], parsed.channel_key
+                    )
+                except PyEzvizError as error:
+                    raise Unresolvable(
+                        "EZVIZ image channel is unavailable; browse again"
+                    ) from error
             return PlayMedia(
                 async_generate_image_proxy_url(
                     parsed.entry_id, parsed.serial, reference
@@ -236,6 +279,20 @@ class EzvizMediaSource(MediaSource):
                         can_expand=True,
                     )
                 )
+                channels = camera_channels(cam)
+                if len(channels) > 1:
+                    children.extend(
+                        BrowseMediaSource(
+                            domain=DOMAIN,
+                            identifier=f"CLENS|{config_entry.entry_id}|{serial}|{_b64e(channel.key)}|{DEFAULT_LIMIT}",
+                            media_class=MediaClass.CHANNEL,
+                            media_content_type=MediaType.PLAYLIST,
+                            title=f"{title} — Lens {channel.local_index}",
+                            can_play=False,
+                            can_expand=True,
+                        )
+                        for channel in channels
+                    )
 
         return BrowseMediaSource(
             domain=DOMAIN,
@@ -251,9 +308,14 @@ class EzvizMediaSource(MediaSource):
     # Aggregated view removed per request; browsing is per camera only
 
     async def _async_camera_alarms(
-        self, entry_id: str, serial: str, limit: int
+        self, entry_id: str, serial: str, limit: int, *, channel_key: str | None = None
     ) -> BrowseMediaSource:
         """Return list of recent alarms for a camera."""
+        identifier = (
+            f"CAM|{entry_id}|{serial}|{limit}"
+            if channel_key is None
+            else f"CLENS|{entry_id}|{serial}|{_b64e(channel_key)}|{limit}"
+        )
         entry = self.hass.config_entries.async_get_entry(entry_id)
         data = getattr(entry, "runtime_data", None)
         if (
@@ -264,7 +326,7 @@ class EzvizMediaSource(MediaSource):
         ):
             return BrowseMediaSource(
                 domain=DOMAIN,
-                identifier=f"CAM|{entry_id}|{serial}|{limit}",
+                identifier=identifier,
                 media_class=MediaClass.DIRECTORY,
                 media_content_type=MediaType.PLAYLIST,
                 title=f"{serial} - recent alarms (unavailable)",
@@ -276,18 +338,29 @@ class EzvizMediaSource(MediaSource):
         coordinator = data.coordinator
         if serial not in (coordinator.data or {}):
             raise Unresolvable("Unknown EZVIZ camera")
-        cam_name = (coordinator.data or {}).get(serial, {}).get("name", serial)
+        lens_label = ""
+        if channel_key is not None:
+            try:
+                channel = resolve_camera_channel(coordinator.data[serial], channel_key)
+                lens_label = f" — Lens {channel.local_index}"
+            except PyEzvizError as error:
+                raise Unresolvable("EZVIZ camera channel is unavailable") from error
+        cam_name = (coordinator.data or {}).get(serial, {}).get(
+            "name", serial
+        ) + lens_label
 
         alarms = await self._async_get_alarms(coordinator, serial=serial, limit=limit)
         children: list[BrowseMediaSource] = []
         for alarm in alarms:
-            item = self._alarm_to_media_item(entry_id, alarm, {serial: cam_name})
+            item = self._alarm_to_media_item(
+                entry_id, alarm, {serial: cam_name}, channel_key=channel_key
+            )
             if item is not None:
                 children.append(item)
 
         return BrowseMediaSource(
             domain=DOMAIN,
-            identifier=f"CAM|{entry_id}|{serial}|{limit}",
+            identifier=identifier,
             media_class=MediaClass.DIRECTORY,
             media_content_type=MediaType.PLAYLIST,
             title=f"{cam_name} - last {limit} alarms",
@@ -315,7 +388,12 @@ class EzvizMediaSource(MediaSource):
             raise Unresolvable("EZVIZ alarms are unavailable; try again later") from err
 
     def _alarm_to_media_item(
-        self, entry_id: str, alarm: dict, serial_to_name: dict[str, str] | None = None
+        self,
+        entry_id: str,
+        alarm: dict,
+        serial_to_name: dict[str, str] | None = None,
+        *,
+        channel_key: str | None = None,
     ) -> BrowseMediaSource | None:
         """Convert an alarm dictionary to an image-only BrowseMediaSource item."""
         # Build a friendly title: <time> - <camera> - <event>
@@ -354,11 +432,21 @@ class EzvizMediaSource(MediaSource):
         runtime = getattr(entry, "runtime_data", None)
         if runtime is None or cam_serial not in runtime.coordinator.data:
             return None
-        reference = runtime.coordinator.register_image(cam_serial, pic)
+        if channel_key is not None:
+            channel = alarm_camera_channel(runtime.coordinator.data[cam_serial], alarm)
+            if channel is None or channel.key != channel_key:
+                return None
+        reference = (
+            runtime.coordinator.register_image(cam_serial, pic, channel_key)
+            if channel_key is not None
+            else runtime.coordinator.register_image(cam_serial, pic)
+        )
         # Route images through proxy for optional decryption using camera key
         img_identifier: str | None = (
             f"EIMG|{entry_id}|{cam_serial}|{_b64e(str(pic))}" if pic else None
         )
+        if img_identifier is not None and channel_key is not None:
+            img_identifier += f"|{_b64e(channel_key)}"
         # Build a proxied thumbnail too (avoids showing encrypted thumbs)
         proxy_serial: str = str(cam_serial or "")
         thumb = (
