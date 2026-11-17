@@ -12,7 +12,7 @@ from .const import (
     SERVICE_PTZ_CONTROL_COORDINATES,
     SERVICE_WAKE_DEVICE,
 )
-from .ptz import coordinate, route_part
+from .ptz import coordinate
 
 
 @callback
@@ -44,8 +44,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema={
             probatio.Required("x_axis"): coordinate,
             probatio.Required("y_axis"): coordinate,
-            probatio.Optional("resource_identifier"): route_part,
-            probatio.Optional("local_index"): route_part,
+            probatio.Optional("lens", default="auto"): probatio.In(("auto", "1", "2")),
         },
         func="async_ptz_control_coordinates",
     )

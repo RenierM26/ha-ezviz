@@ -31,11 +31,13 @@ ptz_control_coordinates:
           max: 1
           step: 0.01
           mode: box
-    resource_identifier:
-      advanced: true
+    lens:
+      default: auto
       selector:
-        text:
-    local_index:
-      advanced: true
-      selector:
-        text:
+        select:
+          mode: dropdown
+          options:
+            - auto
+            - "1"
+            - "2"
+          translation_key: ptz_lens

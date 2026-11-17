@@ -1,10 +1,11 @@
 # Non-streaming video intercom support
 
 The intercom API was introduced in published pyezvizapi 2.5.0. This development
-branch additionally requires the planned SDK 2.5.1 patch for the independent
-[point PTZ action](ptz-position.md); publication and published-wheel qualification
-of that patch remain a draft gate. No source override or Git dependency belongs
-in the production manifest. These changes are not in integration 0.3.0.
+branch additionally requires **published pyezvizapi 2.5.1** for the independent
+[point PTZ action](ptz-position.md). Its actual PyPI wheel has been qualified
+through the ordinary development and CI profiles, without source overrides or
+Git dependencies. SDK publication is complete; an HA integration release and
+deployment are separate steps. These changes are not in integration 0.3.0.
 
 ## Entities
 

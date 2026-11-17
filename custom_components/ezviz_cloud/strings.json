@@ -626,13 +626,9 @@
           "name": "Vertical position",
           "description": "0 is the top edge; 1 is the bottom edge of the image."
         },
-        "resource_identifier": {
-          "name": "Camera resource",
-          "description": "Optional reported Video resource for cameras with multiple resources. Supply together with resource index."
-        },
-        "local_index": {
-          "name": "Resource index",
-          "description": "Optional vendor-reported local index, supplied together with camera resource. Never inferred from an RTSP channel."
+        "lens": {
+          "name": "Lens",
+          "description": "Use Automatic for a single-lens camera. For multiple lenses, choose Lens 1 or Lens 2. Lens numbers do not identify fixed or moving lenses."
         }
       }
     }
@@ -656,6 +652,13 @@
       "options": {
         "encryption_key": "Encryption key",
         "verification_code": "Verification/sticker code"
+      }
+    },
+    "ptz_lens": {
+      "options": {
+        "auto": "Automatic",
+        "1": "Lens 1",
+        "2": "Lens 2"
       }
     }
   },
@@ -768,17 +771,20 @@
     "ptz_point_unsupported": {
       "message": "The camera does not report support for point-based PTZ control."
     },
-    "ptz_route_pair_required": {
-      "message": "Specify both camera resource and resource index, or leave both unset."
-    },
     "ptz_route_unknown": {
-      "message": "No unambiguous reported video resource matches this PTZ target. Specify its reported camera resource and index."
+      "message": "The camera has no usable video information for point control. Wait for its status to refresh and try again."
     },
     "ptz_point_unavailable": {
       "message": "The camera is unavailable or being unloaded."
     },
     "ptz_point_rejected": {
       "message": "EZVIZ did not accept the point-based PTZ command."
+    },
+    "ptz_lens_required": {
+      "message": "This camera has multiple video lenses. Choose Lens 1 or Lens 2 in the Lens field."
+    },
+    "ptz_lens_unavailable": {
+      "message": "Lens {lens} has no unique supported video channel on this camera. Choose another lens, or use Automatic for a single-lens camera."
     }
   }
 }

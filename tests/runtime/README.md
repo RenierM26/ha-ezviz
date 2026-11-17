@@ -238,16 +238,25 @@ SDK execution. Synthetic serials alone do not prevent network access: an empty
 prefetched-alarm mapping can cause the SDK renderer to perform a cloud fallback.
 
 
-## Point PTZ action (candidate until SDK patch publication)
+## Point PTZ action (published SDK 2.5.1)
 
 `core_policy/test_ptz_position.py` exercises native service registration/targeting,
-real SDK serialization, off-loop commands, strict coordinate/capability/route
-validation, unchanged observed state, no stream startup, API rejection, and
-cancellation/shutdown ownership. Ordinary directional PTZ is not proof of point
-control: direct586 and selected-point724 paths have distinct requirements.
+real SDK serialization, off-loop commands, native coordinate/lens schema
+validation, capability-qualified routing, unchanged observed state, no stream
+startup, API rejection, and cancellation/shutdown ownership. Ordinary directional
+PTZ is not proof of point control: direct586 and selected-point724 paths have
+distinct requirements.
 
-The planned 2.5.1 minimum includes the SDK point-payload correction in SDK #446.
-Before publication, candidate tests may explicitly use the companion SDK source;
-that does not satisfy the installed-version profile guard or qualify a PyPI
-release. Normal `tools/check.py` profiles intentionally remain blocked until the
-exact published pin is available and qualified without overrides.
+The **published 2.5.1** minimum includes the SDK point-payload correction in
+SDK #446. The ordinary `tools/check.py` profiles now run against the exact PyPI pin
+without SDK source overrides. Published-wheel qualification is complete; the
+manifest/profile/installed-version guard remains unchanged.
+
+The native Lens selector exposes `auto`, `1` and `2`, with translated labels.
+Explicit choices match reported video channel indices, not metadata list order;
+reordered rows retain their target. Missing or duplicate selected channels fail
+without moving another lens. Automatic rejects ambiguous selected-point routes
+with an instruction to choose a lens. Direct586 retains only the fixed app route.
+Tests cover schema/selector metadata, actual SDK URLs/payloads, unsafe vendor
+indices and rejection of obsolete experimental resource/index fields. They do
+not establish which physical lens moves, render the frontend or issue live PTZ.

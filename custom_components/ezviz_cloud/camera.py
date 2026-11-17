@@ -329,15 +329,14 @@ class EzvizCamera(EzvizEntity, Camera):
         self,
         x_axis: float,
         y_axis: float,
-        resource_identifier: str | None = None,
-        local_index: str | None = None,
+        lens: str = "auto",
     ) -> None:
         """Send one image-plane point command without fabricating motor state."""
         if self._removed or not self.available:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
-        resource, index = point_route(self.data, resource_identifier, local_index)
+        resource, index = point_route(self.data, lens)
         try:
             accepted = await self.coordinator.async_execute(
                 partial(

@@ -30,24 +30,18 @@ read a motor position, wake/enable other features, or add a polling loop. The
 command is a single cloud IoT action; acknowledgement is not proof of physical
 arrival. Generic directional PTZ support alone is insufficient.
 
-## Capability and resource selection
+## Lens selection
 
-The retained app has two distinct paths:
+The **Lens** dropdown replaces the raw Camera resource and Resource index fields:
 
-| App support / route | HA behavior |
-| --- | --- |
-| Direct control, support586 exactly 1 | Default `Video_1/1`, matching app direct tapping |
-| Point location, support724 exactly 1 | Use the unique reported Video resource/index, or explicitly select a reported pair |
-| Multiple, missing or malformed selected-point routes | Fail before a command; never choose the first/other lens or manufacture a route |
-| Only generic pan/tilt flags, no point/direct proof | Reject as unsupported |
+- **Automatic** (default): use the app's verified direct-control route, or the
+  camera's only reported point-control video channel.
+- **Lens 1** or **Lens 2**: select that camera's reported video channel 1 or 2.
+  These labels do not identify a fixed, upper, lower or moving lens.
 
-Support flags are capability hints; the app has additional player-mode/UI
-conditions. They do not establish support for every model/firmware or permission.
-Cameras must be currently available, not stale, removed or unloading.
-
-For a camera advertising selected-point support, the optional advanced fields
-`resource_identifier` and `local_index` select a specific **reported** pair.
-Both must be supplied together. They are not derived from the RTSP channel:
+For a multi-lens camera, choose a lens explicitly. If Automatic cannot choose
+uniquely, the action asks you to select Lens 1 or Lens 2 rather than guessing.
+An unavailable or ambiguous selected lens fails without trying another lens.
 
 ```yaml
 action: ezviz_cloud.ptz_control_coordinates
@@ -56,13 +50,41 @@ target:
 data:
   x_axis: 0.5
   y_axis: 0.5
-  resource_identifier: Video
-  local_index: "0"
+  lens: "2"
 ```
 
-That example requires an actual reported `Video/0` pair; it is not a universal
-route. A direct-only camera cannot use arbitrary selected-resource routes.
-No alternative path is tried after an error. On multi-target actions, ordinary
+For example, a camera reporting `Video/1` and `Video_1/2` uses those exact pairs
+for Lens 1 and Lens 2. The user supplies only the lens choice; the integration
+resolves the matching pair from current camera metadata. Ordering of metadata
+does not change the selection, and a disappearing channel does not renumber the
+remaining lens. Channels are not inferred from RTSP URLs. A single reported
+zero-based channel is still usable with Automatic; explicit dropdown choices
+require reported channel 1 or 2. Other channel layouts are not manufactured or
+claimed to be supported by these choices.
+
+Trial automations using the earlier, unreleased `resource_identifier` and
+`local_index` fields must remove both and use `lens: "1"` or `lens: "2"` instead
+when selection is necessary. Old fields fail validation rather than being
+silently ignored. Existing released camera actions are unchanged.
+
+## Capability requirements
+
+The retained app has two distinct paths:
+
+| App support / route | HA behavior |
+| --- | --- |
+| Direct control, support586 exactly 1 | Automatic uses `Video_1/1`, matching app direct tapping; a direct-only camera can also use Lens 1 for that fixed route |
+| Point location, support724 exactly 1 | Automatic uses the unique reported Video channel; explicit Lens 1/2 requires a unique matching reported channel |
+| Multiple selected-point routes with Automatic | Ask the user to choose a lens before sending any command |
+| Missing, malformed or ambiguous selected lens | Fail before a command; never choose the first/other lens or manufacture a route |
+| Only generic pan/tilt flags, no point/direct proof | Reject as unsupported |
+
+Support flags are capability hints; the app has additional player-mode/UI
+conditions. They do not establish support for every model/firmware or permission.
+Cameras must be currently available, not stale, removed or unloading.
+
+No alternative path is tried after an error. On multi-target actions, the same
+lens choice applies separately to each camera's reported channels and ordinary
 HA per-target dispatch applies; there is no atomic transaction across accounts.
 
 ## App verification and limits

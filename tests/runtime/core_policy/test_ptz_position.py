@@ -27,6 +27,7 @@ from homeassistant import loader
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.helpers.service import async_get_all_descriptions
 
 from tests.runtime.test_hardening import entities
 
@@ -103,6 +104,14 @@ async def test_action_registers_without_accounts_and_targets_real_camera(
     """Only selected accounts/devices move; request runs off-loop with no stream."""
     assert await ezviz_cloud.async_setup(hass, {})
     assert hass.services.has_service(DOMAIN, "ptz_control_coordinates")
+    descriptions = await async_get_all_descriptions(hass)
+    fields = descriptions[DOMAIN]["ptz_control_coordinates"]["fields"]
+    assert set(fields) == {"x_axis", "y_axis", "lens"}
+    selector = fields["lens"]["selector"]["select"]
+    assert selector["options"] == ["auto", "1", "2"]
+    assert selector["translation_key"] == "ptz_lens"
+    assert selector["mode"] == "dropdown"
+    assert not selector["custom_value"]
     first, cam1, sent1, threads1 = camera_target(hass, monkeypatch)
     second, cam2, sent2, _ = camera_target(hass, monkeypatch, "CAM002")
     platforms = []
@@ -174,13 +183,12 @@ async def test_invalid_service_coordinates_do_not_reach_sdk(
 
 
 @pytest.mark.parametrize(
-    "value", ["", "../Video", "0/action", True, -1, 1.5, None, "x" * 65]
+    "value", ["", True, False, 1, 2, None, "3", "Video", "../Video", "1/2", [], {}]
 )
-@pytest.mark.parametrize("field", ["resource_identifier", "local_index"])
-async def test_invalid_service_route_parts_do_not_reach_sdk(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, value: object, field: str
+async def test_invalid_service_lens_does_not_reach_sdk(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, value: object
 ) -> None:
-    """Reject unsafe route fields even when the camera supports the direct route."""
+    """The native action schema validates the dropdown before worker dispatch."""
     await ezviz_cloud.async_setup(hass, {})
     coordinator, camera, sent, _ = camera_target(hass, monkeypatch)
     platform = await add_camera(hass, camera)
@@ -189,13 +197,38 @@ async def test_invalid_service_route_parts_do_not_reach_sdk(
             "entity_id": camera.entity_id,
             "x_axis": 0.5,
             "y_axis": 0.5,
-            "resource_identifier": "Video_1",
-            "local_index": "1",
-            field: value,
+            "lens": value,
         }
         with pytest.raises(probatio.Invalid):
             await hass.services.async_call(
                 DOMAIN, "ptz_control_coordinates", data, blocking=True
+            )
+        assert not sent
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("field", ["resource_identifier", "local_index"])
+async def test_old_experimental_route_fields_are_not_silently_ignored(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    """Old trial automation fields fail validation instead of moving another lens."""
+    await ezviz_cloud.async_setup(hass, {})
+    coordinator, camera, sent, _ = camera_target(hass, monkeypatch)
+    platform = await add_camera(hass, camera)
+    try:
+        with pytest.raises(probatio.Invalid):
+            await hass.services.async_call(
+                DOMAIN,
+                "ptz_control_coordinates",
+                {
+                    "entity_id": camera.entity_id,
+                    "x_axis": 0.5,
+                    "y_axis": 0.5,
+                    field: "1",
+                },
+                blocking=True,
             )
         assert not sent
     finally:
@@ -241,42 +274,106 @@ def test_verified_capability_and_route_forms(
     data: dict[str, Any], expected: tuple[str, str]
 ) -> None:
     """Honor nested capabilities and zero-based reported resources without guessing."""
-    assert point_route(data, None, None) == expected
+    assert point_route(data) == expected
 
 
-async def test_selected_route_and_ambiguity_never_fall_back(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("lens", ["1", "2"])
+async def test_lens_selection_uses_reported_channels_without_fallback(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, lens: str
 ) -> None:
-    """Point-locate routes use actual metadata; no manufactured Video_N/other lens."""
+    """Metadata order, missing lenses and duplicate indices cannot redirect a move."""
+    await ezviz_cloud.async_setup(hass, {})
     coordinator, camera, sent, _ = camera_target(hass, monkeypatch)
+    platform = await add_camera(hass, camera)
     data = coordinator.data["CAM001"]
     data["supportExt"] = {"724": "1"}
+    data["resourceInfos"] = [
+        {"resourceIdentifier": "Video", "localIndex": 1},
+        {"resourceIdentifier": "Video_1", "localIndex": "2"},
+    ]
+    call_data = {
+        "entity_id": camera.entity_id,
+        "x_axis": 0.25,
+        "y_axis": 0.75,
+        "lens": lens,
+    }
     try:
-        await camera.async_ptz_control_coordinates(0, 1)
-        assert sent[-1].url.endswith("/CAM001/Video/0/PTZManualCtrl/CtrlPTZ3DPosition")
-        data["resourceInfos"].append(
-            {"resourceIdentifier": "Video_2", "localIndex": "2"}
+        with pytest.raises(ServiceValidationError) as error:
+            await hass.services.async_call(
+                DOMAIN,
+                "ptz_control_coordinates",
+                {**call_data, "lens": "auto"},
+                blocking=True,
+            )
+        assert error.value.translation_key == "ptz_lens_required"
+        assert not sent
+        await hass.services.async_call(
+            DOMAIN, "ptz_control_coordinates", call_data, blocking=True
         )
-        for resource, index in [
-            (None, None),
-            ("Video", None),
-            (None, "0"),
-            ("Video_3", "3"),
-        ]:
-            with pytest.raises(ServiceValidationError):
-                await camera.async_ptz_control_coordinates(0.5, 0.5, resource, index)
         assert len(sent) == 1
-        await camera.async_ptz_control_coordinates(1, 0, "Video_2", "2")
-        assert len(sent) == 2
+        resource = "Video" if lens == "1" else "Video_1"
         assert sent[-1].url.endswith(
-            "/CAM001/Video_2/2/PTZManualCtrl/CtrlPTZ3DPosition"
+            f"/CAM001/{resource}/{lens}/PTZManualCtrl/CtrlPTZ3DPosition"
         )
-        data["resourceInfos"][0]["localIndex"] = None
-        with pytest.raises(ServiceValidationError):
-            await camera.async_ptz_control_coordinates(0.5, 0.5)
+        assert json.loads(sent[-1].body)["positionPoint"] == {"x": 0.25, "y": 0.75}
+        data["resourceInfos"].reverse()
+        await hass.services.async_call(
+            DOMAIN, "ptz_control_coordinates", call_data, blocking=True
+        )
+        assert len(sent) == 2
+        assert sent[-1].url == sent[-2].url
+        original = data["resourceInfos"]
+        data["resourceInfos"] = [
+            row for row in original if str(row["localIndex"]) != lens
+        ]
+        with pytest.raises(ServiceValidationError) as error:
+            await hass.services.async_call(
+                DOMAIN, "ptz_control_coordinates", call_data, blocking=True
+            )
+        assert error.value.translation_key == "ptz_lens_unavailable"
+        assert error.value.translation_placeholders == {"lens": lens}
+        data["resourceInfos"] = [
+            *original,
+            {"resourceIdentifier": "Video_9", "localIndex": lens},
+        ]
+        with pytest.raises(ServiceValidationError) as error:
+            await hass.services.async_call(
+                DOMAIN, "ptz_control_coordinates", call_data, blocking=True
+            )
+        assert error.value.translation_key == "ptz_lens_unavailable"
         assert len(sent) == 2
     finally:
+        await platform.async_reset()
         await coordinator.async_close()
+
+
+@pytest.mark.parametrize("index", [None, "../1", "1/action", True, -1, ""])
+def test_malformed_reported_route_cannot_be_selected(index: object) -> None:
+    """Unsafe or missing vendor indices fail before constructing a command URL."""
+    with pytest.raises(ServiceValidationError) as error:
+        point_route(
+            {
+                "supportExt": {"724": "1"},
+                "resourceInfos": [{"resourceIdentifier": "Video", "localIndex": index}],
+            },
+            "1",
+        )
+    assert error.value.translation_key == "ptz_route_unknown"
+
+
+@pytest.mark.parametrize("lens", ["auto", "1", "2"])
+def test_direct_only_camera_keeps_fixed_app_route(lens: str) -> None:
+    """586 never authorizes an arbitrary reported route or an extra lens."""
+    data = {
+        "supportExt": {"586": "1"},
+        "resourceInfos": [{"resourceIdentifier": "Video_9", "localIndex": "2"}],
+    }
+    if lens == "2":
+        with pytest.raises(ServiceValidationError) as error:
+            point_route(data, lens)
+        assert error.value.translation_key == "ptz_lens_unavailable"
+    else:
+        assert point_route(data, lens) == ("Video_1", "1")
 
 
 @pytest.mark.parametrize("state", ["offline", "stale", "removed", "closing"])
@@ -352,16 +449,19 @@ async def test_direct_capability_does_not_enable_selected_resource_path(
     """586 proves only the fixed direct route; explicit selection needs 724."""
     coordinator, camera, sent, _ = camera_target(hass, monkeypatch)
     coordinator.data["CAM001"]["supportExt"] = {"586": "1", "724": int(locate)}
+    coordinator.data["CAM001"]["resourceInfos"] = [
+        {"resourceIdentifier": "Video_1", "localIndex": "2"}
+    ]
     try:
         if locate:
-            await camera.async_ptz_control_coordinates(0.5, 0.5, "Video", "0")
+            await camera.async_ptz_control_coordinates(0.5, 0.5, "2")
             assert len(sent) == 1
             assert sent[0].url.endswith(
-                "/CAM001/Video/0/PTZManualCtrl/CtrlPTZ3DPosition"
+                "/CAM001/Video_1/2/PTZManualCtrl/CtrlPTZ3DPosition"
             )
         else:
             with pytest.raises(ServiceValidationError):
-                await camera.async_ptz_control_coordinates(0.5, 0.5, "Video", "0")
+                await camera.async_ptz_control_coordinates(0.5, 0.5, "2")
             assert not sent
     finally:
         await coordinator.async_close()

@@ -27,8 +27,8 @@ def coordinate(value: object) -> float:
     return float(value)
 
 
-def route_part(value: object) -> str:
-    """Keep explicit resource/index values within one URL path segment."""
+def _route_index(value: object) -> str:
+    """Keep reported indices within one URL path segment."""
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         value = str(value)
     if not isinstance(value, str) or not _PART.fullmatch(value):
@@ -46,30 +46,21 @@ def _enabled(capabilities: SupportExtView, flag: str) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value == 1
 
 
-def point_route(
-    data: dict[str, Any], resource_identifier: str | None, local_index: str | None
-) -> tuple[str, str]:
-    """Use direct-tap defaults or a uniquely observed selected-video resource."""
+def point_route(data: dict[str, Any], lens: str = "auto") -> tuple[str, str]:
+    """Resolve a lens to a unique reported channel, never a list position."""
     capabilities = SupportExtView.from_camera_data(data)
     direct, locate = _enabled(capabilities, "586"), _enabled(capabilities, "724")
     if not direct and not locate:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="ptz_point_unsupported"
         )
-    if (resource_identifier is None) != (local_index is None):
-        raise ServiceValidationError(
-            translation_domain=DOMAIN, translation_key="ptz_route_pair_required"
-        )
-    requested = (
-        (resource_identifier, local_index)
-        if resource_identifier is not None and local_index is not None
-        else None
-    )
-    if direct and requested in (None, DIRECT_ROUTE):
+    if direct and (lens == "auto" or (not locate and lens == "1")):
         return DIRECT_ROUTE
     if not locate:
         raise ServiceValidationError(
-            translation_domain=DOMAIN, translation_key="ptz_point_unsupported"
+            translation_domain=DOMAIN,
+            translation_key="ptz_lens_unavailable",
+            translation_placeholders={"lens": lens},
         )
     routes: set[tuple[str, str]] = set()
     rows = data.get("resourceInfos")
@@ -80,16 +71,27 @@ def point_route(
         if not isinstance(resource, str) or not _VIDEO_RESOURCE.fullmatch(resource):
             continue
         try:
-            index = route_part(row.get("localIndex"))
+            index = _route_index(row.get("localIndex"))
         except probatio.Invalid as err:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="ptz_route_unknown"
             ) from err
         routes.add((resource, index))
-    if requested is not None and requested in routes:
-        return requested
-    if requested is None and len(routes) == 1:
+    if lens != "auto":
+        matches = {route for route in routes if route[1] == lens}
+        if len(matches) == 1:
+            return next(iter(matches))
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="ptz_lens_unavailable",
+            translation_placeholders={"lens": lens},
+        )
+    if len(routes) == 1:
         return next(iter(routes))
+    if len(routes) > 1:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="ptz_lens_required"
+        )
     raise ServiceValidationError(
         translation_domain=DOMAIN, translation_key="ptz_route_unknown"
     )

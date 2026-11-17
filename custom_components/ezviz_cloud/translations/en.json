@@ -564,11 +564,14 @@
         "ptz_point_unsupported": {
             "message": "The camera does not report support for point-based PTZ control."
         },
-        "ptz_route_pair_required": {
-            "message": "Specify both camera resource and resource index, or leave both unset."
-        },
         "ptz_route_unknown": {
-            "message": "No unambiguous reported video resource matches this PTZ target. Specify its reported camera resource and index."
+            "message": "The camera has no usable video information for point control. Wait for its status to refresh and try again."
+        },
+        "ptz_lens_required": {
+            "message": "This camera has multiple video lenses. Choose Lens 1 or Lens 2 in the Lens field."
+        },
+        "ptz_lens_unavailable": {
+            "message": "Lens {lens} has no unique supported video channel on this camera. Choose another lens, or use Automatic for a single-lens camera."
         }
     },
     "issues": {
@@ -746,6 +749,13 @@
                 "encryption_key": "Encryption key",
                 "verification_code": "Verification/sticker code"
             }
+        },
+        "ptz_lens": {
+            "options": {
+                "auto": "Automatic",
+                "1": "Lens 1",
+                "2": "Lens 2"
+            }
         }
     },
     "services": {
@@ -760,14 +770,6 @@
         "ptz_control_coordinates": {
             "description": "Point a supported PTZ camera at normalized image coordinates (0\u20131), not pan/tilt angles. No stream is started. The device must advertise point/direct PTZ support.",
             "fields": {
-                "local_index": {
-                    "description": "Optional vendor-reported local index, supplied together with camera resource. Never inferred from an RTSP channel.",
-                    "name": "Resource index"
-                },
-                "resource_identifier": {
-                    "description": "Optional reported Video resource for cameras with multiple resources. Supply together with resource index.",
-                    "name": "Camera resource"
-                },
                 "x_axis": {
                     "description": "0 is the left edge; 1 is the right edge of the image.",
                     "name": "Horizontal position"
@@ -775,6 +777,10 @@
                 "y_axis": {
                     "description": "0 is the top edge; 1 is the bottom edge of the image.",
                     "name": "Vertical position"
+                },
+                "lens": {
+                    "name": "Lens",
+                    "description": "Use Automatic for a single-lens camera. For multiple lenses, choose Lens 1 or Lens 2. Lens numbers do not identify fixed or moving lenses."
                 }
             },
             "name": "Move to image position"
