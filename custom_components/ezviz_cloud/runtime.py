@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 
+from .workers import create_critical_task, create_executor_task
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .coordinator import EzvizDataUpdateCoordinator
     from .mqtt import EzvizMqttHandler
     from .tokens import TokenPersistence
-
-from .workers import create_critical_task, create_executor_task
 
 _LOGGER = logging.getLogger(__name__)
 SHUTDOWN_TIMEOUT = 5
