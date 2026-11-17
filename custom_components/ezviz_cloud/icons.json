@@ -42,6 +42,9 @@
     },
     "capture_picture": {
       "service": "mdi:camera"
+    },
+    "ptz_control_coordinates": {
+      "service": "mdi:panorama-sphere"
     }
   }
 }

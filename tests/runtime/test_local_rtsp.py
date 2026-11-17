@@ -18,6 +18,7 @@ from custom_components.ezviz_cloud import local, local_rtsp, switch
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.coordinator import LocalRtspCoordinator
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .test_hardening import entities
 
@@ -250,7 +251,14 @@ async def test_local_read_write_is_offloop_observed_and_cloud_independent(hass, 
         await local.async_refresh()
         assert entity.available and entity.is_on is True
         assert entity.unique_id == "CAM001_local_rtsp"
-        assert entity.device_info["identifiers"] == {(DOMAIN, "CAM001")}
+        assert entity.device_info == DeviceInfo(
+            identifiers={(DOMAIN, "CAM001")},
+            manufacturer="EZVIZ",
+            model="CP8",
+            name="Synthetic",
+            sw_version="1",
+            serial_number="CAM001",
+        )
         assert entity.entity_category.value == "config"
         assert threads and all(item != get_ident() for item in threads)
         account.async_request_refresh.assert_not_awaited()

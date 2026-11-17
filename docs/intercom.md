@@ -1,9 +1,11 @@
 # Non-streaming video intercom support
 
-Requires published [pyezvizapi 2.5.0](https://pypi.org/project/pyezvizapi/2.5.0/)
-or newer. The exact 2.5.0 wheel is the repository qualification baseline; no
-source override, vendored SDK or Git dependency is used. These changes are not
-in the integration 0.3.0 release.
+The intercom API was introduced in published pyezvizapi 2.5.0. This development
+branch additionally requires **published pyezvizapi 2.5.1** for the independent
+[point PTZ action](ptz-position.md). Its actual PyPI wheel has been qualified
+through the ordinary development and CI profiles, without source overrides or
+Git dependencies. SDK publication is complete; an HA integration release and
+deployment are separate steps. These changes are not in integration 0.3.0.
 
 ## Entities
 

@@ -34,7 +34,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py`,
 both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.0'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.1'
 python tools/check.py native
 ```
 
@@ -236,3 +236,27 @@ Flow/diagnostic coverage percentages do not describe event-module coverage.
 Run these probes through the native harness, which denies sockets and DNS before
 SDK execution. Synthetic serials alone do not prevent network access: an empty
 prefetched-alarm mapping can cause the SDK renderer to perform a cloud fallback.
+
+
+## Point PTZ action (published SDK 2.5.1)
+
+`core_policy/test_ptz_position.py` exercises native service registration/targeting,
+real SDK serialization, off-loop commands, native coordinate/lens schema
+validation, capability-qualified routing, unchanged observed state, no stream
+startup, API rejection, and cancellation/shutdown ownership. Ordinary directional
+PTZ is not proof of point control: direct586 and selected-point724 paths have
+distinct requirements.
+
+The **published 2.5.1** minimum includes the SDK point-payload correction in
+SDK #446. The ordinary `tools/check.py` profiles now run against the exact PyPI pin
+without SDK source overrides. Published-wheel qualification is complete; the
+manifest/profile/installed-version guard remains unchanged.
+
+The native Lens selector exposes `auto`, `1` and `2`, with translated labels.
+Explicit choices match reported video channel indices, not metadata list order;
+reordered rows retain their target. Missing or duplicate selected channels fail
+without moving another lens. Automatic rejects ambiguous selected-point routes
+with an instruction to choose a lens. Direct586 retains only the fixed app route.
+Tests cover schema/selector metadata, actual SDK URLs/payloads, unsafe vendor
+indices and rejection of obsolete experimental resource/index fields. They do
+not establish which physical lens moves, render the frontend or issue live PTZ.

@@ -1,2 +1,2 @@
-# Published SDK minimum qualified by the standard repository profiles.
-pyezvizapi==2.5.0
+# Published patch minimum, qualified by all ordinary repository profiles.
+pyezvizapi==2.5.1

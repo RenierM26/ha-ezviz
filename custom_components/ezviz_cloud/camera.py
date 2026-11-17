@@ -14,6 +14,7 @@ option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
 import asyncio
 from collections.abc import Mapping
 from dataclasses import replace
+from functools import partial
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
@@ -36,12 +37,14 @@ from .const import (
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
+    DOMAIN,
     OPTIONS_KEY_CAMERAS,
     SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
+from .ptz import point_route
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -321,3 +324,33 @@ class EzvizCamera(EzvizEntity, Camera):
             self.hass, SIGNAL_PICTURE_CAPTURED.format(self._serial), pic_url
         )
         return {"picture_url": pic_url}
+
+    async def async_ptz_control_coordinates(
+        self,
+        x_axis: float,
+        y_axis: float,
+        lens: str = "auto",
+    ) -> None:
+        """Send one image-plane point command without fabricating motor state."""
+        if self._removed or not self.available:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
+        resource, index = point_route(self.data, lens)
+        try:
+            accepted = await self.coordinator.async_execute(
+                partial(
+                    self.coordinator.ezviz_client.ptz_control_coordinates,
+                    self._serial,
+                    x_axis,
+                    y_axis,
+                    resource_identifier=resource,
+                    local_index=index,
+                )
+            )
+        except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+            raise request_error("Move camera to image position", err) from err
+        if accepted is False:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_rejected"
+            )

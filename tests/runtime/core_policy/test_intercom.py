@@ -23,6 +23,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import EntityPlatform
 
 from tests.runtime.test_hardening import entities
@@ -218,7 +219,14 @@ async def test_monitor_uses_own_serial_and_health(hass: HomeAssistant) -> None:
     try:
         await entity.async_set_native_value(2)
         assert api.set_dev_config_kv.call_args.args[0] == "MON001"
-        assert entity.device_info["identifiers"] == {(DOMAIN, "MON001")}
+        assert entity.device_info == DeviceInfo(
+            identifiers={(DOMAIN, "MON001")},
+            manufacturer="EZVIZ",
+            model="CP8",
+            name="Monitor",
+            sw_version="1",
+            serial_number="MON001",
+        )
         snap = coordinator.inventory_snapshot
         coordinator.inventory_snapshot = replace(
             snap, health={**snap.health, "MON001": DeviceHealth(False, False, None)}

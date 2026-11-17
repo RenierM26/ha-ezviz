@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add the `ezviz_cloud.ptz_control_coordinates` camera action for normalized
+  image-plane points, with app-backed capability checks and a translated
+  Automatic / Lens 1 / Lens 2 selector instead of raw resource/index inputs.
+  Explicit lens choices use reported video channels, never metadata list order.
+  No stream startup, optimistic motor state, directional
+  fallback or additional polling loop. Requires the published SDK 2.5.1 point-
+  payload correction, qualified through the exact PyPI dependency profile.
+
 - Suppress the first successful intercom history window even while a known
   doorbell has stale camera rendering. Keep valid push delivery independent,
   and do not baseline unsupported devices excluded from the history query.
