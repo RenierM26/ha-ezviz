@@ -55,7 +55,9 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 - One SDK poll supplies cameras, detectors, light bulbs and plugs. Entity
   availability requires successful polling, current/present device health and a
   known online state; retained stale values are not current measurements.
-- Bulbs/plugs expose observed on/off controls, not inferred energy/color features.
+- [Bulb controls](docs/bulb-controls.md) draft brightness, Kelvin and RGB support
+  only for matching writable SDK feature metadata. Unknown shapes retain on/off.
+  Plugs remain on/off only, without inferred energy features.
   Detector contact/water booleans remain unknown without qualified SDK semantics;
   raw diagnostic readings are not converted to alarm truthiness.
 - Camera options select local RTSP credentials and path. This work adds no new

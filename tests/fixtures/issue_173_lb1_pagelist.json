@@ -1,0 +1,43 @@
+{
+  "deviceInfos": [
+    {
+      "deviceCategory": "lighting",
+      "deviceSubCategory": "LB1",
+      "version": "V1.1.0 build 200814",
+      "status": 1,
+      "channelNumber": 0,
+      "supportExt": {
+        "232": "0",
+        "233": "0",
+        "234": 0,
+        "236": "1",
+        "237": "1",
+        "30": "0",
+        "31": "0",
+        "10": "1"
+      },
+      "deviceSerial": "ISSUE173LB1",
+      "name": "Issue 173 LB1 bulb",
+      "deviceType": "LB1"
+    }
+  ],
+  "FEATURE": {
+    "ISSUE173LB1": {
+      "deviceCategory": "lighting",
+      "deviceSubCategory": "light-rgb-wifi",
+      "featureJson": "{\"actionDtos\":[],\"category\":\"light-rgb-wifi\",\"channelNo\":0,\"productId\":\"issue173-product\",\"productModel\":\"LB1\",\"productName\":\"Issue 173 test bulb\",\"featureItemDtos\":[{\"dataDesc\":\"[\\\"white\\\", \\\"color\\\", \\\"scene\\\",\\\"music\\\"]\",\"dataType\":\"enum\",\"dataValue\":\"white\",\"itemKey\":\"light_mode\",\"itemName\":\"亮灯模式\",\"transportType\":\"rw\",\"visible\":1},{\"dataDesc\":\"{\\\"range_from\\\": 2700, \\\"range_to\\\": 6500, \\\"interval\\\": 10, \\\"multiple\\\": 0, \\\"unit\\\": \\\"k\\\"}\",\"dataType\":\"num\",\"dataValue\":6500,\"itemKey\":\"color_temperature\",\"itemName\":\"色温\",\"transportType\":\"rw\",\"visible\":1},{\"dataDesc\":\"{\\\"max_length\\\": 255}\",\"dataType\":\"char\",\"dataValue\":\"#FF8F04\",\"itemKey\":\"color_rgb\",\"itemName\":\"彩光\",\"transportType\":\"rw\",\"visible\":1},{\"dataDesc\":\"\",\"dataType\":\"bool\",\"dataValue\":true,\"itemKey\":\"light_switch\",\"itemName\":\"开关\",\"transportType\":\"rw\",\"visible\":1},{\"dataDesc\":\"{\\\"range_from\\\": 1, \\\"range_to\\\": 100, \\\"interval\\\": 1, \\\"multiple\\\": 0, \\\"unit\\\": \\\"\\\"}\",\"dataType\":\"num\",\"dataValue\":100,\"itemKey\":\"brightness\",\"itemName\":\"亮度\",\"transportType\":\"rw\",\"visible\":1}]}"
+    }
+  },
+  "STATUS": {
+    "ISSUE173LB1": {
+      "upgradeStatus": 2,
+      "optionals": {}
+    }
+  },
+  "WIFI": {
+    "ISSUE173LB1": {}
+  },
+  "SWITCH": {
+    "ISSUE173LB1": []
+  }
+}

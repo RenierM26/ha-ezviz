@@ -1,6 +1,7 @@
 """Support for EZVIZ light entity."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, ClassVar, override
 
@@ -11,17 +12,21 @@ from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP_KELVIN,
+    ATTR_RGB_COLOR,
     ColorMode,
     LightEntity,
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util.color import value_to_brightness
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
 )
 
+from .bulb import BulbCapabilities, bulb_capabilities, bulb_rgb, prepare_bulb_turn_on
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
@@ -208,39 +213,150 @@ class EzvizLight(EzvizEntity, LightEntity):
 
 
 class EzvizInventoryLight(EzvizInventoryEntity, LightEntity):
-    """An actual light bulb, separate from the existing camera floodlight."""
+    """A bulb with controls gated by observed SDK feature metadata."""
 
-    _attr_color_mode = ColorMode.ONOFF
     _attr_name = None
 
     def __init__(self, coordinator: EzvizDataUpdateCoordinator, serial: str) -> None:
-        """Initialize the owner and its cached dependencies."""
+        """Initialize the owner without caching mutable feature metadata."""
         super().__init__(coordinator, serial)
-        self._attr_supported_color_modes = {ColorMode.ONOFF}
         self._attr_unique_id = f"{serial}_power"
+
+    @property
+    def _bulb_values(self) -> Mapping[str, Any]:
+        state = self.device_state
+        return (
+            state.values
+            if isinstance(state, LightState) and state.kind == "light"
+            else {}
+        )
+
+    @property
+    def _capabilities(self) -> BulbCapabilities:
+        return bulb_capabilities(self._bulb_values)
+
+    @property
+    @override
+    def available(self) -> bool:
+        """A retained entity cannot control a newly classified different family."""
+        return bool(self._bulb_values) and super().available
 
     @property
     @override
     def is_on(self) -> bool | None:
-        """Return the known power state, or unknown when unavailable."""
+        """Return known power, never an accepted command's target."""
         state = self.device_state
-        return state.is_on if isinstance(state, LightState) else None
+        return (
+            state.is_on
+            if isinstance(state, LightState) and state.kind == "light"
+            else None
+        )
+
+    @property
+    @override
+    def supported_color_modes(self) -> set[ColorMode]:
+        """Re-evaluate capabilities after each accepted SDK snapshot."""
+        caps = self._capabilities
+        modes = set()
+        if caps.temperature:
+            modes.add(ColorMode.COLOR_TEMP)
+        if caps.rgb:
+            modes.add(ColorMode.RGB)
+        if modes:
+            return modes
+        return {ColorMode.BRIGHTNESS} if caps.brightness else {ColorMode.ONOFF}
+
+    @property
+    @override
+    def color_mode(self) -> ColorMode:
+        """Do not claim scene/music or unknown device modes are white/RGB."""
+        modes = self.supported_color_modes
+        if modes == {ColorMode.ONOFF}:
+            return ColorMode.ONOFF
+        if modes == {ColorMode.BRIGHTNESS}:
+            return ColorMode.BRIGHTNESS
+        mode = self._capabilities.mode
+        if mode == "white" and ColorMode.COLOR_TEMP in modes:
+            return ColorMode.COLOR_TEMP
+        if mode == "color" and ColorMode.RGB in modes:
+            return ColorMode.RGB
+        return ColorMode.UNKNOWN
+
+    @property
+    @override
+    def brightness(self) -> int | None:
+        """Convert the known percentage to HA's 1-255 scale."""
+        feature = self._capabilities.brightness
+        value = (
+            feature.observed(self._bulb_values.get("brightness")) if feature else None
+        )
+        return value_to_brightness((1, 100), value) if value is not None else None
+
+    @property
+    @override
+    def color_temp_kelvin(self) -> int | None:
+        """Return a known active white-mode temperature, without scaling guesses."""
+        feature = self._capabilities.temperature
+        if feature and self.color_mode == ColorMode.COLOR_TEMP:
+            return feature.observed(self._bulb_values.get("color_temperature"))
+        return None
+
+    @property
+    @override
+    def min_color_temp_kelvin(self) -> int:
+        feature = self._capabilities.temperature
+        return feature.minimum if feature else super().min_color_temp_kelvin
+
+    @property
+    @override
+    def max_color_temp_kelvin(self) -> int:
+        feature = self._capabilities.temperature
+        return feature.maximum if feature else super().max_color_temp_kelvin
+
+    @property
+    @override
+    def rgb_color(self) -> tuple[int, int, int] | None:
+        """Do not expose a stale RGB field as the active white-mode colour."""
+        return bulb_rgb(self._bulb_values) if self.color_mode == ColorMode.RGB else None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on power through the shared command owner."""
-        await async_set_power(self, True)
+        """Apply one serialized feature sequence, then request observed refresh."""
+        if type(kwargs.get(ATTR_BRIGHTNESS)) is int and kwargs[ATTR_BRIGHTNESS] == 0:
+            await self.async_turn_off()
+            return
+        request = {
+            key: deepcopy(kwargs[key])
+            for key in (ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN, ATTR_RGB_COLOR)
+            if key in kwargs
+        }
+        if not request:
+            await async_set_power(self, True)
+            return
+
+        async def operation() -> None:
+            try:
+                await self.async_write_setting(
+                    prepare=lambda: prepare_bulb_turn_on(self, request)
+                )
+            except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
+                # Some earlier properties may already have been accepted. Observe
+                # the result even if the caller canceled; never retry or roll back.
+                self.coordinator.settings.async_schedule_refresh()
+                raise request_error("Set bulb light", err) from err
+
+        await self.coordinator.async_execute_owned(operation)
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off power through the shared command owner."""
+        """Turn off through the existing shared command owner."""
         await async_set_power(self, False)
 
 
 def light_entities(
     coordinator: EzvizDataUpdateCoordinator, serial: str, state: DeviceState
 ) -> list[EzvizInventoryLight]:
-    """Create an on/off light only with observed command metadata."""
+    """Create a bulb only with observed power and command metadata."""
     items = state.values.get("featureItems", ())
     if (
         isinstance(state, LightState)
