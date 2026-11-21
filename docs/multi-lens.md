@@ -7,9 +7,10 @@ installs the SDK from PyPI; the runtime test profile pins it to 2.6.0.
 
 One physical camera remains one HA device and one account poll/session. Existing
 camera IDs, configured streams, last-motion images, Snapshot images and shared
-settings are preserved. Unambiguous SDK multi-channel inventory adds **Lens N**
-cameras, **Lens N snapshot** images and **Lens N notification** events under that
-device. A count alone does not create a lens. Missing channels become unavailable;
+settings are preserved. A single-lens camera keeps only its original camera
+entity. On a multi-lens camera the original entity represents Lens 1; only
+additional lenses get new camera entities. Multi-channel inventory still adds
+per-lens snapshot images and notification events for all reported lenses. A count alone does not create a lens. Missing channels become unavailable;
 list order does not renumber entities. Native registry identities allow a healthy
 remaining lens to return after restart while its sibling is absent.
 
@@ -21,9 +22,9 @@ no per-lens detection or recording state is inferred from global state.
 ## Streams and images
 
 Under **Configure → Camera Settings**, pick the camera and open **Lens streams**.
-On an H9c, each lens defaults to its lower-resolution substream:
-`/Streaming/Channels/102` for Lens 1 and `/Streaming/Channels/202` for Lens 2.
-Choose **Main stream** for the corresponding `101` or `201` path, **Custom path**
+Configure the original camera (Lens 1) in **Shared camera settings**; it keeps
+its saved path or defaults to `/Streaming/Channels/102`. The additional H9c lens
+defaults to `/Streaming/Channels/202`. Choose **Main stream** for `201`, **Custom path**
 to enter a different path, or **Stills only** to disable live video. Other models
 default to stills unless a custom path is supplied; cloud channel numbers alone
 do not establish separate RTSP feeds.

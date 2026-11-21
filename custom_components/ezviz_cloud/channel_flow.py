@@ -13,7 +13,11 @@ from pyezvizapi.exceptions import PyEzvizError
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers import selector
 
-from .channels import CONF_LENS_RTSP_PATHS, lens_stream_presets
+from .channels import (
+    CONF_LENS_RTSP_PATHS,
+    is_additional_camera_lens,
+    lens_stream_presets,
+)
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 
 if TYPE_CHECKING:
@@ -30,7 +34,10 @@ _LABELS = {
 def _reported_lenses(
     flow: EzvizOptionsFlowHandler, serial: str
 ) -> tuple[CameraChannel, ...]:
-    return camera_channels(flow.coordinator.data.get(serial, {}))
+    channels = camera_channels(flow.coordinator.data.get(serial, {}))
+    if len(channels) < 2:
+        return ()
+    return tuple(channel for channel in channels if is_additional_camera_lens(channel))
 
 
 def _field(channel: CameraChannel) -> str:
@@ -45,7 +52,7 @@ async def async_select_stream(
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
     channels = _reported_lenses(flow, serial)
-    if len(channels) < 2:
+    if not channels:
         return flow.async_abort(reason="no_camera_channels")
     if user_input is None:
         flow.lens_baseline = camera_options(flow.config_entry, serial)

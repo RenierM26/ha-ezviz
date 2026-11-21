@@ -756,9 +756,8 @@
             },
             "lens_streams": {
                 "title": "Lens streams",
-                "description": "Choose the stream for each lens. Stills only disables live video for that lens. The original camera stream and shared credentials are unchanged.",
+                "description": "Choose streams for the additional lenses. Configure the original camera (Lens 1) in Shared camera settings. Stills only disables live video for the selected lens.",
                 "data": {
-                    "lens_1": "Lens 1",
                     "lens_2": "Lens 2"
                 }
             },
@@ -766,7 +765,6 @@
                 "title": "Custom lens paths",
                 "description": "Enter a path beginning with / for each custom stream. Do not enter a complete URL or credentials. Saving does not test or change the camera.",
                 "data": {
-                    "lens_1": "Lens 1 RTSP path",
                     "lens_2": "Lens 2 RTSP path"
                 }
             }

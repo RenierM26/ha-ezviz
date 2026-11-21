@@ -47,6 +47,11 @@ def lens_stream_path(
     return lens_stream_presets(data, channel).get("substream", "")
 
 
+def is_additional_camera_lens(channel: CameraChannel) -> bool:
+    """The original camera represents channel 1 and keeps its saved stream."""
+    return channel.local_index != "1"
+
+
 def capture_signal(serial: str, channel_key: str | None = None) -> str:
     """Keep existing capture subscriptions unchanged and isolate channel captures."""
     signal = SIGNAL_PICTURE_CAPTURED.format(serial)

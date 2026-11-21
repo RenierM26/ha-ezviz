@@ -41,6 +41,7 @@ from .channels import (
     async_add_channel_entities,
     capture_signal,
     channel_available,
+    is_additional_camera_lens,
     lens_stream_path,
 )
 from .const import (
@@ -113,9 +114,11 @@ async def async_setup_entry(
         coordinator,
         entry,
         async_add_entities,
-        lambda serial, channel: [
-            EzvizChannelCamera(hass, coordinator, serial, channel)
-        ],
+        lambda serial, channel: (
+            [EzvizChannelCamera(hass, coordinator, serial, channel)]
+            if is_additional_camera_lens(channel)
+            else []
+        ),
     )
 
 
