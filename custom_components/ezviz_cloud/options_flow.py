@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 import probatio
+from pyezvizapi.devices.channels import camera_channels
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
     DeviceException,
@@ -74,8 +75,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Initialize options flow."""
         self._cam_serial: str
         self._camera_baseline: dict[str, Any] = {}
-        self.lens_target: tuple[str, str] | None = None
         self.lens_baseline: dict[str, Any] = {}
+        self.lens_modes: dict[str, str] = {}
         self._rtsp_pending: tuple[RuntimeCleanup, dict[str, Any]] | None = None
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = (
@@ -85,20 +86,28 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     async def async_step_init(self, user_input: Any | None = None) -> ConfigFlowResult:
         """Entry menu (bootstrap coordinator)."""
         return self.async_show_menu(
-            step_id="init", menu_options=["cloud", "camera_select", "lens_streams"]
+            step_id="init", menu_options=["cloud", "camera_select"]
+        )
+
+    async def async_step_camera_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Separate shared settings from lens quality without repeating camera selection."""
+        return self.async_show_menu(
+            step_id="camera_menu", menu_options=["camera_edit", "lens_streams"]
         )
 
     async def async_step_lens_streams(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure independent streams only for reported camera lenses."""
-        return await async_select_stream(self, user_input)
+        return await async_select_stream(self, self._cam_serial, user_input)
 
     async def async_step_lens_stream_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Keep the existing camera stream and shared credentials unchanged."""
-        return await async_edit_stream(self, user_input)
+        return await async_edit_stream(self, self._cam_serial, user_input)
 
     @property
     def coordinator(self) -> EzvizDataUpdateCoordinator:
@@ -155,6 +164,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             self._rtsp_pending = None
             self._cam_serial = user_input["serial"]
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
+            if len(camera_channels(cameras[self._cam_serial])) > 1:
+                return await self.async_step_camera_menu()
             return await self.async_step_camera_edit()
 
         return self.async_show_form(

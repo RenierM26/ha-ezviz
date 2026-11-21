@@ -63,8 +63,7 @@
         "description": "Configure cloud or camera options.",
         "menu_options": {
           "cloud": "Cloud Settings",
-          "camera_select": "Camera Settings",
-          "lens_streams": "Lens streams"
+          "camera_select": "Camera Settings"
         }
       },
       "cloud": {
@@ -120,18 +119,27 @@
           "enable_rtsp": "Enable RTSP before testing"
         }
       },
+      "camera_menu": {
+        "title": "Camera settings",
+        "menu_options": {
+          "camera_edit": "Shared camera settings",
+          "lens_streams": "Lens streams"
+        }
+      },
       "lens_streams": {
         "title": "Lens streams",
-        "description": "Select a reported lens. Its stream path is independent of the existing camera stream; shared camera credentials are reused.",
+        "description": "Choose the stream for each lens. Stills only disables live video for that lens. The original camera stream and shared credentials are unchanged.",
         "data": {
-          "channel": "Lens"
+          "lens_1": "Lens 1",
+          "lens_2": "Lens 2"
         }
       },
       "lens_stream_edit": {
-        "title": "Lens {channel} stream",
-        "description": "Enter the RTSP path verified for this lens, beginning with /. Leave it empty to disable this lens stream. Do not enter a complete URL or credentials. Cloud channel numbers do not establish RTSP paths. Saving does not probe or move the camera.",
+        "title": "Custom lens paths",
+        "description": "Enter a path beginning with / for each custom stream. Do not enter a complete URL or credentials. Saving does not test or change the camera.",
         "data": {
-          "rtsp_path": "Lens RTSP path"
+          "lens_1": "Lens 1 RTSP path",
+          "lens_2": "Lens 2 RTSP path"
         }
       }
     },
@@ -152,7 +160,7 @@
       "rtsp_enabled_test_failed": "RTSP configuration was verified enabled, but the connection/credential test failed. No camera options were saved. Review the playback credential and connection before testing again.",
       "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings.",
       "invalid_channel": "Select a currently reported camera lens.",
-      "invalid_rtsp_path": "Enter a path beginning with /, not a complete RTSP URL, or clear the field to disable this stream."
+      "invalid_rtsp_path": "Enter a path beginning with /, not a complete RTSP URL. To disable this stream, select Stills only."
     },
     "abort": {
       "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available.",

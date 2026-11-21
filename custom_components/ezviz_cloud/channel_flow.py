@@ -1,11 +1,11 @@
-"""Native options for explicitly configured lens streams; no network probes."""
+"""Native camera options for selecting per-lens RTSP paths."""
 
 from typing import TYPE_CHECKING, Any
 
 import probatio
 from pyezvizapi.devices.channels import (
+    CameraChannel,
     camera_channels,
-    resolve_camera_channel,
     validate_channel_rtsp_path,
 )
 from pyezvizapi.exceptions import PyEzvizError
@@ -13,102 +13,133 @@ from pyezvizapi.exceptions import PyEzvizError
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.helpers import selector
 
-from .channels import CONF_LENS_RTSP_PATHS
+from .channels import CONF_LENS_RTSP_PATHS, lens_stream_presets
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 
 if TYPE_CHECKING:
     from .options_flow import EzvizOptionsFlowHandler
 
+_LABELS = {
+    "substream": "Substream (default)",
+    "main_stream": "Main stream",
+    "custom": "Custom path",
+    "stills": "Stills only",
+}
+
+
+def _reported_lenses(
+    flow: EzvizOptionsFlowHandler, serial: str
+) -> tuple[CameraChannel, ...]:
+    return camera_channels(flow.coordinator.data.get(serial, {}))
+
+
+def _field(channel: CameraChannel) -> str:
+    return f"lens_{channel.local_index}"
+
 
 async def async_select_stream(
-    flow: EzvizOptionsFlowHandler, user_input: dict[str, Any] | None
+    flow: EzvizOptionsFlowHandler, serial: str, user_input: dict[str, Any] | None
 ) -> ConfigFlowResult:
-    """Select a reported channel using labels, without exposing resource IDs."""
+    """Choose stream quality for each currently reported lens on this camera."""
     runtime = getattr(flow.config_entry, "runtime_data", None)
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
-    targets = {}
-    for serial, data in flow.coordinator.data.items():
-        channels = camera_channels(data)
-        if len(channels) > 1:
-            for channel in channels:
-                targets[f"{serial}|{channel.key}"] = (serial, channel)
-    if not targets:
+    channels = _reported_lenses(flow, serial)
+    if len(channels) < 2:
         return flow.async_abort(reason="no_camera_channels")
-    if user_input is not None and user_input.get("channel") in targets:
-        serial, channel = targets[user_input["channel"]]
-        flow.lens_target = (serial, channel.key)
+    if user_input is None:
         flow.lens_baseline = camera_options(flow.config_entry, serial)
-        return await flow.async_step_lens_stream_edit()
+        flow.lens_modes = {}
+    data = flow.coordinator.data[serial]
+    paths = flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {})
+    fields = {}
+    modes = {}
+    errors = {}
+    for channel in channels:
+        key = _field(channel)
+        presets = lens_stream_presets(data, channel)
+        allowed = (*presets, "custom", "stills")
+        if channel.key in paths:
+            path = paths[channel.key]
+            default = next(
+                (mode for mode, value in presets.items() if value == path),
+                "custom" if path else "stills",
+            )
+        else:
+            default = "substream" if presets else "stills"
+        fields[probatio.Required(key, default=default)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=mode, label=_LABELS[mode])
+                    for mode in allowed
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+        if user_input is not None:
+            mode = user_input.get(key)
+            if mode in allowed:
+                modes[channel.key] = mode
+            else:
+                errors[key] = "invalid_channel"
+    if user_input is not None and not errors:
+        flow.lens_modes = modes
+        return await flow.async_step_lens_stream_edit(
+            None if "custom" in modes.values() else {}
+        )
     return flow.async_show_form(
-        step_id="lens_streams",
-        data_schema=probatio.Schema(
-            {
-                probatio.Required("channel"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(
-                                value=key,
-                                label=f"{flow.coordinator.data[serial]['name']} — Lens {channel.local_index}",
-                            )
-                            for key, (serial, channel) in targets.items()
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                )
-            }
-        ),
-        errors={"channel": "invalid_channel"} if user_input is not None else {},
+        step_id="lens_streams", data_schema=probatio.Schema(fields), errors=errors
     )
 
 
 async def async_edit_stream(
-    flow: EzvizOptionsFlowHandler, user_input: dict[str, Any] | None
+    flow: EzvizOptionsFlowHandler, serial: str, user_input: dict[str, Any] | None
 ) -> ConfigFlowResult:
-    """Commit a path with existing conflict protection and native reload ownership."""
+    """Show fields only for custom paths, and save all lens choices together."""
     runtime = getattr(flow.config_entry, "runtime_data", None)
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
-    if flow.lens_target is None:
-        return await flow.async_step_lens_streams()
-    serial, key = flow.lens_target
-    try:
-        channel = resolve_camera_channel(flow.coordinator.data.get(serial, {}), key)
-    except PyEzvizError:
+    channels = _reported_lenses(flow, serial)
+    if {channel.key for channel in channels} != flow.lens_modes.keys():
         return flow.async_abort(reason="no_camera_channels")
+    data = flow.coordinator.data[serial]
+    paths = dict(flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {}))
+    fields = {}
     errors = {}
-    if user_input is not None:
+    for channel in channels:
+        key = _field(channel)
+        mode = flow.lens_modes[channel.key]
+        presets = lens_stream_presets(data, channel)
+        if mode == "custom":
+            fields[probatio.Required(key, default=paths.get(channel.key, ""))] = str
+            if user_input is not None:
+                try:
+                    path = validate_channel_rtsp_path(user_input.get(key))
+                except PyEzvizError:
+                    path = ""
+                if path:
+                    paths[channel.key] = path
+                else:
+                    errors[key] = "invalid_rtsp_path"
+        elif mode == "stills":
+            paths[channel.key] = ""
+        elif mode in presets:
+            paths[channel.key] = presets[mode]
+        else:
+            return flow.async_abort(reason="no_camera_channels")
+    if user_input is not None and not errors:
         try:
-            path = validate_channel_rtsp_path(user_input.get("rtsp_path", ""))
-            paths = dict(flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {}))
-            if path:
-                paths[key] = path
-            else:
-                paths.pop(key, None)
             options = build_camera_options(
                 flow.config_entry,
                 serial,
                 {CONF_LENS_RTSP_PATHS: paths},
                 expected=flow.lens_baseline,
             )
-            return flow.async_create_entry(title="", data=options)
         except CameraOptionsConflict:
-            flow.lens_baseline = camera_options(flow.config_entry, serial)
-            errors["base"] = "options_changed"
-        except PyEzvizError:
-            errors["rtsp_path"] = "invalid_rtsp_path"
+            result = await flow.async_step_lens_streams()
+            result["errors"] = {"base": "options_changed"}
+            return result
+        return flow.async_create_entry(title="", data=options)
     return flow.async_show_form(
-        step_id="lens_stream_edit",
-        data_schema=probatio.Schema(
-            {
-                probatio.Optional(
-                    "rtsp_path",
-                    default=flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {}).get(
-                        key, ""
-                    ),
-                ): str
-            }
-        ),
-        errors=errors,
-        description_placeholders={"channel": channel.local_index},
+        step_id="lens_stream_edit", data_schema=probatio.Schema(fields), errors=errors
     )

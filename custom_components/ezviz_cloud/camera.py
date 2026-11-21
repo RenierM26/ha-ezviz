@@ -23,7 +23,6 @@ from pyezvizapi.devices.channels import (
     CameraChannel,
     capture_channel_number,
     resolve_camera_channel,
-    validate_channel_rtsp_path,
 )
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
@@ -39,10 +38,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .channels import (
-    CONF_LENS_RTSP_PATHS,
     async_add_channel_entities,
     capture_signal,
     channel_available,
+    lens_stream_path,
 )
 from .const import (
     CONF_ENC_KEY,
@@ -186,10 +185,8 @@ class EzvizCamera(EzvizEntity, Camera):
                 else {}
             )
             try:
-                resolve_camera_channel(self.data, self._channel_key)
-                path = validate_channel_rtsp_path(
-                    options.get(CONF_LENS_RTSP_PATHS, {}).get(self._channel_key, "")
-                )
+                channel = resolve_camera_channel(self.data, self._channel_key)
+                path = lens_stream_path(self.data, options, channel)
             except PyEzvizError:
                 path = ""
             if not path:
@@ -435,7 +432,7 @@ class EzvizChannelCamera(EzvizCamera):
     @property
     @override
     def supported_features(self) -> CameraEntityFeature:
-        """An absent explicit stream path never inherits the primary stream."""
+        """A lens never inherits the original camera stream."""
         return (
             CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
         )
@@ -468,7 +465,7 @@ class EzvizChannelCamera(EzvizCamera):
 
     @override
     async def async_create_stream(self) -> Stream | None:
-        """Create only an explicitly configured, currently available lens stream."""
+        """Create only a currently available lens stream."""
         if not self.available or not self._build_rtsp():
             return None
         return await super().async_create_stream()
@@ -481,7 +478,8 @@ class EzvizChannelCamera(EzvizCamera):
         if not self.available:
             return None
         if self._build_rtsp():
-            return await super().async_camera_image(width, height)
+            if frame := await super().async_camera_image(width, height):
+                return frame
         key = self._channel_key
         if key is None:
             return None

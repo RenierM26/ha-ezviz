@@ -20,15 +20,19 @@ no per-lens detection or recording state is inferred from global state.
 
 ## Streams and images
 
-Use **Configure → Lens streams**, select a lens label and enter its independently
-verified RTSP **path**. Shared credentials and host/port are reused. No complete
-URL, host override or credentials belong in this field. Saving uses native options
-reload and conflict protection, without probing or moving the camera. Clearing
-the path disables that lens stream; the original camera stream is unchanged.
+Under **Configure → Camera Settings**, pick the camera and open **Lens streams**.
+On an H9c, each lens defaults to its lower-resolution substream:
+`/Streaming/Channels/102` for Lens 1 and `/Streaming/Channels/202` for Lens 2.
+Choose **Main stream** for the corresponding `101` or `201` path, **Custom path**
+to enter a different path, or **Stills only** to disable live video. Other models
+default to stills unless a custom path is supplied; cloud channel numbers alone
+do not establish separate RTSP feeds.
 
-Cloud numbers do not prove RTSP paths: Lens 2 never manufactures
-`/Streaming/Channels/201`. Combined-feed models are not claimed to expose separate
-streams. Without a path, a lens camera can show its channel-indexed alarm image
+Custom paths begin with `/`; the host, port and credentials are shared. Saving
+does not probe or move the camera, and does not change the original camera
+entity's stream or an existing lens override unless you edit that lens.
+
+Without a path, a lens camera can show its channel-indexed alarm image
 or explicitly channel-tagged push image. A newer polled image can replace a
 pushed still only if it contains the target lens. Unindexed multi-lens pictures are not
 assigned by guessing. Original positional/stacked last-motion entities remain

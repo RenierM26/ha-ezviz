@@ -1,6 +1,6 @@
 """Discover SDK channel entities without another account poll or device entry."""
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from pyezvizapi.devices.channels import (
@@ -8,6 +8,7 @@ from pyezvizapi.devices.channels import (
     CameraChannelError,
     camera_channels,
     resolve_camera_channel,
+    validate_channel_rtsp_path,
 )
 
 from homeassistant.core import callback
@@ -21,6 +22,29 @@ from .runtime import EzvizConfigEntry
 
 CONF_LENS_RTSP_PATHS = "lens_rtsp_paths"
 SIGNAL_CHANNEL_NOTIFICATION = "ezviz_cloud_channel_notification_{}_{}"
+
+
+def lens_stream_presets(
+    data: Mapping[str, Any], channel: CameraChannel
+) -> dict[str, str]:
+    """Return the model-specific paths, not paths inferred from cloud resources."""
+    model = str(data.get("device_sub_category", "")).casefold().removeprefix("cs-")
+    if model.partition("-")[0].partition(" ")[0] != "h9c":
+        return {}
+    if channel.local_index not in ("1", "2"):
+        return {}
+    prefix = f"/Streaming/Channels/{channel.local_index}"
+    return {"substream": f"{prefix}02", "main_stream": f"{prefix}01"}
+
+
+def lens_stream_path(
+    data: Mapping[str, Any], options: Mapping[str, Any], channel: CameraChannel
+) -> str:
+    """Use the explicit override (including stills only), or the model default."""
+    paths = options.get(CONF_LENS_RTSP_PATHS, {})
+    if channel.key in paths:
+        return validate_channel_rtsp_path(paths[channel.key])
+    return lens_stream_presets(data, channel).get("substream", "")
 
 
 def capture_signal(serial: str, channel_key: str | None = None) -> str:

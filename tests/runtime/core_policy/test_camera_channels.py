@@ -538,10 +538,15 @@ async def test_lens_options_conflict_preserves_concurrent_path_changes(
     try:
         result = await manager.async_init(entry.entry_id)
         result = await manager.async_configure(
+            result["flow_id"], {"next_step_id": "camera_select"}
+        )
+        result = await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+        assert result["step_id"] == "camera_menu"
+        result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
         result = await manager.async_configure(
-            result["flow_id"], {"channel": "CAM001|Video_1:2"}
+            result["flow_id"], {"lens_1": "stills", "lens_2": "custom"}
         )
         hass.config_entries.async_update_entry(
             entry,
@@ -551,15 +556,16 @@ async def test_lens_options_conflict_preserves_concurrent_path_changes(
                 }
             },
         )
-        result = await manager.async_configure(
-            result["flow_id"], {"rtsp_path": "/second"}
-        )
+        result = await manager.async_configure(result["flow_id"], {"lens_2": "/second"})
         assert result["errors"] == {"base": "options_changed"}
         assert entry.options["cameras"]["CAM001"][CONF_LENS_RTSP_PATHS] == {
             "Video:1": "/concurrent"
         }
         result = await manager.async_configure(
-            result["flow_id"], {"rtsp_path": "/second"}
+            result["flow_id"], {"lens_1": "custom", "lens_2": "custom"}
+        )
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_1": "/concurrent", "lens_2": "/second"}
         )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert entry.options["cameras"]["CAM001"][CONF_LENS_RTSP_PATHS] == {
@@ -575,11 +581,15 @@ async def test_lens_options_abort_when_no_reported_channels_remain(
 ) -> None:
     """A channel count alone does not invent a lens target."""
     coordinator, _, _ = dual(hass, monkeypatch)
-    coordinator.data["CAM001"]["resourceInfos"] = []
-    coordinator.data["CAM001"]["supported_channels"] = 2
     manager = hass.config_entries.options
     try:
         result = await manager.async_init(coordinator.config_entry.entry_id)
+        result = await manager.async_configure(
+            result["flow_id"], {"next_step_id": "camera_select"}
+        )
+        result = await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+        coordinator.data["CAM001"]["resourceInfos"] = []
+        coordinator.data["CAM001"]["supported_channels"] = 2
         result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
@@ -742,17 +752,28 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
     try:
         result = await manager.async_init(entry.entry_id)
         result = await manager.async_configure(
+            result["flow_id"], {"next_step_id": "camera_select"}
+        )
+        result = await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+        assert result["step_id"] == "camera_menu"
+        result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
         result = await manager.async_configure(
-            result["flow_id"], {"channel": "CAM001|Video_1:2"}
+            result["flow_id"],
+            {"lens_1": "custom", "lens_2": "custom" if path else "stills"},
         )
         assert result["step_id"] == "lens_stream_edit"
-        result = await manager.async_configure(
-            result["flow_id"], {"rtsp_path": "rtsp://private.invalid/credentials"}
-        )
-        assert result["errors"] == {"rtsp_path": "invalid_rtsp_path"}
-        result = await manager.async_configure(result["flow_id"], {"rtsp_path": path})
+        if path:
+            result = await manager.async_configure(
+                result["flow_id"],
+                {"lens_1": "/lens1", "lens_2": "rtsp://private.invalid/credentials"},
+            )
+            assert result["errors"] == {"lens_2": "invalid_rtsp_path"}
+        custom = {"lens_1": "/lens1"}
+        if path:
+            custom["lens_2"] = path
+        result = await manager.async_configure(result["flow_id"], custom)
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
         options = entry.options["cameras"]["CAM001"]
@@ -761,5 +782,57 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
         assert options[CONF_LENS_RTSP_PATHS].get("Video_1:2", "") == path
         assert options[CONF_LENS_RTSP_PATHS]["Video:1"] == "/lens1"
         reload_entry.assert_awaited_once_with(entry.entry_id)
+    finally:
+        await coordinator.async_close()
+
+
+async def test_h9c_lens_substreams_default_and_can_be_overridden(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H9c uses the independent low-bandwidth routes without editing the original."""
+    coordinator, legacy, _ = dual(hass, monkeypatch)
+    coordinator.data["CAM001"]["device_sub_category"] = "CS-H9c-R100"
+    monkeypatch.setattr(
+        hass.config_entries, "async_reload", AsyncMock(return_value=True)
+    )
+    entry = coordinator.config_entry
+    manager = hass.config_entries.options
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            "cameras": {
+                "CAM001": {"enc_key": "synthetic", "ffmpeg_arguments": "/legacy"}
+            }
+        },
+    )
+    lenses = [
+        camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+        for channel in camera_channels(coordinator.data["CAM001"])
+    ]
+    try:
+        original = await legacy.stream_source()
+        for lens, suffix in zip(lenses, ("102", "202"), strict=True):
+            assert (await lens.stream_source()).endswith(
+                f"/Streaming/Channels/{suffix}"
+            )
+        result = await manager.async_init(entry.entry_id)
+        result = await manager.async_configure(
+            result["flow_id"], {"next_step_id": "camera_select"}
+        )
+        result = await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+        result = await manager.async_configure(
+            result["flow_id"], {"next_step_id": "lens_streams"}
+        )
+        assert result["data_schema"]({}) == {
+            "lens_1": "substream",
+            "lens_2": "substream",
+        }
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_1": "main_stream", "lens_2": "stills"}
+        )
+        assert result["type"] is FlowResultType.CREATE_ENTRY
+        assert (await lenses[0].stream_source()).endswith("/Streaming/Channels/101")
+        assert not await lenses[1].stream_source()
+        assert await legacy.stream_source() == original
     finally:
         await coordinator.async_close()
