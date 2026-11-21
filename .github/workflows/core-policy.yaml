@@ -53,9 +53,11 @@ jobs:
       - name: Install scoped Core runtime and its pinned development tools
         run: |
           python -m pip install -U pip
+          # Core's test requirements and package constraints own the versions
+          # in this job; the released HA matrix has a separate pinned profile.
           python -m pip install -e core -e core/packages/hassfest \
-            -r core/requirements_test.txt \
-            -r integration/tests/runtime/requirements.txt -r integration/requirements/sdk.txt
+            -r core/requirements_test.txt -r integration/requirements/sdk.txt \
+            PyTurboJPEG av numpy ha-ffmpeg
           python -m pip check
       - name: Core policy, translations, hassfest and dev runtime
         working-directory: integration
