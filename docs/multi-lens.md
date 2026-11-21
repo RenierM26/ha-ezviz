@@ -1,8 +1,7 @@
 # Multi-lens cameras
 
-This branch requires the **planned SDK 2.6.0 channel API**, not published SDK
-2.5.1. Keep the HA PR draft until SDK publication and ordinary PyPI-only
-qualification. A local candidate wheel is development evidence, not a release.
+This branch requires the **published SDK 2.6.0 channel API**. The integration
+installs the SDK from PyPI; the runtime test profile pins it to 2.6.0.
 
 ## Entities and compatibility
 

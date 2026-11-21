@@ -1,13 +1,10 @@
 # Non-streaming video intercom support
 
-> This branch now depends on the planned SDK 2.6.0 channel API. The published
-> 2.5.1 qualification below is historical; candidate development checks do not
-> satisfy the new publication gate. See [multi-lens support](multi-lens.md).
+> This branch requires published SDK 2.6.0. See [multi-lens support](multi-lens.md).
 
 The intercom API was introduced in published pyezvizapi 2.5.0 and the independent
 point-PTZ payload correction in published 2.5.1. This branch additionally requires
-the planned SDK 2.6.0 channel model. Its new publication/PyPI qualification gate
-is separate from the completed 2.5.1 release. No source override or Git dependency
+the published SDK 2.6.0 channel model. No source override or Git dependency
 belongs in the production manifest. These changes are not in integration 0.3.0.
 
 ## Entities

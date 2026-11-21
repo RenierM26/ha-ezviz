@@ -1,2 +1,2 @@
-# Planned release; keep HA draft until the SDK is published and qualified.
+# Published SDK version used for CI and runtime qualification.
 pyezvizapi==2.6.0

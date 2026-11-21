@@ -1,14 +1,12 @@
 # Point-based PTZ action
 
-> This branch now depends on the planned SDK 2.6.0 channel API. The published
-> 2.5.1 qualification below is historical; candidate development checks do not
-> satisfy the new publication gate. See [multi-lens support](multi-lens.md).
+> This branch requires published SDK 2.6.0. See [multi-lens support](multi-lens.md).
 
 The new `ezviz_cloud.ptz_control_coordinates` action uses the existing SDK point
 function, corrected in [SDK #446](https://github.com/RenierM26/pyEzvizApi/pull/446).
 The point payload was corrected in **published SDK 2.5.1**. This branch now
-requires the planned SDK 2.6.0 channel-routing API; its ordinary development/CI
-profiles keep a strict exact pin and remain gated on publication.
+requires the published SDK 2.6.0 channel-routing API. Its development and CI
+profiles pin that exact version.
 The action is not in integration 0.3.0; a merged PR is not a HACS release.
 
 ## Usage

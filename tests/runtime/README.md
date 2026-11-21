@@ -1,8 +1,6 @@
 # Native Home Assistant tests
 
-> This branch now depends on the planned SDK 2.6.0 channel API. The published
-> 2.5.1 qualification below is historical; candidate development checks do not
-> satisfy the new publication gate. See [multi-lens support](../../docs/multi-lens.md).
+> This branch requires published SDK 2.6.0. See [multi-lens support](../../docs/multi-lens.md).
 
 These tests run on the minimum supported HA 2026.10.4 and current HA 2026.11.0,
 with the published minimum SDK, without overriding HA's dependencies or applying
@@ -251,11 +249,9 @@ startup, API rejection, and cancellation/shutdown ownership. Ordinary directiona
 PTZ is not proof of point control: direct586 and selected-point724 paths have
 distinct requirements.
 
-Published SDK 2.5.1 supplied the corrected point payload. This branch reserves
-SDK 2.6.0 for SDK-owned channel discovery/routing and batch images. Local
-qualification uses an explicitly unpublished candidate wheel; normal PyPI-only
-profiles cannot complete until 2.6.0 is published and actually qualified. The
-manifest/profile/installed-version guard remains strict, without source overrides.
+Published SDK 2.5.1 supplied the corrected point payload. SDK 2.6.0 adds
+SDK-owned channel discovery/routing and batch images. CI installs the exact
+PyPI release and checks that it satisfies the integration manifest.
 
 
 The native Lens selector exposes `auto`, `1` and `2`, with translated labels.
