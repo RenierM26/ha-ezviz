@@ -4,7 +4,8 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Callable, Coroutine, Mapping
 from copy import deepcopy
-from datetime import timedelta, tzinfo
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, tzinfo
 import logging
 from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Any, override
@@ -45,6 +46,47 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+# URL, explicit push-channel provenance, and download/cache generation.
+type ChannelImageSource = tuple[str, bool, str | int | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PushedChannelImage:
+    """A lens-tagged image and the poll watermark when it arrived."""
+
+    url: str = field(repr=False)
+    revision: int
+    source_time: datetime | None
+    poll_time: datetime | None
+
+
+def _image_time(value: object, zone: tzinfo | None) -> datetime | None:
+    """Normalize ISO and epoch event times without guessing an unknown zone."""
+    try:
+        if isinstance(value, str) and not value.isdecimal():
+            stamp = datetime.fromisoformat(value)
+            if stamp.tzinfo is None and zone is not None:
+                stamp = stamp.replace(tzinfo=zone)
+            return stamp if stamp.tzinfo is None else stamp.astimezone(UTC)
+        if type(value) is int or isinstance(value, str):
+            epoch = int(value)
+            if epoch > 0:
+                return datetime.fromtimestamp(
+                    epoch / 1000 if epoch >= 10**12 else epoch, UTC
+                )
+    except ValueError, OverflowError, OSError:
+        pass
+    return None
+
+
+def _comparable(first: datetime | None, second: datetime | None) -> bool:
+    return (
+        first is not None
+        and second is not None
+        and (first.tzinfo is None) == (second.tzinfo is None)
+    )
+
+
 class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Class to manage fetching EZVIZ data."""
 
@@ -75,7 +117,8 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.image_records: OrderedDict[str, tuple[str, str] | tuple[str, str, str]] = (
             OrderedDict()
         )
-        self.channel_images: dict[tuple[str, str], tuple[str, int]] = {}
+        self.channel_images: dict[tuple[str, str], PushedChannelImage] = {}
+        self._image_zones: dict[str, tzinfo] = {}
         self._channel_image_revision = 0
         self._channel_notification_ids: OrderedDict[tuple[str, str, str], None] = (
             OrderedDict()
@@ -116,6 +159,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             )
             self.inventory_snapshot = result
             self.inventory_data = inventory
+            self._image_zones = zones
             valid_channels = {
                 (serial, channel.key)
                 for serial, data in cameras.items()
@@ -284,6 +328,38 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         await self.hass.async_add_executor_job(self.ezviz_client.close_session)
         self._close_succeeded = True
 
+    def channel_image_sources(
+        self, serial: str, channel_key: str
+    ) -> tuple[ChannelImageSource, ...]:
+        """Order poll and push candidates; decoding still has to verify the lens."""
+        data = self.inventory_data.get(serial, {})
+        url, generation = data.get("last_alarm_pic"), data.get("last_alarm_time")
+        polled: ChannelImageSource | None = None
+        if isinstance(url, str) and url:
+            polled = (
+                url,
+                False,
+                generation if type(generation) in (str, int) else None,
+            )
+        pushed = self.channel_images.get((serial, channel_key))
+        if pushed is None:
+            return (polled,) if polled is not None else ()
+        observed = (pushed.url, True, pushed.revision)
+        if polled is None:
+            return (observed,)
+
+        poll_time = _image_time(polled[2], self._image_zones.get(serial))
+        comparison = pushed.source_time
+        if not _comparable(poll_time, comparison):
+            # Without a comparable push timestamp, only an advancing poll can win.
+            comparison = pushed.poll_time
+        if poll_time is not None and (
+            comparison is None
+            or (_comparable(poll_time, comparison) and poll_time > comparison)
+        ):
+            return polled, observed
+        return observed, polled
+
     def merge_mqtt_update(self, serial: str, mqtt_data: dict) -> None:
         """Merge MQTT update data into the coordinator."""
 
@@ -306,12 +382,18 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             if notification.image_url is not None and (
                 not already_seen
                 or previous is None
-                or previous[0] != notification.image_url
+                or previous.url != notification.image_url
             ):
                 self._channel_image_revision += 1
-                self.channel_images[key] = (
+                zone = self._image_zones.get(serial)
+                self.channel_images[key] = PushedChannelImage(
                     notification.image_url,
                     self._channel_image_revision,
+                    _image_time(notification.source_time, zone),
+                    _image_time(
+                        self.inventory_data.get(serial, {}).get("last_alarm_time"),
+                        zone,
+                    ),
                 )
             if notification.event_id is not None:
                 event_key = (*key, notification.event_id)

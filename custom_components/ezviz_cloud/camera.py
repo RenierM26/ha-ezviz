@@ -485,35 +485,32 @@ class EzvizChannelCamera(EzvizCamera):
         key = self._channel_key
         if key is None:
             return None
-        observed = self.coordinator.channel_images.get((self._serial, key))
-        url = observed[0] if observed else self.data.get("last_alarm_pic")
+        sources = self.coordinator.channel_image_sources(self._serial, key)
         password = self.coordinator.credentials.key(self._serial)
-        generation = observed[1] if observed else self.data.get("last_alarm_time")
-        image_key = (url, password, generation)
-        if image_key == self._channel_image_key:
-            return self._channel_image
-        result = await async_channel_image(
-            self.hass,
-            self.coordinator,
-            self._serial,
-            key,
-            url,
-            password,
-            known_source=observed is not None,
-            generation=generation,
-        )
-        if not self.available or password != self.coordinator.credentials.key(
-            self._serial
-        ):
-            return None
-        if observed != self.coordinator.channel_images.get((self._serial, key)):
-            return None
-        if observed is None and url != self.data.get("last_alarm_pic"):
-            return None
-        if observed is None and generation != self.data.get("last_alarm_time"):
-            return None
-        if result is not None:
-            self.content_type = infer_image_type(result) or "image/jpeg"
-            self._channel_image_key = image_key
-            self._channel_image = result
-        return result
+        for source in sources:
+            url, known_source, generation = source
+            image_key = (source, password)
+            if image_key == self._channel_image_key:
+                return self._channel_image
+            result = await async_channel_image(
+                self.hass,
+                self.coordinator,
+                self._serial,
+                key,
+                url,
+                password,
+                known_source=known_source,
+                generation=generation,
+            )
+            if (
+                not self.available
+                or password != self.coordinator.credentials.key(self._serial)
+                or sources != self.coordinator.channel_image_sources(self._serial, key)
+            ):
+                return None
+            if result is not None:
+                self.content_type = infer_image_type(result) or "image/jpeg"
+                self._channel_image_key = image_key
+                self._channel_image = result
+                return result
+        return None

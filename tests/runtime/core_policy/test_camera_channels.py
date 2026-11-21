@@ -29,6 +29,7 @@ from custom_components.ezviz_cloud.coordinator import EzvizDataUpdateCoordinator
 import httpx
 from PIL import Image
 from pyezvizapi.devices.channels import camera_channels
+from pyezvizapi.devices.snapshot import CameraState, DeviceSnapshot
 import pytest
 import requests
 
@@ -67,6 +68,7 @@ def dual(
         {"resourceIdentifier": "Video", "localIndex": 1},
         {"resourceIdentifier": "Video_1", "localIndex": "2"},
     ]
+    coordinator.inventory_data = {"CAM001": dict(coordinator.data["CAM001"])}
     coordinator.config_entry.runtime_data = SimpleNamespace(coordinator=coordinator)
     return coordinator, legacy, sent
 
@@ -252,6 +254,100 @@ async def test_concurrent_lens_images_share_download_and_keep_identity(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize(
+    ("push_time", "poll_hour", "polled_channel", "expected"),
+    [
+        ("2026-11-08 12:00:00", 13, 2, "poll"),
+        ("2026-11-08 14:00:00", 13, 2, "push"),
+        ("2026-11-08 12:00:00", 13, 1, "push"),
+        (None, 13, 2, "poll"),
+        (None, 11, 2, "push"),
+        ("2026-11-08T10:00:00Z", 13, 2, "poll"),
+        (1794132000000, 13, 2, "poll"),
+    ],
+)
+async def test_lens_image_orders_poll_and_push(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    push_time: str | int | None,
+    poll_hour: int,
+    polled_channel: int,
+    expected: str,
+) -> None:
+    """Newer same-lens stills win, but other lenses cannot displace a push."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    images = {"/old": jpeg("red"), "/push": jpeg("blue"), "/poll": jpeg("green")}
+    old = {
+        **coordinator.inventory_data["CAM001"],
+        "cam_timezone": "Africa/Johannesburg",
+        "last_alarm_pic": "https://images.example.invalid/old",
+        "last_alarm_time": "2026-11-08 11:00:00",
+    }
+    polled = old
+
+    def poll() -> DeviceSnapshot:
+        snapshot = coordinator.inventory_snapshot
+        assert snapshot is not None
+        return replace(
+            snapshot,
+            devices={"CAM001": CameraState("CAM001", "camera", polled)},
+        )
+
+    async def get(url: str, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        path = request.url.path
+        body = images[path]
+        if path != "/push":
+            channel = 2 if path == "/old" else polled_channel
+            body = (
+                b"mutichhikpic\x81\xfe"
+                + pack(">HHII", channel, 0xCAFE, 4 + len(body), len(body))
+                + body
+            )
+        return httpx.Response(200, content=body, request=request)
+
+    monkeypatch.setattr(coordinator, "_poll_sync", poll)
+    monkeypatch.setattr(
+        image, "get_async_client", lambda _hass: SimpleNamespace(get=get)
+    )
+
+    def push(channel: int, url: str) -> None:
+        coordinator.merge_mqtt_update(
+            "CAM001",
+            {
+                "ext": {
+                    "channel_type": 1,
+                    "channel_no": channel,
+                    "image": url,
+                    "time": push_time,
+                }
+            },
+        )
+
+    try:
+        await coordinator.async_refresh()
+        channel = camera_channels(coordinator.data["CAM001"])[1]
+        target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+        assert await target.async_camera_image() == images["/old"]
+        push(2, "https://images.example.invalid/push")
+        assert await target.async_camera_image() == images["/push"]
+        polled = {
+            **old,
+            "last_alarm_pic": "https://images.example.invalid/poll",
+            "last_alarm_time": f"2026-11-08 {poll_hour}:00:00",
+        }
+        await coordinator.async_refresh()
+        # An unrelated push updates the legacy device-wide image, not the poll.
+        push(1, "https://images.example.invalid/sibling")
+        assert await target.async_camera_image() == images[f"/{expected}"]
+        if push_time is not None:
+            # The same comparison also applies to a notification arriving late.
+            push(2, "https://images.example.invalid/push")
+            assert await target.async_camera_image() == images[f"/{expected}"]
+    finally:
+        await coordinator.async_close()
+
+
 async def test_notifications_are_channel_scoped_deduplicated_and_private(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -385,8 +481,9 @@ async def test_channel_capture_shutdown_drains_worker_without_late_snapshot(
         await coordinator.async_close()
 
 
-async def test_lens_image_does_not_publish_after_key_change(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("change", ["key", "poll"])
+async def test_lens_image_does_not_publish_after_source_change(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, change: str
 ) -> None:
     """An in-flight image belongs to its original key and channel generation."""
     coordinator, _, _ = dual(hass, monkeypatch)
@@ -411,10 +508,15 @@ async def test_lens_image_does_not_publish_after_key_change(
     task = asyncio.create_task(target.async_camera_image())
     try:
         await started.wait()
-        hass.config_entries.async_update_entry(
-            coordinator.config_entry,
-            options={"cameras": {"CAM001": {"enc_key": "new-key"}}},
-        )
+        if change == "key":
+            hass.config_entries.async_update_entry(
+                coordinator.config_entry,
+                options={"cameras": {"CAM001": {"enc_key": "new-key"}}},
+            )
+        else:
+            coordinator.inventory_data["CAM001"]["last_alarm_time"] = (
+                "2026-11-08 13:00:00"
+            )
         release.set()
         assert await task is None
     finally:

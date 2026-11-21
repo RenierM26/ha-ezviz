@@ -29,7 +29,8 @@ the path disables that lens stream; the original camera stream is unchanged.
 Cloud numbers do not prove RTSP paths: Lens 2 never manufactures
 `/Streaming/Channels/201`. Combined-feed models are not claimed to expose separate
 streams. Without a path, a lens camera can show its channel-indexed alarm image
-or explicitly channel-tagged push image. Unindexed multi-lens pictures are not
+or explicitly channel-tagged push image. A newer polled image can replace a
+pushed still only if it contains the target lens. Unindexed multi-lens pictures are not
 assigned by guessing. Original positional/stacked last-motion entities remain
 for compatibility. Missing image channels never display another lens.
 
