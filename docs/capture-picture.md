@@ -1,9 +1,11 @@
 # Capture pictures and snapshot images
 
-`ezviz_cloud.capture_picture` asks the cloud to take a new picture on channel 1.
+`ezviz_cloud.capture_picture` asks the cloud to take a new picture. Target the
+original camera to capture channel 1 and update the original Snapshot. On a
+[multi-lens camera](multi-lens.md), target an additional Lens camera to capture
+its reported channel and update its own Lens Snapshot.
 It does not require RTSP; battery devices may wake for the request. The original
 feature was contributed in [#235](https://github.com/RenierM26/ha-ezviz/pull/235).
-Multi-lens capture selection is not added by this follow-up.
 
 Example action (replace the entity ID):
 

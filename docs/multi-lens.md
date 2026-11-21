@@ -9,8 +9,9 @@ One physical camera remains one HA device and one account poll/session. Existing
 camera IDs, configured streams, last-motion images, Snapshot images and shared
 settings are preserved. A single-lens camera keeps only its original camera
 entity. On a multi-lens camera the original entity represents Lens 1; only
-additional lenses get new camera entities. Multi-channel inventory still adds
-per-lens snapshot images and notification events for all reported lenses. A count alone does not create a lens. Missing channels become unavailable;
+additional lenses get new camera and Snapshot entities. The existing Snapshot
+serves Lens 1, and notification events remain available for all reported lenses.
+A count alone does not create a lens. Missing channels become unavailable;
 list order does not renumber entities. Native registry identities allow a healthy
 remaining lens to return after restart while its sibling is absent.
 
@@ -47,8 +48,9 @@ publish after key/target changes or shutdown. No stream is prewarmed.
 
 - Target a Lens camera for **Move to image position**, leaving Lens on Automatic.
   The SDK binds the exact resource; conflicting explicit Lens choices fail.
-- **Capture picture** on a Lens camera uses its reported channel and updates only
-  that Lens snapshot. The original camera/capture and Snapshot remain compatible.
+- **Capture picture** on the original camera updates the existing Snapshot for
+  Lens 1. On an additional Lens camera, it uses that lens's reported channel and
+  updates only the corresponding Lens Snapshot.
   Returned signed URLs are private; acknowledgement is not physical verification.
 - Use the original camera for shared defence settings. Lens targets reject
   apparently scoped changes that would actually affect the whole device.

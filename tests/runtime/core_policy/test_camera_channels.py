@@ -137,40 +137,61 @@ async def test_capture_only_updates_the_target_lens_snapshot(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Actual SDK capture URLs and HA subscriptions are channel-scoped."""
-    coordinator, legacy, sent = dual(hass, monkeypatch)
-    channels = camera_channels(coordinator.data["CAM001"])
-    target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channels[1])
-    snapshots = [
-        image.EzvizChannelSnapshot(hass, coordinator, "CAM001", {}, c) for c in channels
-    ]
-    old = image.EzvizSnapshot(hass, coordinator, "CAM001", {})
-    platforms = [await add(hass, target, "camera")]
-    platforms += [await add(hass, entity, "image") for entity in [*snapshots, old]]
+    coordinator, _, sent = dual(hass, monkeypatch)
+    entry = coordinator.config_entry
+    cameras: list[camera.EzvizCamera] = []
+    images: list[image.EzvizLastMotion] = []
+    await camera.async_setup_entry(hass, entry, cameras.extend)
+    await image.async_setup_entry(hass, entry, images.extend)
+    primary, secondary = cameras
+    snapshots = [entity for entity in images if isinstance(entity, image.EzvizSnapshot)]
+    platforms = []
 
     def send(method: str, url: str, **_kwargs: object) -> requests.Response:
         request = requests.Request(method, url).prepare()
         sent.append(request)
         response = requests.Response()
         response.status_code = 200
-        response._content = b'{"meta":{"code":200},"captureInfo":{"picUrl":"https://images.example.invalid/lens2"}}'
+        channel_number = url.split("/")[-2]
+        response._content = json.dumps(
+            {
+                "meta": {"code": 200},
+                "captureInfo": {
+                    "picUrl": f"https://images.example.invalid/lens{channel_number}"
+                },
+            }
+        ).encode()
         return response
 
     monkeypatch.setattr(coordinator.ezviz_client._session, "request", send)
     try:
-        result = await target.async_capture_picture()
+        assert [entity.unique_id for entity in snapshots] == [
+            "CAM001_snapshot",
+            "CAM001_channel_Video_1:2_snapshot",
+        ]
+        primary_snapshot, secondary_snapshot = snapshots
+        platforms.extend([await add(hass, entity, "camera") for entity in cameras])
+        platforms.extend([await add(hass, entity, "image") for entity in snapshots])
+
+        result = await primary.async_capture_picture()
         await hass.async_block_till_done()
-        assert len(sent) == 1 and sent[0].url.endswith("/CAM001/2/capture")
-        assert result["picture_url"].endswith("/lens2")
-        assert snapshots[0].image_url is None and old.image_url is None
-        assert snapshots[1].image_url.endswith("/lens2")
-        assert "images.example.invalid" not in json.dumps(
-            hass.states.get(snapshots[1].entity_id).as_dict(), default=str
-        )
-        assert legacy.unique_id == "CAM001" and old.unique_id == "CAM001_snapshot"
+        assert len(sent) == 1 and sent[0].url.endswith("/CAM001/1/capture")
+        assert primary_snapshot.image_url == result["picture_url"]
+        assert secondary_snapshot.image_url is None
+
+        secondary_result = await secondary.async_capture_picture()
+        await hass.async_block_till_done()
+        assert len(sent) == 2 and sent[1].url.endswith("/CAM001/2/capture")
+        assert primary_snapshot.image_url == result["picture_url"]
+        assert secondary_snapshot.image_url == secondary_result["picture_url"]
+        for entity in snapshots:
+            assert "images.example.invalid" not in json.dumps(
+                hass.states.get(entity.entity_id).as_dict(), default=str
+            )
         coordinator.begin_shutdown()
         with pytest.raises(HomeAssistantError):
-            await target.async_capture_picture()
-        assert len(sent) == 1
+            await secondary.async_capture_picture()
+        assert len(sent) == 2
     finally:
         for platform in platforms:
             await platform.async_reset()

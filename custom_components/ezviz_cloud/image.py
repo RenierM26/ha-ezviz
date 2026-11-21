@@ -36,7 +36,12 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .channels import async_add_channel_entities, capture_signal, channel_available
+from .channels import (
+    async_add_channel_entities,
+    capture_signal,
+    channel_available,
+    is_additional_camera_lens,
+)
 from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
@@ -115,11 +120,15 @@ async def async_setup_entry(
         coordinator,
         entry,
         async_add_entities,
-        lambda serial, channel: [
-            EzvizChannelSnapshot(
-                hass, coordinator, serial, cams_options.get(serial, {}), channel
-            )
-        ],
+        lambda serial, channel: (
+            [
+                EzvizChannelSnapshot(
+                    hass, coordinator, serial, cams_options.get(serial, {}), channel
+                )
+            ]
+            if is_additional_camera_lens(channel)
+            else []
+        ),
     )
 
 
