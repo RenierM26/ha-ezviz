@@ -379,17 +379,29 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 and (*key, notification.event_id) in self._channel_notification_ids
             )
             previous = self.channel_images.get(key)
-            if notification.image_url is not None and (
-                not already_seen
-                or previous is None
-                or previous.url != notification.image_url
+            zone = self._image_zones.get(serial)
+            source_time = _image_time(notification.source_time, zone)
+            previous_time = previous.source_time if previous is not None else None
+            older = (
+                source_time is not None
+                and previous_time is not None
+                and _comparable(source_time, previous_time)
+                and source_time < previous_time
+            )
+            if (
+                notification.image_url is not None
+                and not older
+                and (
+                    not already_seen
+                    or previous is None
+                    or previous.url != notification.image_url
+                )
             ):
                 self._channel_image_revision += 1
-                zone = self._image_zones.get(serial)
                 self.channel_images[key] = PushedChannelImage(
                     notification.image_url,
                     self._channel_image_revision,
-                    _image_time(notification.source_time, zone),
+                    source_time,
                     _image_time(
                         self.inventory_data.get(serial, {}).get("last_alarm_time"),
                         zone,

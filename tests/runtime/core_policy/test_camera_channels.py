@@ -408,6 +408,57 @@ async def test_notifications_are_channel_scoped_deduplicated_and_private(
         await coordinator.async_close()
 
 
+async def test_delayed_push_delivers_event_without_replacing_newer_lens_image(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compare event time, not receive order, without dropping notifications."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    coordinator.inventory_data["CAM001"].pop("last_alarm_pic", None)
+    channel = camera_channels(coordinator.data["CAM001"])[1]
+    notification = event.EzvizChannelNotification(coordinator, "CAM001", channel)
+    platform = await add(hass, notification, "event")
+    received = MagicMock()
+    monkeypatch.setattr(notification, "_trigger_event", received)
+    lens = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    images = {"/first": jpeg("blue"), "/delayed": jpeg("red"), "/later": jpeg("green")}
+
+    async def get(url: str, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, content=images[request.url.path], request=request)
+
+    monkeypatch.setattr(
+        image, "get_async_client", lambda _hass: SimpleNamespace(get=get)
+    )
+
+    def push(path: str, stamp: str | int) -> None:
+        coordinator.merge_mqtt_update(
+            "CAM001",
+            {
+                "ext": {
+                    "channel_type": 1,
+                    "channel_no": 2,
+                    "msgId": path,
+                    "image": f"https://images.example.invalid{path}",
+                    "time": stamp,
+                    "alert_type_code": 1,
+                }
+            },
+        )
+
+    try:
+        push("/first", "2026-11-08T12:00:00Z")
+        assert await lens.async_camera_image() == images["/first"]
+        push("/delayed", 1794135600000)  # 11:00 UTC
+        await hass.async_block_till_done()
+        assert received.call_count == 2
+        assert await lens.async_camera_image() == images["/first"]
+        push("/later", "2026-11-08T15:00:00+02:00")
+        assert await lens.async_camera_image() == images["/later"]
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
 async def test_discovery_keeps_stable_ids_and_does_not_duplicate_shared_entities(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
