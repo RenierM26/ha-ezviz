@@ -72,18 +72,27 @@ def channel_available(
     return True
 
 
+def _registered_lens_serials(
+    coordinator: EzvizDataUpdateCoordinator, entry: EzvizConfigEntry
+) -> set[str]:
+    """Identify cameras with saved additional lens or snapshot entities."""
+    serials: set[str] = set()
+    registry = er.async_get(coordinator.hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.platform == DOMAIN and entity.domain in ("camera", "image"):
+            serial, separator, _ = entity.unique_id.rpartition("_channel_")
+            if separator:
+                serials.add(serial)
+    return serials
+
+
 def reported_lens_channels(
     coordinator: EzvizDataUpdateCoordinator, entry: EzvizConfigEntry, serial: str
 ) -> tuple[CameraChannel, ...]:
     """Keep surviving lenses visible when the registry proves multi-lens support."""
     channels = camera_channels(coordinator.device_data(serial))
-    if len(channels) > 1 or any(
-        entity.platform == DOMAIN
-        and entity.domain in ("camera", "image")
-        and entity.unique_id.startswith(f"{serial}_channel_")
-        for entity in er.async_entries_for_config_entry(
-            er.async_get(coordinator.hass), entry.entry_id
-        )
+    if len(channels) > 1 or (
+        channels and serial in _registered_lens_serials(coordinator, entry)
     ):
         return channels
     return ()
@@ -110,16 +119,20 @@ def async_add_channel_entities(
             return
         accepted_snapshot = coordinator.inventory_snapshot
         entities: list[Entity] = []
+        registered_serials: set[str] | None = None
         for serial, data in coordinator.data.items():
             channels = camera_channels(data)
-            if (
-                require_multiple
-                and serial not in multi_channel
-                and reported_lens_channels(coordinator, entry, serial)
-            ):
-                multi_channel.add(serial)
-            if require_multiple and serial not in multi_channel:
+            if not channels:
                 continue
+            if require_multiple and serial not in multi_channel:
+                if len(channels) == 1:
+                    if registered_serials is None:
+                        registered_serials = _registered_lens_serials(
+                            coordinator, entry
+                        )
+                    if serial not in registered_serials:
+                        continue
+                multi_channel.add(serial)
             for channel in channels:
                 key = (serial, channel.key)
                 if key not in seen:

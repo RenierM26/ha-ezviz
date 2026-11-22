@@ -37,6 +37,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .availability import device_available
 from .channels import (
     async_add_channel_entities,
     capture_signal,
@@ -275,6 +276,12 @@ class EzvizCamera(EzvizEntity, Camera):
         """Serialize stream creation with removal and refresh after creation awaits."""
         async with self._stream_lifecycle_lock:
             if self._removed or self.coordinator.shutting_down:
+                return None
+            # Only additional lenses require current cloud health; the RTSP
+            # builder below verifies the exact route as well as the path.
+            if self._channel_key is not None and not device_available(
+                self.coordinator, self._serial
+            ):
                 return None
             if not self._build_rtsp():
                 await self._async_stop_stream()
@@ -551,10 +558,3 @@ class EzvizChannelCamera(EzvizCamera):
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="channel_setting_shared"
         )
-
-    @override
-    async def async_create_stream(self) -> Stream | None:
-        """Create only a currently available lens stream."""
-        if not self.available or not self._build_rtsp():
-            return None
-        return await super().async_create_stream()

@@ -36,6 +36,7 @@ import requests
 
 from homeassistant import loader
 from homeassistant.components.camera import CameraEntityFeature
+from homeassistant.components.camera.prefs import DynamicStreamSettings
 from homeassistant.components.media_source import Unresolvable
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -257,6 +258,69 @@ async def test_lens_stream_is_explicit_and_does_not_replace_primary(
     assert target.supported_features & CameraEntityFeature.STREAM
     assert "synthetic" not in str(target.extra_state_attributes)
     await coordinator.async_close()
+
+
+async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A queued viewer cannot open a stale lens, and a lost route stops its worker."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    entry = coordinator.config_entry
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            "cameras": {"CAM001": {CONF_LENS_RTSP_PATHS: {"Video_1:2": "/second"}}}
+        },
+    )
+    channel = camera_channels(coordinator.data["CAM001"])[1]
+    target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    platform = await add(hass, target, "camera")
+
+    created: list[MagicMock] = []
+
+    def create_stream(_hass: HomeAssistant, source: str, **kwargs: object) -> MagicMock:
+        stream = MagicMock(
+            source=source,
+            dynamic_stream_settings=kwargs["dynamic_stream_settings"],
+            stop=AsyncMock(),
+        )
+        created.append(stream)
+        return stream
+
+    monkeypatch.setattr("homeassistant.components.camera.create_stream", create_stream)
+    monkeypatch.setattr(
+        "homeassistant.components.camera.get_dynamic_camera_stream_settings",
+        AsyncMock(return_value=DynamicStreamSettings()),
+    )
+    try:
+        async with target._stream_lifecycle_lock:
+            request = asyncio.create_task(target.async_create_stream())
+            await asyncio.sleep(0)
+            coordinator.last_update_success = False
+        assert await request is None
+        assert not created
+
+        coordinator.last_update_success = True
+        original = await target.async_create_stream()
+        assert original is not None
+        rows = coordinator.data["CAM001"]["resourceInfos"]
+        sibling = rows.pop()
+        coordinator.async_update_listeners()
+        await hass.async_block_till_done()
+        created[0].update_source.assert_not_called()
+        created[0].stop.assert_awaited_once()
+        assert target.stream is None
+        assert await target.async_create_stream() is None
+
+        rows.append(sibling)
+        coordinator.async_update_listeners()
+        recovered = await target.async_create_stream()
+        assert recovered is not None and recovered is not original
+        assert recovered.source == original.source
+        assert len(created) == 2
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()
 
 
 def jpeg(color: str) -> bytes:
