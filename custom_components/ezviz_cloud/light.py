@@ -18,14 +18,12 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
 )
 
-from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
@@ -36,7 +34,6 @@ from .utility import passes_description_gates
 PARALLEL_UPDATES = 1
 
 _ALARM_LIGHT_KEY = "Light"
-_LENS_ALARM_LIGHT_ID_SEPARATOR = "_warning_channel_"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -137,17 +134,6 @@ async def async_setup_entry(
     async_add_inventory_entities(
         coordinator, entry, async_add_entities, "light", light_entities
     )
-
-    # Scoped switch rows report state, not independent lamp control. Retire the
-    # experimental lens entities created by earlier builds of this PR.
-    registry = er.async_get(hass)
-    for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if (
-            registered.domain == "light"
-            and registered.platform == DOMAIN
-            and _LENS_ALARM_LIGHT_ID_SEPARATOR in registered.unique_id
-        ):
-            registry.async_remove(registered.entity_id)
 
     lights: list[EzvizLight] = []
     for serial, data in coordinator.data.items():

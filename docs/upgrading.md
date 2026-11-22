@@ -2,8 +2,7 @@
 
 This describes upgrading to **0.3.0**, including changes from `0.2.0.25`. Read
 the target tag's release notes and [release status](../README.md#release-status)
-before installing. Unreleased changes are marked separately below. A PR merge
-does not publish a HACS update.
+before installing. A PR merge does not publish a HACS update.
 
 ## Before upgrading
 
@@ -34,14 +33,6 @@ fall back to duplicate stale config-entry tokens. A fresh login uses the same
 persisted account identity. Expired/revoked credentials can still require reauth.
 Do not hand-edit/delete `.storage`, copy tokens from another active deployment or
 change a container MAC to try to repair account auth.
-
-## Earlier development builds: experimental lens alarm lights
-
-**Unreleased.** Builds of PR #265 that exposed per-lens alarm lights may have
-created extra light entities. These experimental entities are removed; if you
-referenced them, update those references to the device-wide **Alarm light** where
-available. Existing released Alarm light entities retain their unique IDs and
-brightness support. Motion-triggered light settings are unchanged.
 
 ## Breaking change: legacy alarm-image URL sensor removed
 

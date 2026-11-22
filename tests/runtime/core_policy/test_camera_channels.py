@@ -1670,12 +1670,6 @@ async def test_device_wide_alarm_light(
     old = registry.async_get_or_create(
         "light", DOMAIN, "CAM001_Light", config_entry=entry
     )
-    lenses = [
-        registry.async_get_or_create(
-            "light", DOMAIN, f"CAM001_warning_channel_{channel.key}", config_entry=entry
-        )
-        for channel in camera_channels(data)
-    ]
     added: list[light.EzvizLight] = []
     try:
         await light.async_setup_entry(hass, entry, added.extend)
@@ -1686,7 +1680,6 @@ async def test_device_wide_alarm_light(
         )
         assert shared.supported_color_modes == {expected_mode}
         assert shared.is_on is False
-        assert all(registry.async_get(lens.entity_id) is None for lens in lenses)
         assert registry.async_get(old.entity_id) is old
         await shared.async_turn_on()
         await shared.async_turn_off()
