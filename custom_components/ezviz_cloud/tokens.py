@@ -128,9 +128,9 @@ def credential_login(
     try:
         if channel is not None:
             return deepcopy(client.enable_channel99(code, mfa_channel=channel))
-        return deepcopy(
-            client.enable_channel99() if code is None else client.enable_channel99(code)
-        )
+        if code is None:
+            return deepcopy(client.enable_channel99(request_mfa=False))
+        return deepcopy(client.enable_channel99(code))
     finally:
         client.close_session()
 

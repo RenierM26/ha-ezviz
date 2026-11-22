@@ -309,6 +309,14 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         self._verification_channels = tuple(
             channel for channel in error.available_channels if channel in CHANNEL_NAMES
         )
+        if (
+            not self._verification_channels
+            and error.code == 6002
+            and error.reason == "verification_required"
+        ):
+            # The SDK supports legacy email challenges without contact metadata
+            # and validates the destination before sending.
+            self._verification_channels = (3,)
         self._verification_channel = None
         if self._verification_channels and not error.code_sent:
             return self._show_delivery()

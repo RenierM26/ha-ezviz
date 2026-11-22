@@ -680,6 +680,8 @@ async def test_typed_mfa_delivery_uses_one_client_and_commits_only_on_success(ha
         flow_id, {"username": entry.unique_id, "password": "new"} if entry else USER
     )
     assert result["step_id"] == "mfa_delivery"
+    client.enable_channel99.assert_called_once_with(request_mfa=False)
+    client.send_mfa_code.assert_not_called()
     result = await manager.async_configure(flow_id, {"method": "sms", "country_code": "27"})
     assert result["step_id"] == "mfa_delivery"
     client.get_mfa_channels.assert_called_once_with("27")
@@ -780,3 +782,22 @@ async def test_failed_mfa_discovery_revokes_extra_methods(hass, sdk):
     with pytest.raises(InvalidData):
         await manager.async_configure(flow_id, {"method": "whatsapp"})
     client.send_mfa_code.assert_not_called()
+
+
+async def test_legacy_email_challenge_waits_for_explicit_send(hass, sdk):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    form = await start_user(hass)
+    flow_id = form["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(
+        code=6002, reason="verification_required"
+    )
+
+    result = await manager.async_configure(flow_id, USER)
+    assert result["step_id"] == "mfa_delivery"
+    client.enable_channel99.assert_called_once_with(request_mfa=False)
+    client.send_mfa_code.assert_not_called()
+
+    result = await manager.async_configure(flow_id, {"method": "email"})
+    assert result["step_id"] == "user_mfa_confirm"
+    client.send_mfa_code.assert_called_once_with(mfa_channel=3)
