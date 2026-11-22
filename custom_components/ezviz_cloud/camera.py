@@ -39,9 +39,7 @@ from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import (
     CONF_USE_WALLCLOCK_AS_TIMESTAMPS,
     HLS_PROVIDER,
-    RECORDER_PROVIDER,
     Stream,
-    StreamOutput,
     create_stream,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STOP
@@ -86,6 +84,8 @@ _LOGGER = logging.getLogger(__name__)
 RTSP_PREVIEW_TIMEOUT = 4
 STREAM_STOP_REASSERT_INTERVAL = 0.05
 CLOUD_RECORDING_STARTUP_TIMEOUT = 30
+# Core exports the output map, but not its recorder provider key.
+RECORDER_OUTPUT = "recorder"
 
 
 def _preview_jpeg(body: bytes) -> bytes | None:
@@ -205,7 +205,7 @@ class EzvizCamera(EzvizEntity, Camera):
             options.get(CONF_STREAM_SOURCE, "")
         )
         self._cloud_primary_seen = False
-        self._watched_recorders: WeakSet[StreamOutput] = WeakSet()
+        self._watched_recorders: WeakSet[object] = WeakSet()
         self._cloud_relay = (
             CloudStreamRelay(
                 hass,
@@ -274,32 +274,30 @@ class EzvizCamera(EzvizEntity, Camera):
     @callback
     def _arm_cloud_recorder_timeout(self, stream: Stream) -> None:
         """Watch for the first recording segment without starting its duration."""
-        if (
-            self.stream is stream
-            and stream is not None
-            and (recorder := stream.outputs().get(RECORDER_PROVIDER)) is not None
-            and recorder not in self._watched_recorders
-        ):
-            self._watched_recorders.add(recorder)
-            if recorder.last_segment is None:
-                self.hass.async_create_background_task(
-                    self._async_bound_recorder_startup(stream, recorder),
-                    "EZVIZ cloud recording startup",
-                )
+        if self.stream is not stream or stream is None:
+            return
+        recorder = stream.outputs().get(RECORDER_OUTPUT)
+        if recorder is None or recorder in self._watched_recorders:
+            return
+        self._watched_recorders.add(recorder)
+        if recorder.last_segment is not None:
+            return
 
-    async def _async_bound_recorder_startup(
-        self, stream: Stream, recorder: StreamOutput
-    ) -> None:
-        try:
-            async with asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT):
-                if recorder.last_segment is None:
-                    await recorder.recv()
-        except TimeoutError:
-            if (
-                stream.outputs().get(RECORDER_PROVIDER) is recorder
-                and recorder.last_segment is None
-            ):
-                await stream.remove_provider(recorder)
+        async def bound_startup() -> None:
+            try:
+                async with asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT):
+                    if recorder.last_segment is None:
+                        await recorder.recv()
+            except TimeoutError:
+                if (
+                    stream.outputs().get(RECORDER_OUTPUT) is recorder
+                    and recorder.last_segment is None
+                ):
+                    await stream.remove_provider(recorder)
+
+        self.hass.async_create_background_task(
+            bound_startup(), "EZVIZ cloud recording startup"
+        )
 
     async def _async_create_cloud_stream(
         self, relay: CloudStreamRelay
