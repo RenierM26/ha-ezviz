@@ -316,9 +316,9 @@ class EzvizCamera(EzvizEntity, Camera):
         """Return an RTSP frame or a verified cloud still for this lens."""
         if self._channel_key is not None and not self.available:
             return None
-        if source := self._build_rtsp():
+        if rtsp_source := self._build_rtsp():
             frame = await ffmpeg.async_get_image(
-                self.hass, source, width=width, height=height
+                self.hass, rtsp_source, width=width, height=height
             )
             # Keep the original camera's RTSP preview behavior when configured.
             if frame or self._channel_key is None:
