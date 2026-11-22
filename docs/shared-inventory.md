@@ -89,10 +89,18 @@ Diagnostics use only cached allowlisted scalar/health fields and credential-free
 push health; they do not fetch the account again or include full token/session,
 image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 
-## Published SDK requirement and release handoff
+## Published SDK requirement and release history
 
-The manifest requires **pyezvizapi >=2.4.0**. The
-[published 2.1.0 release](https://pypi.org/project/pyezvizapi/2.1.0/) contains
+The [manifest](../custom_components/ezviz_cloud/manifest.json) declares the
+minimum supported SDK (`pyezvizapi>=2.6.0`); CI and local check profiles install
+the exact published version in [`requirements/sdk.txt`](../requirements/sdk.txt)
+(`pyezvizapi==2.6.0`). See [Development and checks](development.md) for the current
+environment setup. No editable SDK checkout, direct-Git manifest requirement or
+unpublished dependency is required.
+
+### Historical SDK milestones
+
+The [published 2.1.0 release](https://pypi.org/project/pyezvizapi/2.1.0/) contains
 [pyEzvizApi PR #427](https://github.com/RenierM26/pyEzvizApi/pull/427), LAN RTSP
 controls and the alarm epoch correction. This integration directly uses
 `poll_devices()`, typed snapshots, `enable_channel99()`, durable callbacks and
@@ -100,27 +108,20 @@ push health diagnostics. There is no obsolete-SDK loader, credential-login or
 constructor fallback. SDK 2.1.0 adds the explicit `feature_code` identity API
 ([#433](https://github.com/RenierM26/pyEzvizApi/pull/433)) and intercom `Video`
 resource selection ([#434](https://github.com/RenierM26/pyEzvizApi/pull/434));
-physical HPD7 confirmation for SDK issue #432 remains pending.
+that qualification did not include physical HPD7 confirmation for SDK issue #432.
 Existing config-entry/registry migration and web-profile
 reauthentication remain: those migrate user data, not SDK versions.
 
-All CI runtime jobs install **pyezvizapi==2.4.0 from PyPI** to qualify the declared
-minimum. Python 3.14 covers standalone lint/types/lifecycle tests and the separate
-jobs qualifying actual HA 2026.10.4/2026.11.0 and disk storage. No editable SDK
-checkout, direct-Git manifest requirement or unpublished dependency remains.
+The [published 2.2.0 release](https://pypi.org/project/pyezvizapi/2.2.0/) retained
+the primary HTTP cause when modern and legacy switch endpoints both failed
+([#436](https://github.com/RenierM26/pyEzvizApi/pull/436)), including mixed HTTP
+statuses. [Published 2.4.0](https://pypi.org/project/pyezvizapi/2.4.0/) became
+the minimum at the [SDK feature boundary migration](sdk-feature-boundary.md);
+it supplied the audio, port, capability, tracking and multi-lens image helpers.
+CI runtime jobs for that baseline installed 2.4.0 from PyPI.
 
-SDK 2.2.0 additionally retains the primary HTTP cause when modern and legacy
-switch endpoints both fail ([#436](https://github.com/RenierM26/pyEzvizApi/pull/436)).
-The [published 2.2.0 release](https://pypi.org/project/pyezvizapi/2.2.0/) is now the
-baseline for reliable permission/timeout diagnostics, including mixed HTTP statuses.
-The new minimum is [published 2.4.0](https://pypi.org/project/pyezvizapi/2.4.0/),
-which owns audio/port/capability/tracking and multi-lens image helpers; see the
-[SDK feature boundary](sdk-feature-boundary.md).
-
-The SDK release gate is complete. Review and merge this integration separately;
-HA integration publication and production deployment still require their own
-authorization. This work supersedes the older channel-99 proposal #234 rather
-than merging its obsolete SDK pin and alternate runtime implementation.
+The shared inventory and push work superseded the older channel-99 proposal #234
+without adopting its obsolete SDK pin or alternate runtime implementation.
 
 ## Image CPU and shutdown ownership
 
@@ -146,40 +147,44 @@ shutdown deadline remains a limit; arbitrary OS threads are not cancellable.
 Coordinators receive their config entry explicitly rather than relying on the
 ContextVar fallback. HACS declares HA 2026.10.4 as the supported minimum.
 
-## Latest-stable runtime qualification
+## Historical runtime qualification
 
-The full 52-control acceptance suite remains on the matching HA 2026.10.4 test
-plugin. The 305-test native suite runs on actual HA 2026.10.4 and
-2026.11.0, with neither the HA test plugin nor inconsistent dependency overrides.
-It covers real atomic/fsynced storage, failures/deferred writes, cancelled token
-producers, actual core shutdown, cancelled push/credential workers, late capture
-suppression, off-loop image/proxy processing and bounded listener lifetime.
+The [original shared-inventory qualification](https://github.com/RenierM26/ha-ezviz/pull/236)
+used SDK 2.1.0 and included
+52 acceptance controls on the matching HA 2026.10.4 test plugin and 305 native
+tests on actual HA 2026.10.4 and 2026.11.0, with neither the HA test plugin nor
+inconsistent dependency overrides in the native suite. They covered real
+atomic/fsynced storage, failures/deferred writes, cancelled token producers,
+actual Core shutdown, cancelled push/credential workers, late capture suppression,
+off-loop image/proxy processing and bounded listener lifetime.
 
-These are isolated API/lifecycle controls, not a production-instance upgrade or
-live media/broker/hardware qualification. The unmodified core's HTTP module emits
-an aiohttp inheritance deprecation warning in these environments; no integration
-warning or validator is suppressed.
+These were isolated API/lifecycle controls, not a production-instance upgrade or
+live media/broker/hardware qualification. The unmodified Core HTTP module emitted
+an aiohttp inheritance deprecation warning in those environments; no integration
+warning or validator was suppressed. For today's profiles and commands, see
+[Development and checks](development.md).
 
 ## Narrow hassfest exception
 
 Current hassfest compares custom dependencies against every optional core
 integration's requirement, even when unused. Core EZVIZ still requests
-`pyezvizapi==1.0.5.0`; this custom integration needs the published 2.4.0 APIs.
-Our custom-only real-HA acceptance passes, but **do not enable built-in EZVIZ
-alongside this integration**: their shared package requirements conflict and
-simultaneous operation is not qualified.
+`pyezvizapi==1.0.5.0`, which conflicts with the custom integration's minimum.
+Custom-only real-HA acceptance is qualified separately. **Do not enable built-in
+EZVIZ alongside this integration**: their shared package requirements conflict
+and simultaneous operation is not qualified.
 
 The hassfest workflow runs the current stock container and all its validators
 through `tools/check_hassfest.py`. It converts only this exact requirements error
-for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.4.0`, into a
+for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.6.0`, into a
 visible GitHub warning. All other errors remain fatal, including malformed
 manifests/requirements, other packages and changed core/SDK version conflicts.
 There is no blanket `continue-on-error`, skipped requirements plugin, altered
 runtime dependency or replacement core requirement file.
 
-When core accepts 2.4.0, stock validation produces no matching error and the
-exception is unused. Remove the wrapper after upstream alignment; review any
-changed mismatch rather than widening it automatically.
+When Core's requirement is compatible with the manifest requirement, stock
+validation produces no matching error and the exception is unused. Remove the
+wrapper after upstream alignment; review any changed mismatch rather than widening
+it automatically.
 
 ## Firmware status and plug channels
 
@@ -192,16 +197,13 @@ No firmware upgrades are performed by the acceptance tests.
 
 ## Reproduce offline acceptance
 
-```sh
-python3.14 -m venv .venv-ha
-.venv-ha/bin/python -m pip install -r tests/acceptance/requirements.txt pyezvizapi==2.4.0
-.venv-ha/bin/python -m pytest -p pytest_homeassistant_custom_component --asyncio-mode=auto tests/acceptance
-```
+Use the separate acceptance environment described in
+[Development and checks](development.md), with both
+`tests/acceptance/requirements.txt` and `requirements/sdk.txt` installed, then
+run `python tools/check.py acceptance` in that environment.
 
 Tests use actual HA classes and disk storage in temporary config directories,
 synthetic account/device data, and mocked outbound account/command boundaries.
-The normal Python 3.14 CI uses that same published minimum; older SDK versions are
-not supported by this integration branch.
 
 ### Host-bound token rejection during startup
 
