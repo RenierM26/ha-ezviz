@@ -23,6 +23,7 @@ from custom_components.ezviz_cloud import (
     light,
     media_source as media,
     sensor,
+    switch,
     views,
 )
 from custom_components.ezviz_cloud.channels import (
@@ -1942,3 +1943,62 @@ async def test_sd_card_status(
     assert entity.native_value == expected
     assert entity.available is (expected is not None)
     await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("model", "category", "flags", "share_type", "expected"),
+    [
+        (
+            "IPC",
+            "IPC",
+            {"48": "1", "96": "2", "297": "1"},
+            1,
+            {"LIGHT", "INFRARED_LIGHT", "LIGHT_FLICKER", "ALARM_LIGHT_RELEVANCE"},
+        ),
+        ("IPC", "IPC", {"48": "0", "96": "1", "297": "2"}, 0, {"LIGHT"}),
+        ("IPC", "IPC", {"96": "2", "297": "3"}, 2, {"LIGHT"}),
+        ("DB2C", "IPC", {"242": "0"}, 0, set()),
+        ("Doorbell 2 Pro", "IPC", {"242": "1"}, 0, {"LIGHT"}),
+        ("W1", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("W3", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("CS-W3C-R100", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("Other", "IGateWay", {}, 0, {"LIGHT"}),
+    ],
+)
+async def test_camera_light_switch_discovery(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    category: str,
+    flags: dict[str, str],
+    share_type: int,
+    expected: set[str],
+) -> None:
+    """Use the app capability gates even when every switch row is present."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    coordinator.data["CAM001"].update(
+        device_sub_category=model,
+        device_category=category,
+        supportExt=flags,
+        switches={3: False, 10: False, 13: False, 301: False, 305: False},
+        resourceInfos=[{"shareType": share_type}],
+        deviceInfos={"deviceType": model} if model.startswith("CS-") else {},
+    )
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        light_ids = {
+            f"CAM001_{key}"
+            for key in (
+                "LIGHT",
+                "INFRARED_LIGHT",
+                "LIGHT_FLICKER",
+                "ALARM_LIGHT_RELEVANCE",
+                "WIFI_LIGHT",
+            )
+        }
+        assert {entity.unique_id for entity in added} & light_ids == {
+            f"CAM001_{key}" for key in expected
+        }
+    finally:
+        await coordinator.async_close()

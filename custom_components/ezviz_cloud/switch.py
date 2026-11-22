@@ -1,7 +1,7 @@
 """Support for EZVIZ switches."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import logging
 from typing import Any, override
@@ -53,6 +53,7 @@ from .utility import (
     intelligent_app_method,
     intelligent_app_value_fn,
     passes_description_gates,
+    support_ext_has,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,6 +152,44 @@ def _switch_entry_method(
     return _method
 
 
+def _supports_status_light(data: dict[str, Any]) -> bool:
+    """Apply the separate indicator capability for the app's doorbell family."""
+    if str(data.get("device_sub_category")).casefold() in {
+        "db2c",
+        "db2 pro",
+        "doorbell 2",
+        "doorbell 2 pro",
+        "ep3x",
+        "epd7",
+    } and not support_ext_has(
+        data, str(SupportExt.SupportDoorbellIndicatorLight.value), ["1"]
+    ):
+        return False
+    return _has_switch_entry(DeviceSwitchType.LIGHT)(data)
+
+
+def _supports_active_defense_light(data: dict[str, Any]) -> bool:
+    """Use the app's switch-301 state route only for non-shared devices."""
+    resources = data.get("resourceInfos")
+    shared = isinstance(resources, (list, tuple)) and any(
+        isinstance(row, Mapping) and str(row.get("shareType")) == "2"
+        for row in resources
+    )
+    return not shared and _has_switch_entry(DeviceSwitchType.LIGHT_FLICKER)(data)
+
+
+def _supports_wifi_status_light(data: dict[str, Any]) -> bool:
+    """Recognize the app's W1/W3 family, including the W3C alias."""
+    info = data.get("deviceInfos")
+    model = info.get("deviceType") if isinstance(info, Mapping) else None
+    matches = (
+        model.startswith(("CS-W1-", "CS-W3-", "CS-W3C-"))
+        if isinstance(model, str) and model
+        else str(data.get("device_sub_category")).casefold() in {"w1", "w3", "w3c"}
+    )
+    return matches and _has_switch_entry(DeviceSwitchType.WIFI_LIGHT)(data)
+
+
 def _supplement_light_method(client: EzvizClient, serial: str, enable: int) -> Any:
     """Toggle the intelligent fill light mode."""
 
@@ -174,7 +213,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT),
         method=_switch_entry_method(DeviceSwitchType.LIGHT),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.LIGHT),
+        is_supported_fn=_supports_status_light,
     ),
     EzvizSwitchEntityDescription(
         key="PRIVACY",
@@ -190,6 +229,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="infrared_light",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportCloseInfraredLight.value),
+        supported_ext_value=["1"],
         value_fn=_switch_entry_value_fn(DeviceSwitchType.INFRARED_LIGHT),
         method=_switch_entry_method(DeviceSwitchType.INFRARED_LIGHT),
         is_supported_fn=_has_switch_entry(DeviceSwitchType.INFRARED_LIGHT),
@@ -273,15 +313,17 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="flicker_light_on_movement",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportActiveDefense.value),
+        supported_ext_value=["2"],
         value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT_FLICKER),
         method=_switch_entry_method(DeviceSwitchType.LIGHT_FLICKER),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.LIGHT_FLICKER),
+        is_supported_fn=_supports_active_defense_light,
     ),
     EzvizSwitchEntityDescription(
         key="ALARM_LIGHT_RELEVANCE",
         translation_key="pir_motion_activated_light",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportLightRelate.value),
+        supported_ext_value=["1"],
         value_fn=_switch_entry_value_fn(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
         method=_switch_entry_method(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
         is_supported_fn=_has_switch_entry(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
@@ -331,7 +373,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         ),
         value_fn=_switch_entry_value_fn(DeviceSwitchType.WIFI_LIGHT),
         method=_switch_entry_method(DeviceSwitchType.WIFI_LIGHT),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.WIFI_LIGHT),
+        is_supported_fn=_supports_wifi_status_light,
     ),
     EzvizSwitchEntityDescription(
         key="OUTLET_RECOVER",
