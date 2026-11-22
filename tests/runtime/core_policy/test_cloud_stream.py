@@ -7,6 +7,7 @@ from threading import Event
 from unittest.mock import AsyncMock
 
 from aiohttp import ClientPayloadError, ClientSession
+from aiohttp.test_utils import make_mocked_request
 import av
 from custom_components.ezviz_cloud import camera, cloud_stream
 from custom_components.ezviz_cloud.const import (
@@ -34,6 +35,7 @@ from homeassistant.components.stream.const import (
     HLS_PROVIDER,
 )
 from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS
+from homeassistant.components.stream.hls import HlsMasterPlaylistView, HlsSegmentView
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -297,13 +299,19 @@ async def test_core_hls_publishes_cloud_relay_segments(
     hls_output = stream.add_provider(HLS_PROVIDER)
     try:
         async with asyncio.timeout(8):
-            await stream.start()
-            assert await hls_output.recv()
-            assert hls_output.last_segment is not None
-            assert hls_output.last_segment.duration > 0
+            request = make_mocked_request("GET", "/master_playlist.m3u8")
+            # Core waits for a playable segment, not just a newly announced one.
+            playlist = await HlsMasterPlaylistView().handle(request, stream, "", "")
+            assert playlist.status == 200
+            assert b"playlist.m3u8" in playlist.body
+            sequence = str(hls_output.sequences[-2])
+            segment = await HlsSegmentView().handle(request, stream, sequence, "")
+            assert segment.status == 200
+            assert segment.content_type == "video/iso.segment"
+            assert segment.body
     finally:
         await relay.async_stop()
-        assert closed.is_set()
         await stream.stop()
         hls_output.cleanup()
         await coordinator.async_close()
+    assert closed.is_set()
