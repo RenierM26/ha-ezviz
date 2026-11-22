@@ -395,6 +395,86 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         await coordinator.async_close()
 
 
+async def test_lost_route_stops_core_worker_during_source_restart(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Core worker already committed to a restart cannot lose the stop signal."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={
+            "cameras": {"CAM001": {CONF_LENS_RTSP_PATHS: {"Video_1:2": "/second"}}}
+        },
+    )
+    channel = camera_channels(coordinator.data["CAM001"])[1]
+    target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    platform = await add(hass, target, "camera")
+    stream = Stream(
+        hass,
+        await target.stream_source(),
+        {},
+        STREAM_SETTINGS_NON_LL_HLS,
+        DynamicStreamSettings(preload_stream=True),
+    )
+    target.stream = stream
+    entered, clearing, stopping = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release_clear = Event()
+    clear = stream._thread_quit.clear
+    stop = stream.stop
+
+    def transport(
+        _source: str,
+        _options: object,
+        _settings: object,
+        _state: object,
+        _converter: object,
+        quit_event: Event,
+    ) -> None:
+        hass.loop.call_soon_threadsafe(entered.set)
+        quit_event.wait()
+
+    def clear_for_restart() -> None:
+        if entered.is_set():
+            hass.loop.call_soon_threadsafe(clearing.set)
+            release_clear.wait()
+        clear()
+
+    async def stop_stream() -> None:
+        stopping.set()
+        await stop()
+
+    worker_module = import_module("homeassistant.components.stream.worker")
+    monkeypatch.setattr(worker_module, "stream_worker", transport)
+    monkeypatch.setattr(stream._thread_quit, "clear", clear_for_restart)
+    monkeypatch.setattr(stream, "stop", stop_stream)
+    stopped: asyncio.Task[None] | None = None
+    try:
+        await stream.start()
+        worker = stream._thread
+        assert worker is not None
+        async with asyncio.timeout(2):
+            await entered.wait()
+            coordinator.data["CAM001"]["local_ip"] = "192.0.2.20"
+            target._refresh_stream_source()
+            await clearing.wait()
+            sibling = coordinator.data["CAM001"]["resourceInfos"].pop()
+            stopped = asyncio.create_task(target._async_stop_missing_stream())
+            await stopping.wait()
+            release_clear.set()
+            await asyncio.shield(stopped)
+        assert not worker.is_alive()
+        assert target.stream is None
+        coordinator.data["CAM001"]["resourceInfos"].append(sibling)
+        assert await target.async_create_stream() is stream
+    finally:
+        release_clear.set()
+        stream._thread_quit.set()
+        if stopped is not None:
+            await stopped
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
 def jpeg(color: str) -> bytes:
     """Create distinguishable valid synthetic frames."""
     with BytesIO() as output, Image.new("RGB", (8, 8), color) as frame:
@@ -419,6 +499,7 @@ async def rtsp_lens(
     )
     channel = camera_channels(coordinator.data["CAM001"])[1]
     target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    target.hass = hass
     try:
         yield coordinator, target
     finally:
@@ -488,6 +569,54 @@ async def test_concurrent_rtsp_previews_share_only_matching_frame_grabs(
     finally:
         release.set()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def test_slow_rtsp_preview_falls_back_without_blocking_cloud_shutdown(
+    hass: HomeAssistant, rtsp_lens: RtspLens, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The normal HA image request falls back while the shared grab is pending."""
+    coordinator, target = rtsp_lens
+    platform = await add(hass, target, "camera")
+    started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    still = jpeg("blue")
+    coordinator.merge_mqtt_update(
+        "CAM001",
+        {
+            "ext": {
+                "channel_type": 1,
+                "channel_no": 2,
+                "image": "https://example.invalid/still",
+            }
+        },
+    )
+
+    async def grab(*_args: object, **_kwargs: object) -> bytes:
+        started.set()
+        try:
+            await release.wait()
+            return jpeg("red")
+        finally:
+            finished.set()
+
+    ffmpeg_image = AsyncMock(side_effect=grab)
+    monkeypatch.setattr(camera.ffmpeg, "async_get_image", ffmpeg_image)
+    monkeypatch.setattr(camera, "RTSP_PREVIEW_TIMEOUT", 0.05, raising=False)
+    monkeypatch.setattr(camera, "async_channel_image", AsyncMock(return_value=still))
+    camera_component = import_module("homeassistant.components.camera")
+    try:
+        async with asyncio.timeout(2):
+            preview = await camera_component._async_get_image(target, 1, 320, 240)
+            assert preview.content == still
+            assert started.is_set() and not finished.is_set()
+            await platform.async_reset()
+            await coordinator.async_close()
+        assert not finished.is_set()
+        ffmpeg_image.assert_awaited_once()
+    finally:
+        release.set()
+        if started.is_set():
+            await finished.wait()
+        await platform.async_reset()
 
 
 async def test_malformed_cloud_url_falls_through_to_alternate_lens_still(

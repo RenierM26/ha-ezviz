@@ -64,6 +64,10 @@ from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
+# HA gives a camera image request 10 seconds. Reserve most of it for a cloud still.
+RTSP_PREVIEW_TIMEOUT = 4
+STREAM_STOP_REASSERT_INTERVAL = 0.05
+
 
 def _preview_jpeg(body: bytes) -> bytes | None:
     """Encode non-JPEG cloud previews for HA's multipart still stream."""
@@ -166,6 +170,9 @@ class EzvizCamera(EzvizEntity, Camera):
         self._channel_key = channel.key if channel is not None else None
         self._channel_image_key: tuple[Any, ...] | None = None
         self._channel_image: bytes | None = None
+        self._preview_tasks: dict[
+            tuple[str, int | None, int | None], asyncio.Task[bytes | None]
+        ] = {}
         if channel is None:
             self._attr_name = None
         self._stream_lifecycle_lock = asyncio.Lock()
@@ -254,7 +261,7 @@ class EzvizCamera(EzvizEntity, Camera):
             settings = stream.dynamic_stream_settings
             stream.dynamic_stream_settings = replace(settings, preload_stream=False)
             outputs = stream.outputs()
-            await stream.stop()
+            await self._async_stop_stream_worker(stream)
             # Core drops the outputs without cancelling their idle timers. An
             # old timer must not remove a replacement HLS output on this stream.
             for output in outputs.values():
@@ -262,6 +269,26 @@ class EzvizCamera(EzvizEntity, Camera):
             if reuse:
                 stream.dynamic_stream_settings = settings
                 self._stopped_stream = stream
+
+    async def _async_stop_stream_worker(self, stream: Stream) -> None:
+        """Keep Core's quit signal set until its worker joins."""
+        # Core's update_source() arms a one-shot restart. The worker may
+        # already be past the flag check and about to clear the quit event.
+        stream._fast_restart_once = False  # noqa: SLF001
+        quit_event = stream._thread_quit  # noqa: SLF001
+        loop = asyncio.get_running_loop()
+        retry: asyncio.TimerHandle
+
+        def reassert_stop() -> None:
+            nonlocal retry
+            quit_event.set()
+            retry = loop.call_later(STREAM_STOP_REASSERT_INTERVAL, reassert_stop)
+
+        retry = loop.call_later(STREAM_STOP_REASSERT_INTERVAL, reassert_stop)
+        try:
+            await stream.stop()
+        finally:
+            retry.cancel()
 
     @callback
     @override
@@ -372,16 +399,13 @@ class EzvizCamera(EzvizEntity, Camera):
         if self._channel_key is not None and not self.available:
             return None
         if rtsp_source := self._build_rtsp():
-            frame = await self.coordinator.async_image_download(
-                (self._serial, "rtsp_preview", rtsp_source, width, height),
-                partial(
-                    ffmpeg.async_get_image,
-                    self.hass,
-                    rtsp_source,
-                    width=width,
-                    height=height,
-                ),
-            )
+            # The original camera has no RTSP-to-cloud fallback to budget for.
+            timeout = RTSP_PREVIEW_TIMEOUT if self._channel_key is not None else None
+            try:
+                async with asyncio.timeout(timeout):
+                    frame = await self._async_rtsp_preview(rtsp_source, width, height)
+            except TimeoutError:
+                frame = None
             if (
                 self._removed
                 or self.coordinator.shutting_down
@@ -433,6 +457,27 @@ class EzvizCamera(EzvizEntity, Camera):
                 self._channel_image = result
                 return result
         return None
+
+    async def _async_rtsp_preview(
+        self, source: str, width: int | None, height: int | None
+    ) -> bytes | None:
+        """Share a local frame grab without making it part of cloud session cleanup."""
+        key = (source, width, height)
+        if (task := self._preview_tasks.get(key)) is None:
+            # Don't tie this to entry unload: FFmpeg already owns its timeout.
+            task = self.hass.async_create_background_task(
+                ffmpeg.async_get_image(self.hass, source, width=width, height=height),
+                "EZVIZ RTSP preview",
+            )
+            self._preview_tasks[key] = task
+
+            def finished(future: asyncio.Task[bytes | None]) -> None:
+                self._preview_tasks.pop(key)
+                if not future.cancelled():
+                    future.exception()
+
+            task.add_done_callback(finished)
+        return await asyncio.shield(task)
 
     @override
     async def stream_source(self) -> str:

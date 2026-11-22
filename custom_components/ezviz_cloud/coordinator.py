@@ -299,7 +299,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     async def async_image_download(
         self, key: tuple[Any, ...], operation: Callable[[], Coroutine[Any, Any, Any]]
     ) -> Any:
-        """Share in-flight cloud image downloads and RTSP frame grabs."""
+        """Share in-flight cloud image downloads."""
         if self._closing:
             raise HomeAssistantError("EZVIZ coordinator is shutting down")
         if key not in self._image_downloads:
