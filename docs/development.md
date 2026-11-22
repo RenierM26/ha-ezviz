@@ -1,9 +1,9 @@
-> **Multi-lens branch:** `requirements/sdk.txt` now reserves SDK 2.6.0. It is not
-> published yet. The ordinary profiles remain strict and must be qualified on
-> the actual PyPI wheel before this draft can merge. Local candidate-wheel
-> results are explicitly development-only. See [multi-lens](multi-lens.md).
-
 # Development and checks
+
+The development and CI profiles use the published
+[`pyezvizapi` 2.6.0 wheel](https://pypi.org/project/pyezvizapi/2.6.0/), pinned in
+[`requirements/sdk.txt`](../requirements/sdk.txt). See
+[multi-lens qualification](multi-lens.md#qualification-limits).
 
 Python **3.14.2+** is required. These profiles target Linux/devcontainers (or WSL),
 matching CI; native Windows environment paths are not provided. Bootstrap creates two repository-local environments

@@ -3,19 +3,19 @@
 The integration stays compatible with HA **2026.10.4+ / Python 3.14.2+**, while
 checking the current Core development policy. First qualified against Core
 `462fe2cc3549abf05b91d00e205447b9521a5c75` (`2026.12.0.dev0`), Python 3.14.10,
-and the published SDK minimum `pyezvizapi==2.4.0`.
+and the then-current published SDK `pyezvizapi==2.4.0`.
 
 ## Repeatable checks
 
 `tools/check_core_policy.py` accepts a Core checkout and an interpreter containing
 that checkout's runtime, development requirements, hassfest package, this repo's
-native test requirements and the published SDK minimum. For example, in a new
-isolated venv (not the running HA environment):
+native test requirements and the published SDK pinned in `requirements/sdk.txt`.
+For example, in a new isolated venv (not the running HA environment):
 
 ```sh
 python3 -m pip install -e /path/to/core -e /path/to/core/packages/hassfest \
   -r /path/to/core/requirements_test.txt -r tests/runtime/requirements.txt \
-  'pyezvizapi==2.4.0'
+  -r requirements/sdk.txt
 python3 -m pip check
 python3 tools/check_core_policy.py --core /path/to/core --runtime-tests
 ```
@@ -89,7 +89,7 @@ when adopting a new baseline, rather than weakening Core's configuration.
   other cached diagnostics when a getter fails, have local explained Ruff exceptions.
   They are not blanket disabled and are covered by failure/cancellation tests.
 - Stock hassfest's exact built-in/custom SDK conflict remains unresolved:
-  `pyezvizapi>=2.4.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
+  `pyezvizapi>=2.6.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
   demotes only that conflict. This is not a claim of unmodified hassfest success,
   built-in/custom coexistence, upstream Core acceptance, or production deployment.
 

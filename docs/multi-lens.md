@@ -75,12 +75,13 @@ registered image or create arbitrary external requests.
 
 ## Qualification limits
 
-Local candidate-wheel qualification: SDK 6,635 tests (91.70% coverage); HA
-1,176 native tests on each of 2026.10.4, 2026.11.0 and Core dev, 52 acceptance
-tests and 103 standalone tests. Lint, types, Core policy, translations, scoped
-hassfest and dependency consistency checks pass. All installed SDK source files
-match the candidate wheel. Its private build metadata reserves version 2.6.0;
-this is not a PyPI-published release or ordinary published-wheel qualification.
+Historical pre-release candidate-wheel qualification: 6,635 SDK tests (91.70%
+coverage), 1,176 native tests on each of HA 2026.10.4, 2026.11.0 and Core dev,
+52 acceptance tests and 103 standalone tests. Lint, types, Core policy,
+translations, scoped hassfest and dependency consistency checks passed. All
+installed SDK source files matched that private wheel, which was not published.
+The final [2.6.0 PyPI wheel](https://pypi.org/project/pyezvizapi/2.6.0/) was qualified
+separately by [published-wheel CI](https://github.com/RenierM26/ha-ezviz/actions/runs/44925297925).
 
 Native tests exercise actual HA platforms, registries, actions, options reload,
 privacy and shutdown, with synthetic SDK data/serialization/images and denied
