@@ -143,12 +143,20 @@
         "title": "Camera settings",
         "menu_options": {
           "camera_edit": "Shared camera settings",
-          "lens_streams": "Lens streams"
+          "lens_streams": "Lens streams",
+          "playback_source": "Live playback source"
+        }
+      },
+      "playback_source": {
+        "title": "Live playback source",
+        "description": "Applies to live view on all reported lenses of this camera. EZVIZ cloud live view is experimental and uses Home Assistant's HLS player. Keep camera stream preloading off for on-demand playback.",
+        "data": {
+          "live_stream_source": "Source and quality"
         }
       },
       "lens_streams": {
         "title": "Lens streams",
-        "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only turns off live video and shows the last alarm image for that lens when available.",
+        "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only disables RTSP for that lens and shows its last alarm image when available. It does not disable EZVIZ cloud playback.",
         "data": {
           "lens_1": "Lens 1 (original camera)",
           "lens_2": "Lens 2"
@@ -727,6 +735,13 @@
         "disabled": "Disabled",
         "verification_code": "Enabled \u2014 verification/sticker code (legacy cameras)",
         "encryption_key": "Enabled \u2014 encryption key (modern cameras)"
+      }
+    },
+    "live_stream_source": {
+      "options": {
+        "rtsp": "Local RTSP (default)",
+        "cloud_main": "EZVIZ cloud — Full HD",
+        "cloud_standard": "EZVIZ cloud — Standard"
       }
     },
     "rtsp_playback_auth": {

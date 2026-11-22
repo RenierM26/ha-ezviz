@@ -1,7 +1,7 @@
 # Multi-lens cameras
 
 This branch requires the **published SDK 2.6.0 channel API**. The integration
-installs the SDK from PyPI; the runtime test profile pins it to 2.6.0.
+installs the SDK from PyPI; the runtime test profile pins it to 2.7.0.
 
 ## Entities and compatibility
 
@@ -27,7 +27,7 @@ Under **Configure → Camera Settings**, pick the camera and open **Lens streams
 Lens 1 is the original camera. It keeps its saved path or defaults to
 `/Streaming/Channels/102`. Lens 2 on the H9c defaults to
 `/Streaming/Channels/202`. Choose **Main stream** for `101` or `201`, **Custom path**
-to enter a different path, or **Stills only** to disable live video. Additional lenses on other models
+to enter a different path, or **Stills only** to disable RTSP playback for that lens. This does not disable EZVIZ cloud playback. Additional lenses on other models
 default to stills unless a custom path is supplied; cloud channel numbers alone
 do not establish separate RTSP feeds.
 

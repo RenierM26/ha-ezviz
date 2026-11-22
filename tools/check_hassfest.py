@@ -11,9 +11,9 @@ from pathlib import Path
 import sys
 from typing import Any
 
-EXPECTED_REQUIREMENT = "pyezvizapi>=2.6.0"
+EXPECTED_REQUIREMENT = "pyezvizapi>=2.7.0"
 EXPECTED_ERROR = (
-    "Requirement pyezvizapi>=2.6.0 is incompatible with pyezvizapi==1.0.5.0, "
+    "Requirement pyezvizapi>=2.7.0 is incompatible with pyezvizapi==1.0.5.0, "
     "which Home Assistant depends on."
 )
 
