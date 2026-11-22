@@ -8,6 +8,15 @@
             "unknown": "Unexpected error"
         },
         "error": {
+            "verification_in_app": "EZVIZ requires verification in its app. Complete the account security or image check there, then restart this Home Assistant flow. If you already received a verification code, you can try it here.",
+            "verification_incorrect": "The verification code was incorrect.",
+            "verification_expired": "The verification code expired. Request a new code or restart the flow.",
+            "verification_rate_limited": "EZVIZ limited verification attempts. Wait before requesting or submitting another code.",
+            "account_locked": "EZVIZ temporarily locked this account. Wait before retrying.",
+            "terminal_limit": "The EZVIZ device limit was reached. Manage registered terminals in the EZVIZ app before retrying.",
+            "region_selection_required": "Select your account region in the EZVIZ app before retrying.",
+            "clock_incorrect": "Check the Home Assistant host clock before retrying.",
+            "invalid_country_code": "Enter the numeric telephone country code without a plus sign.",
             "cannot_connect": "Failed to connect",
             "cannot_save_credentials": "The login could not be saved safely. Check storage and try again.",
             "device_exception": "Device exception, couldn't fetch key",
@@ -20,20 +29,30 @@
             "verification_required": "Verification code required or invalid. Please try again."
         },
         "step": {
+            "mfa_delivery": {
+                "title": "Choose verification delivery",
+                "description": "Choose a method and submit to request a code. If you already have one, select its method and use the existing code. Entering a telephone country code only looks up additional methods; it does not send a code.",
+                "data": {
+                    "method": "Delivery method",
+                    "use_existing_code": "Use an existing code",
+                    "country_code": "Look up phone methods by country code"
+                }
+            },
             "reauth_confirm": {
                 "data": {
                     "password": "Password",
                     "username": "Username"
                 },
-                "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for an SMS code next.",
+                "description": "Your session expired or became invalid. Enter your password to refresh tokens. You may be asked for a verification code next.",
                 "title": "Authentication expired for {name}"
             },
             "reauth_mfa": {
                 "data": {
-                    "sms_code": "Verification code"
+                    "sms_code": "Verification code",
+                    "change_delivery": "Choose or change delivery method"
                 },
-                "description": "Enter the SMS verification code to finish re-authentication.",
-                "title": "Re-authenticate: SMS code"
+                "description": "Enter the verification code to finish reauthentication. If offered, choose or change the delivery method instead.",
+                "title": "Re-authenticate: verification code"
             },
             "user": {
                 "data": {
@@ -48,9 +67,10 @@
             },
             "user_mfa_confirm": {
                 "data": {
-                    "sms_code": "Verification code"
+                    "sms_code": "Verification code",
+                    "change_delivery": "Choose or change delivery method"
                 },
-                "description": "Enter the SMS verification code sent by EZVIZ.",
+                "description": "Enter the verification code from EZVIZ. If offered, choose or change the delivery method instead.",
                 "title": "Two-factor verification required"
             }
         }
@@ -776,6 +796,15 @@
         }
     },
     "selector": {
+        "mfa_method": {
+            "options": {
+                "sms": "SMS",
+                "voice": "Voice call",
+                "email": "Email",
+                "whatsapp": "WhatsApp",
+                "zalo": "Zalo"
+            }
+        },
         "region": {
             "options": {
                 "custom": "Custom host",

@@ -81,7 +81,7 @@ async def test_first_login_identity_is_on_disk_before_sdk_and_reused_for_mfa(
         )
 
         def login(_code: str | None = None) -> dict[str, Any]:
-            if mfa and len(selected) == 1:
+            if mfa and _code is None:
                 raise EzvizAuthVerificationCode
             token = identity_token(feature_code=code)
             snapshots.append(token)

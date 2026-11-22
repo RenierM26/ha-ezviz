@@ -121,9 +121,13 @@ async def async_login_identity(hass: HomeAssistant, account: str) -> str:
     )
 
 
-def credential_login(client: Any, code: str | None = None) -> dict:
+def credential_login(
+    client: Any, code: str | None = None, channel: int | None = None
+) -> dict:
     """A real credential login can migrate profile; stored passwords are unnecessary."""
     try:
+        if channel is not None:
+            return deepcopy(client.enable_channel99(code, mfa_channel=channel))
         return deepcopy(
             client.enable_channel99() if code is None else client.enable_channel99(code)
         )
