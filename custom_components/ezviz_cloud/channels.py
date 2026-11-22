@@ -25,17 +25,12 @@ CONF_LENS_RTSP_PATHS = "lens_rtsp_paths"
 SIGNAL_CHANNEL_NOTIFICATION = "ezviz_cloud_channel_notification_{}_{}"
 
 
-def is_h9c(data: Mapping[str, Any]) -> bool:
-    """Match the short and full H9c model names reported by EZVIZ."""
-    model = str(data.get("device_sub_category", "")).casefold().removeprefix("cs-")
-    return model.partition("-")[0].partition(" ")[0] == "h9c"
-
-
 def lens_stream_presets(
     data: Mapping[str, Any], channel: CameraChannel
 ) -> dict[str, str]:
     """Return the model-specific paths, not paths inferred from cloud resources."""
-    if not is_h9c(data):
+    model = str(data.get("device_sub_category", "")).casefold().removeprefix("cs-")
+    if model.partition("-")[0].partition(" ")[0] != "h9c":
         return {}
     if channel.local_index not in ("1", "2"):
         return {}
@@ -143,10 +138,8 @@ def async_add_channel_entities(
             for channel in channels:
                 key = (serial, channel.key)
                 if key not in seen:
-                    created = list(factory(serial, channel))
-                    if created:
-                        seen.add(key)
-                        entities.extend(created)
+                    seen.add(key)
+                    entities.extend(factory(serial, channel))
         if entities:
             add(entities)
 

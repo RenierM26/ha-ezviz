@@ -35,23 +35,13 @@ persisted account identity. Expired/revoked credentials can still require reauth
 Do not hand-edit/delete `.storage`, copy tokens from another active deployment or
 change a container MAC to try to repair account auth.
 
-## Breaking change: per-lens alarm lights replace the device-wide light
+## Earlier development builds: experimental lens alarm lights
 
-**Unreleased.** On cameras with a reported per-lens alarm light, the integration
-removes the original device-wide **Alarm light** (unique-ID suffix `_Light`).
-Its registry entry is removed even if you renamed it. Cameras without per-lens
-alarm light controls keep their original light and brightness control.
-
-Update automations, scripts, scenes, dashboards, and external consumers that use
-the old `light.*` entity ID. Target **Lens 1 alarm light**, **Lens 2 alarm
-light**, or the appropriate group of lens lights instead. The new controls are
-on/off only: remove brightness arguments. References are not rewritten
-automatically. The H9c is an exception: its lamps switch together despite
-separate reported lens rows. It uses one device-wide on/off **Alarm light**;
-if you tested an earlier PR build, replace any references to its removed H9c
-lens lights with that shared light. **Flicker light on movement** and other motion-triggered settings
-are unchanged. Use a matching pre-upgrade backup if a rollback must restore
-registry customizations.
+**Unreleased.** Builds of PR #265 that exposed per-lens alarm lights may have
+created extra light entities. These experimental entities are removed; if you
+referenced them, update those references to the device-wide **Alarm light** where
+available. Existing released Alarm light entities retain their unique IDs and
+brightness support. Motion-triggered light settings are unchanged.
 
 ## Breaking change: legacy alarm-image URL sensor removed
 

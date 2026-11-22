@@ -1650,59 +1650,17 @@ def _record_switch_requests(
     monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
 
 
-async def test_lens_warning_light_discovery_and_write(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("legacy_flag", [False, True])
+async def test_device_wide_alarm_light(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, legacy_flag: bool
 ) -> None:
-    """Use the actual SDK serializer, never the sibling or the flat switch."""
-    coordinator, _, sent = dual(hass, monkeypatch)
-    _record_switch_requests(monkeypatch, coordinator, sent)
-
-    data = coordinator.data["CAM001"]
-    data["supportExt"]["113"] = "1"
-    # Lens 2 is not supported by the first observation; an unscoped row
-    # must not create an entity or stand in for its state.
-    data["SWITCH"] = [
-        {"type": 303, "enable": 1},
-        {"type": 303, "channelNo": 1, "enable": 0},
-    ]
-    added = []
-    await light.async_setup_entry(hass, coordinator.config_entry, added.extend)
-    (first,) = added
-    assert first.unique_id == "CAM001_warning_channel_Video:1"
-    assert first.is_on is False
-    data["SWITCH"].append({"type": 303, "channelNo": 2, "enable": 1})
-    coordinator.inventory_snapshot = replace(coordinator.inventory_snapshot, revision=2)
-    coordinator.async_set_updated_data(coordinator.data)
-    second = added[1]
-    assert second.is_on is True
-    assert second.unique_id == "CAM001_warning_channel_Video_1:2"
-    try:
-        await first.async_turn_on()
-        await second.async_turn_off()
-        for request, channel, enable in zip(sent, (1, 2), (1, 0), strict=True):
-            assert request.method == "PUT"
-            assert request.url.endswith(f"/CAM001/{channel}/{enable}/303/switchStatus")
-        assert first.is_on is False
-        assert second.is_on is True
-        data["SWITCH"].pop()
-        assert not second.available
-        with pytest.raises(ServiceValidationError):
-            await second.async_turn_on()
-        assert len(sent) == 2
-    finally:
-        await coordinator.async_close()
-
-
-@pytest.mark.parametrize("model", ["H9c", "CS-H9c-R100"])
-async def test_h9c_uses_one_shared_alarm_light(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, model: str
-) -> None:
-    """Scoped rows must not create independent H9c lamp controls."""
+    """Device-wide switch evidence works without model matching or lens controls."""
     coordinator, _, sent = dual(hass, monkeypatch)
     _record_switch_requests(monkeypatch, coordinator, sent)
     entry = coordinator.config_entry
     data = coordinator.data["CAM001"]
-    data["device_sub_category"] = model
+    if legacy_flag:
+        data["supportExt"]["113"] = "1"
     data["SWITCH"] = [
         {"type": 303, "channelNo": 0, "enable": False},
         {"type": 303, "channelNo": 1, "enable": True},
@@ -1723,7 +1681,10 @@ async def test_h9c_uses_one_shared_alarm_light(
         await light.async_setup_entry(hass, entry, added.extend)
         (shared,) = added
         assert shared.unique_id == old.unique_id
-        assert shared.supported_color_modes == {light.ColorMode.ONOFF}
+        expected_mode = (
+            light.ColorMode.BRIGHTNESS if legacy_flag else light.ColorMode.ONOFF
+        )
+        assert shared.supported_color_modes == {expected_mode}
         assert shared.is_on is False
         assert all(registry.async_get(lens.entity_id) is None for lens in lenses)
         assert registry.async_get(old.entity_id) is old
@@ -1734,80 +1695,27 @@ async def test_h9c_uses_one_shared_alarm_light(
             "0/0/303/switchStatus",
         ]
         data["SWITCH"].pop(0)
-        assert shared.is_on is None
-        assert not shared.available
+        if not legacy_flag:
+            assert shared.is_on is None
+            assert not shared.available
     finally:
         await coordinator.async_close()
 
 
-@pytest.mark.parametrize("scope_timing", ["initial", "later", "registered"])
-async def test_lens_alarm_lights_retire_only_the_matching_legacy_light(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, scope_timing: str
+async def test_scoped_alarm_light_rows_alone_do_not_create_controls(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Keep the legacy light until there is actual evidence for a replacement."""
+    """Reported lens rows do not prove independent or device-wide control."""
     coordinator, _, _ = dual(hass, monkeypatch)
-    entry = coordinator.config_entry
-    data = coordinator.data["CAM001"]
-    data["supportExt"]["113"] = "1"
-    data["SWITCH"] = [{"type": 303, "enable": 1}]
-    data["alarm_light_luminance"] = 50
-    other = {**data, "resourceInfos": []}
-    coordinator.data["CAM002"] = other
-    coordinator.inventory_snapshot = replace(
-        coordinator.inventory_snapshot,
-        devices={
-            **coordinator.inventory_snapshot.devices,
-            "CAM002": CameraState("CAM002", "camera", other),
-        },
-    )
-
-    registry = er.async_get(hass)
-    old = registry.async_get_or_create(
-        "light", DOMAIN, "CAM001_Light", config_entry=entry
-    )
-    legacy_id = registry.async_update_entity(
-        old.entity_id, new_entity_id="light.custom_alarm_light"
-    ).entity_id
-    if scope_timing == "registered":
-        registry.async_get_or_create(
-            "light", DOMAIN, "CAM001_warning_channel_Video:1", config_entry=entry
-        )
-    scoped_row = {"type": 303, "channelNo": 1, "enable": 0}
-    if scope_timing == "initial":
-        data["SWITCH"].append(scoped_row)
-    added: list[light.EzvizLight | light.EzvizWarningLight] = []
-    platform = None
+    coordinator.data["CAM001"]["SWITCH"] = [
+        {"type": 303, "channelNo": 1, "enable": False},
+        {"type": 303, "channelNo": 2, "enable": True},
+    ]
+    added: list[light.EzvizLight] = []
     try:
-        await light.async_setup_entry(hass, entry, added.extend)
-        retained = next(
-            entity for entity in added if entity.unique_id == "CAM002_Light"
-        )
-        assert retained.supported_color_modes == {light.ColorMode.BRIGHTNESS}
-        if scope_timing == "later":
-            legacy = next(
-                entity for entity in added if entity.unique_id == "CAM001_Light"
-            )
-            platform = await add(hass, legacy, "light")
-            assert legacy.entity_id == legacy_id
-            assert legacy_id in platform.entities
-            data["SWITCH"].append(scoped_row)
-            coordinator.inventory_snapshot = replace(
-                coordinator.inventory_snapshot, revision=2
-            )
-            coordinator.async_set_updated_data(coordinator.data)
-            await hass.async_block_till_done()
-            assert legacy_id not in platform.entities
-            assert hass.states.get(legacy_id) is None
-        else:
-            assert all(entity.unique_id != "CAM001_Light" for entity in added)
-        assert registry.async_get(legacy_id) is None
-        if scope_timing != "registered":
-            assert any(
-                entity.unique_id == "CAM001_warning_channel_Video:1" for entity in added
-            )
+        await light.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        assert not added
     finally:
-        if platform is not None:
-            await platform.async_reset()
         await coordinator.async_close()
 
 

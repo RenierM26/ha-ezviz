@@ -6,7 +6,6 @@ from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
-from pyezvizapi.devices.channels import CameraChannel
 from pyezvizapi.devices.observation import power_state
 from pyezvizapi.devices.payload import switch_rows
 from pyezvizapi.devices.snapshot import DeviceState, LightState
@@ -18,8 +17,7 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
@@ -27,14 +25,12 @@ from homeassistant.util.percentage import (
     ranged_value_to_percentage,
 )
 
-from .channels import async_add_channel_entities, channel_available, is_h9c
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .runtime import EzvizConfigEntry
-from .setting_writes import SettingCommand
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -85,13 +81,26 @@ def _is_desc_supported(
     )
 
 
+def _alarm_light_state(data: dict[str, Any]) -> bool | None:
+    """Read switch 303 on channel zero, or from an older unscoped row."""
+    row = switch_rows(data.get("SWITCH"), channel_no=0).get(
+        DeviceSwitchType.ALARM_LIGHT.value
+    )
+    return power_state(row.get("enable")) if row is not None else None
+
+
+def _legacy_alarm_light_state(data: dict[str, Any]) -> bool | None:
+    """Keep legacy snapshots working without using a sibling's scoped state."""
+    if "SWITCH" in data:
+        return _alarm_light_state(data)
+    return (data.get("switches") or {}).get(DeviceSwitchType.ALARM_LIGHT.value)
+
+
 LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
     EzvizLightEntityDescription(
         key=_ALARM_LIGHT_KEY,
         translation_key="light",
-        is_on_value=lambda d: (d.get("switches") or {}).get(
-            DeviceSwitchType.ALARM_LIGHT.value
-        ),
+        is_on_value=_legacy_alarm_light_state,
         brightness_value=lambda d: d.get("alarm_light_luminance"),
         brightness_range=(1, 255),
         supported_ext_key=str(SupportExt.SupportAlarmLight.value),
@@ -109,21 +118,9 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 )
 
 
-def _alarm_light_state(
-    data: dict[str, Any], channel_no: int, *, require_scoped: bool = False
-) -> bool | None:
-    """Read the selected SDK switch row without using the flattened state."""
-    row = switch_rows(data.get("SWITCH"), channel_no=channel_no).get(
-        DeviceSwitchType.ALARM_LIGHT.value
-    )
-    if row is None or (require_scoped and "channelNo" not in row):
-        return None
-    return power_state(row.get("enable"))
-
-
 _SHARED_ALARM_LIGHT = replace(
     LIGHTS[0],
-    is_on_value=lambda data: _alarm_light_state(data, 0),
+    is_on_value=_alarm_light_state,
     brightness_value=lambda _: None,
     set_brightness=None,
 )
@@ -141,147 +138,25 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
+    # Scoped switch rows report state, not independent lamp control. Retire the
+    # experimental lens entities created by earlier builds of this PR.
     registry = er.async_get(hass)
-    scoped_serials: set[str] = set()
-
-    @callback
-    def retire_legacy_alarm_light(serial: str) -> None:
-        """Retire the device-wide duplicate for this account only."""
-        if serial in scoped_serials:
-            return
-        scoped_serials.add(serial)
-        legacy_id = registry.async_get_entity_id(
-            "light", DOMAIN, f"{serial}_{_ALARM_LIGHT_KEY}"
-        )
-        if (
-            legacy_id is not None
-            and (legacy := registry.async_get(legacy_id)) is not None
-            and legacy.config_entry_id == entry.entry_id
-        ):
-            registry.async_remove(legacy_id)
-
-    # Do not restore the legacy control if a known lens is temporarily missing.
     for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if registered.domain == "light" and registered.platform == DOMAIN:
-            serial, separator, _ = registered.unique_id.rpartition(
-                _LENS_ALARM_LIGHT_ID_SEPARATOR
-            )
-            if not separator:
-                continue
-            if is_h9c(coordinator.device_data(serial)):
-                registry.async_remove(registered.entity_id)
-            else:
-                retire_legacy_alarm_light(serial)
-
-    @callback
-    def discover_lens_light(
-        serial: str, channel: CameraChannel
-    ) -> list[EzvizWarningLight]:
-        entities = _warning_light_entities(coordinator, serial, channel)
-        if entities:
-            retire_legacy_alarm_light(serial)
-        return entities
-
-    async_add_channel_entities(
-        coordinator, entry, async_add_entities, discover_lens_light
-    )
+        if (
+            registered.domain == "light"
+            and registered.platform == DOMAIN
+            and _LENS_ALARM_LIGHT_ID_SEPARATOR in registered.unique_id
+        ):
+            registry.async_remove(registered.entity_id)
 
     lights: list[EzvizLight] = []
-    for serial, camera_data in coordinator.data.items():
+    for serial, data in coordinator.data.items():
         for desc in LIGHTS:
-            if desc.key == _ALARM_LIGHT_KEY and serial in scoped_serials:
-                continue
-            if (
-                desc.key == _ALARM_LIGHT_KEY
-                and is_h9c(camera_data)
-                and _alarm_light_state(camera_data, 0) is not None
-            ):
-                lights.append(EzvizLight(coordinator, serial, _SHARED_ALARM_LIGHT))
-                continue
-            if _is_desc_supported(camera_data, desc):
+            if _is_desc_supported(data, desc):
                 lights.append(EzvizLight(coordinator, serial, desc))
+            elif desc.key == _ALARM_LIGHT_KEY and _alarm_light_state(data) is not None:
+                lights.append(EzvizLight(coordinator, serial, _SHARED_ALARM_LIGHT))
     async_add_entities(lights)
-
-
-def _lens_alarm_light_supported(data: dict[str, Any]) -> bool:
-    """The H9c reports separate lens rows but switches both lamps together."""
-    return not is_h9c(data) and _is_desc_supported(data, LIGHTS[0])
-
-
-def _warning_light_entities(
-    coordinator: EzvizDataUpdateCoordinator, serial: str, channel: CameraChannel
-) -> list[EzvizWarningLight]:
-    data = coordinator.device_data(serial)
-    if (
-        channel.channel_no > 0
-        and _lens_alarm_light_supported(data)
-        and _alarm_light_state(data, channel.channel_no, require_scoped=True)
-        is not None
-    ):
-        return [EzvizWarningLight(coordinator, serial, channel)]
-    return []
-
-
-class EzvizWarningLight(EzvizEntity, LightEntity):
-    """On/off warning light for one explicitly reported lens."""
-
-    _attr_color_mode = ColorMode.ONOFF
-    _attr_translation_key = "lens_warning_light"
-
-    def __init__(
-        self,
-        coordinator: EzvizDataUpdateCoordinator,
-        serial: str,
-        channel: CameraChannel,
-    ) -> None:
-        """Bind the entity to the stable video route, not its inventory position."""
-        super().__init__(coordinator, serial)
-        self._channel = channel
-        self._attr_unique_id = f"{serial}{_LENS_ALARM_LIGHT_ID_SEPARATOR}{channel.key}"
-        self._attr_translation_placeholders = {"channel": channel.local_index}
-        self._attr_supported_color_modes = {ColorMode.ONOFF}
-
-    @property
-    @override
-    def is_on(self) -> bool | None:
-        """Return the actual state of this channel only."""
-        return _alarm_light_state(
-            self.data, self._channel.channel_no, require_scoped=True
-        )
-
-    @property
-    @override
-    def available(self) -> bool:
-        """Require current lens metadata and explicit switch state."""
-        return (
-            channel_available(self.coordinator, self.serial, self._channel.key)
-            and _lens_alarm_light_supported(self.data)
-            and self.is_on is not None
-        )
-
-    async def _async_set_power(self, on: bool) -> None:
-        def prepare() -> SettingCommand:
-            if not self.available:
-                raise ServiceValidationError("EZVIZ lens warning light is unavailable")
-            return SettingCommand(
-                self.coordinator.ezviz_client.switch_light_status,
-                (self.serial, int(on), self._channel.channel_no),
-            )
-
-        try:
-            await self.async_write_setting(prepare=prepare)
-        except (PyEzvizError, OSError) as err:
-            raise request_error("Set lens warning light", err) from err
-
-    @override
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on this lens warning light."""
-        await self._async_set_power(True)
-
-    @override
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off this lens warning light."""
-        await self._async_set_power(False)
 
 
 class EzvizLight(EzvizEntity, LightEntity):

@@ -360,9 +360,6 @@
       }
     },
     "light": {
-      "lens_warning_light": {
-        "name": "Lens {channel} alarm light"
-      },
       "light": {
         "name": "[%key:component::light::title%]"
       }
