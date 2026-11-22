@@ -5,6 +5,11 @@
 - Read device-wide **Alarm light** state without using sibling lens switch rows.
   Only cameras advertising alarm-light support expose the control. Existing
   light identities and brightness support remain unchanged.
+- **Breaking:** Camera light switches now require matching capabilities and
+  device-wide state. In particular, **Flicker light on movement** is no longer
+  exposed for cameras shared with the configured EZVIZ account. After reloading,
+  update automations that target a removed switch, or use the camera owner's
+  EZVIZ account where appropriate.
 - Add a read-only SD card status sensor that distinguishes an empty slot from
   unavailable telemetry.
 

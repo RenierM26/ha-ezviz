@@ -153,14 +153,13 @@ async def async_setup_entry(
             and (active_key := existing.entity_description.supported_ext_key)
             is not None
         ):
-            # The flash route needs both flags; omission alone revokes neither.
-            keys = (
-                (active_key, _COMBINED_VIEW_SUPPORT)
-                if active_key == _FLASH_LAMP_SUPPORT
-                else (active_key,)
-            )
+            # Omitted metadata preserves the last known supported route.
             support = support_ext_dict(data)
-            if any(str(support.get(key)).strip() == "0" for key in keys):
+            if str(support.get(active_key)).strip() == "0" or (
+                active_key == _FLASH_LAMP_SUPPORT
+                and _COMBINED_VIEW_SUPPORT in support
+                and not _supports_combined_view(data)
+            ):
                 existing.disable_control()
         return None
 

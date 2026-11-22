@@ -14,8 +14,6 @@ from pyezvizapi.devices.intercom import (
     label_light_value,
     set_label_light,
 )
-from pyezvizapi.devices.observation import power_state
-from pyezvizapi.devices.payload import switch_rows
 from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
@@ -35,7 +33,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import EzvizDataUpdateCoordinator, LocalRtspCoordinator
+from .coordinator import (
+    EzvizDataUpdateCoordinator,
+    LocalRtspCoordinator,
+    camera_switch_states,
+)
 from .credentials import camera_options
 from .entity import (
     EzvizEntity,
@@ -82,36 +84,19 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     channel_switch: DeviceSwitchType | None = None
 
 
-def _light_switch_observation(
-    data: dict[str, Any], switch_type: DeviceSwitchType
-) -> tuple[int, bool | None] | None:
-    """Use the primary camera route, retaining legacy device-wide observations."""
-    if "SWITCH" not in data:
-        value = _switch_entry_value_fn(switch_type)(data)
-        return (0, power_state(value)) if value is not None else None
-
-    raw = data["SWITCH"]
-    primary = switch_rows(raw, channel_no=1).get(switch_type.value)
-    if primary is not None and "channelNo" in primary:
-        return 1, power_state(primary.get("enable"))
-    legacy = switch_rows(raw, channel_no=0).get(switch_type.value)
-    return (0, power_state(legacy.get("enable"))) if legacy is not None else None
-
-
 def _is_desc_supported(
-    camera_data: dict[str, Any], desc: EzvizSwitchEntityDescription
+    camera_data: dict[str, Any],
+    desc: EzvizSwitchEntityDescription,
+    switch_states: Mapping[int, bool | None],
 ) -> bool:
-    """Return True if this switch description is supported by the camera."""
+    """Require both capability and a device-wide observation for light switches."""
     return passes_description_gates(
         camera_data,
         supported_ext_keys=desc.supported_ext_key,
         supported_ext_values=desc.supported_ext_value,
         required_device_categories=desc.required_device_categories,
         predicate=desc.is_supported_fn,
-    ) and (
-        desc.channel_switch is None
-        or _light_switch_observation(camera_data, desc.channel_switch) is not None
-    )
+    ) and (desc.channel_switch is None or desc.channel_switch.value in switch_states)
 
 
 def _has_switch_entry(
@@ -593,12 +578,16 @@ async def async_setup_entry(
         allowed_keys=tuple(desc.key for desc in SWITCHES),
     )
 
-    entities: list[SwitchEntity] = [
-        EzvizSwitch(coordinator, serial, desc)
-        for serial, camera_data in coordinator.data.items()
-        for desc in SWITCHES
-        if _is_desc_supported(camera_data, desc)
-    ]
+    entities: list[SwitchEntity] = []
+    for serial, camera_data in coordinator.data.items():
+        states = coordinator.camera_switch_states.get(serial)
+        if states is None:
+            states = camera_switch_states(camera_data)
+        entities.extend(
+            EzvizSwitch(coordinator, serial, desc)
+            for desc in SWITCHES
+            if _is_desc_supported(camera_data, desc, states)
+        )
 
     async_add_inventory_entities(
         coordinator, entry, async_add_entities, "plug", plug_entities
@@ -657,25 +646,39 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
 
+    def _switch_states(self) -> Mapping[int, bool | None]:
+        states = self.coordinator.camera_switch_states.get(self._serial)
+        return camera_switch_states(self.data) if states is None else states
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Keep light switches unavailable when their fixed route cannot be used."""
+        return super().available and (
+            self.entity_description.channel_switch is None
+            or _is_desc_supported(
+                self.data, self.entity_description, self._switch_states()
+            )
+        )
+
     @property
     @override
     def is_on(self) -> bool | None:
-        """Return the observation for the same channel used by the command."""
+        """Read the device-wide observation used by the legacy command."""
         if (switch_type := self.entity_description.channel_switch) is not None:
-            observation = _light_switch_observation(self.data, switch_type)
-            return observation[1] if observation is not None else None
+            return self._switch_states().get(switch_type.value)
         return bool(self.entity_description.value_fn(self.data))
 
     def _prepare_channel_switch(
         self, switch_type: DeviceSwitchType, on: bool
     ) -> SettingCommand:
-        data = self.data
-        observation = _light_switch_observation(data, switch_type)
-        if observation is None or not _is_desc_supported(data, self.entity_description):
+        if not self.available:
             raise HomeAssistantError("EZVIZ light switch route is unavailable")
+        # These existing entities use the legacy device-wide write route.
+        # Scoped telemetry alone does not establish another write target.
         return SettingCommand(
             self.coordinator.ezviz_client.switch_status,
-            (self._serial, switch_type.value, int(on), observation[0]),
+            (self._serial, switch_type.value, int(on), 0),
         )
 
     async def _async_set_switch(self, on: bool) -> None:

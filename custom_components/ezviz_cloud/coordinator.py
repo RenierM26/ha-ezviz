@@ -115,6 +115,7 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self._poll_future: asyncio.Future[DeviceSnapshot] | None = None
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.camera_alarm_lights: dict[str, bool | None] = {}
+        self.camera_switch_states: dict[str, dict[int, bool | None]] = {}
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
         self._channel_image_batches: OrderedDict[tuple[Any, ...], dict[str, bytes]] = (
@@ -161,12 +162,16 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 result = await asyncio.shield(self._poll_future)
             if self._closing:
                 raise UpdateFailed("EZVIZ coordinator is shutting down")
-            inventory, cameras, zones, alarm_lights = await self.async_execute(
+            inventory, cameras, zones, switch_states = await self.async_execute(
                 _project_snapshot, result
             )
             self.inventory_snapshot = result
             self.inventory_data = inventory
-            self.camera_alarm_lights = alarm_lights
+            self.camera_switch_states = switch_states
+            self.camera_alarm_lights = {
+                serial: states.get(DeviceSwitchType.ALARM_LIGHT.value)
+                for serial, states in switch_states.items()
+            }
             self._image_zones = zones
             valid_channels = {
                 (serial, channel.key)
@@ -472,13 +477,24 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.async_update_listeners()
 
 
+def camera_switch_states(data: dict[str, Any]) -> dict[int, bool | None]:
+    """Index legacy device-wide switch observations, never sibling channels."""
+    if "SWITCH" in data:
+        return {
+            kind: power_state(row.get("enable"))
+            for kind, row in switch_rows(data["SWITCH"], channel_no=0).items()
+        }
+    switches = data.get("switches")
+    return (
+        {kind: power_state(value) for kind, value in switches.items()}
+        if isinstance(switches, Mapping)
+        else {}
+    )
+
+
 def camera_alarm_light_state(data: dict[str, Any]) -> bool | None:
     """Read channel-zero or legacy unscoped state, never a sibling lens."""
-    switch_type = DeviceSwitchType.ALARM_LIGHT.value
-    if "SWITCH" not in data:
-        return power_state((data.get("switches") or {}).get(switch_type))
-    row = switch_rows(data["SWITCH"], channel_no=0).get(switch_type)
-    return power_state(row.get("enable")) if row is not None else None
+    return camera_switch_states(data).get(DeviceSwitchType.ALARM_LIGHT.value)
 
 
 def _project_snapshot(
@@ -487,17 +503,17 @@ def _project_snapshot(
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, tzinfo],
-    dict[str, bool | None],
+    dict[str, dict[int, bool | None]],
 ]:
     """Thaw once off-loop, keeping SDK command adapters detached from inventory."""
     inventory = result.as_dict()
     cameras = {
         serial: deepcopy(inventory[serial]) for serial in result.select("camera")
     }
-    alarm_lights = {
-        serial: camera_alarm_light_state(data) for serial, data in cameras.items()
+    switch_states = {
+        serial: camera_switch_states(data) for serial, data in cameras.items()
     }
-    return inventory, cameras, event_zones(inventory), alarm_lights
+    return inventory, cameras, event_zones(inventory), switch_states
 
 
 def _retrieve_worker_error(future: asyncio.Future) -> None:
