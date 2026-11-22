@@ -1,8 +1,9 @@
 """Support for EZVIZ light entity."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, ClassVar, override
+from dataclasses import dataclass, replace
+import re
+from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -29,7 +30,7 @@ from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .runtime import EzvizConfigEntry
-from .utility import passes_description_gates
+from .utility import passes_description_gates, support_ext_dict
 
 PARALLEL_UPDATES = 1
 
@@ -58,6 +59,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     # If provided, one of these raw strings must match supportExt value.
     # If omitted/None/empty, presence of the key is enough.
     supported_ext_value: list[str] | None = None
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
     # Optional device-category gating via camera_data["device_category"]
     required_device_categories: tuple[str, ...] | None = None
@@ -72,7 +74,7 @@ def _is_desc_supported(
         supported_ext_keys=desc.supported_ext_key,
         supported_ext_values=desc.supported_ext_value,
         required_device_categories=desc.required_device_categories,
-        predicate=None,
+        predicate=desc.is_supported_fn,
     )
 
 
@@ -91,24 +93,42 @@ def _legacy_alarm_light_state(data: dict[str, Any]) -> bool | None:
     return (data.get("switches") or {}).get(DeviceSwitchType.ALARM_LIGHT.value)
 
 
+def _supports_combined_view(data: dict[str, Any]) -> bool:
+    """Check the app's advertised list of channels in a combined view."""
+    channels = support_ext_dict(data).get(str(SupportExt.SupportMultiChannelType.value))
+    return (
+        isinstance(channels, str)
+        and re.fullmatch(r"[1-9][0-9]*(?:-[1-9][0-9]*)+", channels) is not None
+        and len(set(channels.split("-"))) > 1
+    )
+
+
+_ALARM_LIGHT = EzvizLightEntityDescription(
+    key="Light",
+    translation_key="light",
+    is_on_value=_legacy_alarm_light_state,
+    brightness_value=lambda d: d.get("alarm_light_luminance"),
+    brightness_range=(1, 255),
+    supported_ext_key=str(SupportExt.SupportAlarmLight.value),
+    supported_ext_value=["1"],
+    power_on=lambda client, serial: client.switch_status(
+        serial, DeviceSwitchType.ALARM_LIGHT.value, 1
+    ),
+    power_off=lambda client, serial: client.switch_status(
+        serial, DeviceSwitchType.ALARM_LIGHT.value, 0
+    ),
+    set_brightness=lambda client, serial, percent: client.set_floodlight_brightness(
+        serial, percent
+    ),
+)
 LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
-    EzvizLightEntityDescription(
-        key="Light",
-        translation_key="light",
-        is_on_value=_legacy_alarm_light_state,
-        brightness_value=lambda d: d.get("alarm_light_luminance"),
-        brightness_range=(1, 255),
-        supported_ext_key=str(SupportExt.SupportAlarmLight.value),
-        supported_ext_value=["1"],
-        power_on=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 1
-        ),
-        power_off=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 0
-        ),
-        set_brightness=lambda client, serial, percent: client.set_floodlight_brightness(
-            serial, percent
-        ),
+    _ALARM_LIGHT,
+    # The app sends switch 303 to channel zero from the combined view.
+    replace(
+        _ALARM_LIGHT,
+        supported_ext_key=str(SupportExt.SupportFlashLamp.value),
+        is_supported_fn=_supports_combined_view,
+        set_brightness=None,
     ),
 )
 
@@ -125,12 +145,14 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
-    async_add_entities(
-        EzvizLight(coordinator, serial, desc)
-        for serial, camera_data in coordinator.data.items()
-        for desc in LIGHTS
-        if _is_desc_supported(camera_data, desc)
-    )
+    camera_lights = []
+    for serial, camera_data in coordinator.data.items():
+        # Both descriptions represent the same lamp; prefer legacy brightness.
+        for desc in LIGHTS:
+            if _is_desc_supported(camera_data, desc):
+                camera_lights.append(EzvizLight(coordinator, serial, desc))
+                break
+    async_add_entities(camera_lights)
 
 
 class EzvizLight(EzvizEntity, LightEntity):
@@ -142,9 +164,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     - actions routed through description callables (on/off/brightness)
     """
 
-    _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_has_entity_name = True
-    _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
 
     def __init__(
@@ -157,7 +177,12 @@ class EzvizLight(EzvizEntity, LightEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
+        self._attr_color_mode = (
+            ColorMode.BRIGHTNESS
+            if description.set_brightness is not None
+            else ColorMode.ONOFF
+        )
+        self._attr_supported_color_modes = {self._attr_color_mode}
 
     @property
     @override
@@ -169,6 +194,8 @@ class EzvizLight(EzvizEntity, LightEntity):
     @override
     def brightness(self) -> int | None:
         """Read brightness without changing the accepted camera snapshot."""
+        if self.color_mode == ColorMode.ONOFF:
+            return None
         percent = self.entity_description.brightness_value(self.data)
         return (
             round(
