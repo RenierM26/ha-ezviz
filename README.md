@@ -1,8 +1,5 @@
 # EZVIZ Cloud for Home Assistant — Ezviz(Beta)
 
-**Multi-lens SDK requirement:** this branch requires published SDK 2.6.0.
-See [multi-lens support](docs/multi-lens.md).
-
 [![HACS custom integration](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://www.hacs.xyz/docs/faq/custom_repositories/)
 [![Donate](https://img.shields.io/badge/donate-Coffee-yellow.svg)](https://www.buymeacoffee.com/renierm)
 
@@ -13,27 +10,19 @@ It is separate from Home Assistant's built-in **EZVIZ** integration.
 
 ## Release status
 
-This documentation describes **0.3.0**, the shared-inventory and reliability
-overhaul. For the published version and downloads, use
+This documentation describes **0.4.0**, which adds opt-in cloud live view,
+multi-lens support, intercom controls, and guided verification during setup
+and reauthentication. For published downloads, use
 [GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
-Read the [0.3.0 change notes](CHANGELOG.md#030) and
-[upgrade/rollback guide](docs/upgrading.md) before updating from `0.2.0.25`.
-The older tag does not contain these changes; a merge into `main` alone does not
-publish a HACS update. Development branches and draft PRs are not release contents.
-
-The development intercom changes use the SDK 2.5.0 API and are not included in
-0.3.0. The new [point PTZ action](docs/ptz-position.md) additionally requires the
-published SDK 2.5.1 patch, whose exact PyPI wheel was qualified before this work.
-This multi-lens branch uses the published SDK 2.6.0 channel API.
-See [intercom support](docs/intercom.md).
-
-For 0.3.0:
+Read the [0.4.0 change notes](CHANGELOG.md#040) and
+[upgrade/rollback guide](docs/upgrading.md) before updating. A merge into
+`main` alone does not publish a HACS update.
 
 | Requirement | Qualified baseline |
 | --- | --- |
 | Home Assistant | 2026.10.4 minimum; native CI also tests 2026.11.0 |
 | Python | 3.14.2+; HA manages Python on OS/Container installations |
-| SDK | Published `pyezvizapi>=2.4.0`; CI qualifies exactly 2.4.0 |
+| SDK | Published `pyezvizapi>=2.7.0`; CI qualifies exactly 2.7.0 |
 | Built-in/custom coexistence | **Not supported/qualified:** built-in EZVIZ pins a conflicting SDK version |
 
 Cloud login and initial polling must succeed. Local RTSP requires a model that

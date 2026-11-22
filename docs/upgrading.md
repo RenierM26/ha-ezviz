@@ -1,6 +1,6 @@
 # Upgrading, credential storage and rollback
 
-This describes upgrading to **0.3.0**, including changes from `0.2.0.25`. Read
+This describes upgrading to **0.4.0**, including changes from `0.2.0.25`. Read
 the target tag's release notes and [release status](../README.md#release-status)
 before installing. A PR merge does not publish a HACS update.
 
@@ -11,12 +11,19 @@ before installing. A PR merge does not publish a HACS update.
 2. Keep a restorable HA/configuration backup from **before** the upgrade, including
    hidden private storage, integration files and config-entry options. Treat it
    as private; a component source ZIP alone does not contain credentials/state.
-3. Verify the target's HA baseline and SDK requirements. 0.3.0 requires HA2026.10.4+
-   and SDK2.4.0+; built-in EZVIZ's conflicting SDK pin is not qualified alongside it.
+3. Verify the target's HA baseline and SDK requirements. 0.4.0 requires HA 2026.10.4+
+   and SDK 2.7.0+; built-in EZVIZ's conflicting SDK pin is not qualified alongside it.
 4. Upgrade through your chosen installation method and follow its restart prompt.
    Keep the same HA config volume. Confirm polling, push, entity identities and
    representative functions separately; do not assume cloud or physical success
    from code installation alone.
+
+## Breaking change: camera light switch availability
+
+Camera light switches now require matching device capabilities and device-wide
+state. **Flicker light on movement** is no longer exposed for cameras shared
+with the configured EZVIZ account. Check automations and dashboards that target
+removed switches. Use the camera owner's account where appropriate.
 
 ## Existing entry migration
 
