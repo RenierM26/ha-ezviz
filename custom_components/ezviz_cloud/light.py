@@ -1,8 +1,9 @@
 """Support for EZVIZ light entity."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, ClassVar, override
+from dataclasses import dataclass, replace
+import re
+from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -16,20 +17,30 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
 )
 
-from .coordinator import EzvizDataUpdateCoordinator
+from .coordinator import EzvizDataUpdateCoordinator, camera_alarm_light_state
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
-from .inventory import async_add_inventory_entities, async_set_power
+from .inventory import (
+    async_add_camera_inventory_entities,
+    async_add_inventory_entities,
+    async_set_power,
+)
 from .runtime import EzvizConfigEntry
-from .utility import passes_description_gates
+from .setting_writes import SettingCommand
+from .utility import passes_description_gates, support_ext_dict
 
 PARALLEL_UPDATES = 1
+
+_ALARM_LIGHT_SUPPORT = str(SupportExt.SupportAlarmLight.value)
+_FLASH_LAMP_SUPPORT = str(SupportExt.SupportFlashLamp.value)
+_COMBINED_VIEW_SUPPORT = str(SupportExt.SupportMultiChannelType.value)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -37,7 +48,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     """EZVIZ light with gating + state/brightness getters + action callables."""
 
     # Getters from coordinator data:
-    # - is_on_value: return a truthy/falsey value indicating on/off (or None if unknown)
+    # - is_on_value: return on/off, or None if unknown
     # - brightness_value: return an int percent (0-100) or None if not available
     is_on_value: Callable[[dict[str, Any]], Any]
     brightness_value: Callable[[dict[str, Any]], int | None]
@@ -56,6 +67,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     # If provided, one of these raw strings must match supportExt value.
     # If omitted/None/empty, presence of the key is enough.
     supported_ext_value: list[str] | None = None
+    is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
 
     # Optional device-category gating via camera_data["device_category"]
     required_device_categories: tuple[str, ...] | None = None
@@ -70,30 +82,46 @@ def _is_desc_supported(
         supported_ext_keys=desc.supported_ext_key,
         supported_ext_values=desc.supported_ext_value,
         required_device_categories=desc.required_device_categories,
-        predicate=None,
+        predicate=desc.is_supported_fn,
     )
 
 
+def _supports_combined_view(data: dict[str, Any]) -> bool:
+    """Check the app's advertised list of channels in a combined view."""
+    channels = support_ext_dict(data).get(_COMBINED_VIEW_SUPPORT)
+    return (
+        isinstance(channels, str)
+        and re.fullmatch(r"[1-9][0-9]*(?:-[1-9][0-9]*)+", channels) is not None
+        and len(set(channels.split("-"))) > 1
+    )
+
+
+_ALARM_LIGHT = EzvizLightEntityDescription(
+    key="Light",
+    translation_key="light",
+    is_on_value=camera_alarm_light_state,
+    brightness_value=lambda d: d.get("alarm_light_luminance"),
+    brightness_range=(1, 255),
+    supported_ext_key=_ALARM_LIGHT_SUPPORT,
+    supported_ext_value=["1"],
+    power_on=lambda client, serial: client.switch_status(
+        serial, DeviceSwitchType.ALARM_LIGHT.value, 1
+    ),
+    power_off=lambda client, serial: client.switch_status(
+        serial, DeviceSwitchType.ALARM_LIGHT.value, 0
+    ),
+    set_brightness=lambda client, serial, percent: client.set_floodlight_brightness(
+        serial, percent
+    ),
+)
 LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
-    EzvizLightEntityDescription(
-        key="Light",
-        translation_key="light",
-        is_on_value=lambda d: (d.get("switches") or {}).get(
-            DeviceSwitchType.ALARM_LIGHT.value
-        ),
-        brightness_value=lambda d: d.get("alarm_light_luminance"),
-        brightness_range=(1, 255),
-        supported_ext_key=str(SupportExt.SupportAlarmLight.value),
-        supported_ext_value=["1"],
-        power_on=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 1
-        ),
-        power_off=lambda client, serial: client.switch_status(
-            serial, DeviceSwitchType.ALARM_LIGHT.value, 0
-        ),
-        set_brightness=lambda client, serial, percent: client.set_floodlight_brightness(
-            serial, percent
-        ),
+    _ALARM_LIGHT,
+    # The app sends switch 303 to channel zero from the combined view.
+    replace(
+        _ALARM_LIGHT,
+        supported_ext_key=_FLASH_LAMP_SUPPORT,
+        is_supported_fn=_supports_combined_view,
+        set_brightness=None,
     ),
 )
 
@@ -110,11 +138,33 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
-    async_add_entities(
-        EzvizLight(coordinator, serial, desc)
-        for serial, camera_data in coordinator.data.items()
-        for desc in LIGHTS
-        if _is_desc_supported(camera_data, desc)
+    def camera_light(
+        serial: str, data: dict[str, Any], existing: EzvizLight | None
+    ) -> EzvizLight | None:
+        # Both descriptions represent the same lamp; prefer legacy brightness.
+        for desc in LIGHTS:
+            if _is_desc_supported(data, desc):
+                if existing is None:
+                    return EzvizLight(coordinator, serial, desc)
+                existing.set_description(desc)
+                return None
+        if (
+            existing is not None
+            and (active_key := existing.entity_description.supported_ext_key)
+            is not None
+        ):
+            # Omitted metadata preserves the last known supported route.
+            support = support_ext_dict(data)
+            if str(support.get(active_key)).strip() == "0" or (
+                active_key == _FLASH_LAMP_SUPPORT
+                and _COMBINED_VIEW_SUPPORT in support
+                and not _supports_combined_view(data)
+            ):
+                existing.disable_control()
+        return None
+
+    async_add_camera_inventory_entities(
+        coordinator, entry, async_add_entities, camera_light
     )
 
 
@@ -127,9 +177,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     - actions routed through description callables (on/off/brightness)
     """
 
-    _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_has_entity_name = True
-    _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
 
     def __init__(
@@ -140,20 +188,50 @@ class EzvizLight(EzvizEntity, LightEntity):
     ) -> None:
         """Initialize the EZVIZ light entity and pre-populate state from snapshot."""
         super().__init__(coordinator, serial)
-        self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
+        self.set_description(description)
+
+    def set_description(self, description: EzvizLightEntityDescription) -> None:
+        """Apply the poll's capabilities before the entity writes its state."""
+        self._control_supported = True
+        if getattr(self, "entity_description", None) is description:
+            return
+        self.entity_description = description
+        self._attr_color_mode = (
+            ColorMode.BRIGHTNESS
+            if description.set_brightness is not None
+            else ColorMode.ONOFF
+        )
+        self._attr_supported_color_modes = {self._attr_color_mode}
+
+    def disable_control(self) -> None:
+        """Keep the entity registered when its control route is revoked."""
+        self._control_supported = False
 
     @property
     @override
-    def is_on(self) -> bool:
-        """Return the SDK-observed light power."""
-        return bool(self.entity_description.is_on_value(self.data))
+    def available(self) -> bool:
+        """Report availability only if the camera and its light are supported."""
+        return self._control_supported and super().available
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the observed power, or unknown without a shared observation."""
+        if (
+            self.entity_description.is_on_value is camera_alarm_light_state
+            and self.serial in self.coordinator.camera_alarm_lights
+        ):
+            return self.coordinator.camera_alarm_lights[self.serial]
+        value = self.entity_description.is_on_value(self.data)
+        return None if value is None else bool(value)
 
     @property
     @override
     def brightness(self) -> int | None:
         """Read brightness without changing the accepted camera snapshot."""
+        if self.color_mode == ColorMode.ONOFF:
+            return None
         percent = self.entity_description.brightness_value(self.data)
         return (
             round(
@@ -165,13 +243,29 @@ class EzvizLight(EzvizEntity, LightEntity):
             else None
         )
 
-    async def _async_power(self, on: bool) -> None:
-        await self.async_write_setting(
-            self.entity_description.power_on
-            if on
-            else self.entity_description.power_off,
-            self.coordinator.ezviz_client,
-            self.serial,
+    def _control_description(self) -> EzvizLightEntityDescription:
+        """Validate support under the setting write lock, before dispatch."""
+        if not self._control_supported:
+            raise HomeAssistantError("EZVIZ Alarm light is unavailable")
+        return self.entity_description
+
+    def _prepare_power(self, on: bool) -> SettingCommand:
+        description = self._control_description()
+        return SettingCommand(
+            description.power_on if on else description.power_off,
+            (self.coordinator.ezviz_client, self.serial),
+        )
+
+    def _prepare_brightness(self, brightness: int) -> SettingCommand:
+        description = self._control_description()
+        if description.set_brightness is None:
+            raise HomeAssistantError("EZVIZ Alarm light does not support brightness")
+        percent = int(
+            ranged_value_to_percentage(description.brightness_range, brightness)
+        )
+        return SettingCommand(
+            description.set_brightness,
+            (self.coordinator.ezviz_client, self.serial, percent),
         )
 
     @override
@@ -182,19 +276,10 @@ class EzvizLight(EzvizEntity, LightEntity):
                 ATTR_BRIGHTNESS in kwargs
                 and self.entity_description.set_brightness is not None
             ):
-                percent = int(
-                    ranged_value_to_percentage(
-                        self.entity_description.brightness_range,
-                        kwargs[ATTR_BRIGHTNESS],
-                    )
-                )
                 await self.async_write_setting(
-                    self.entity_description.set_brightness,
-                    self.coordinator.ezviz_client,
-                    self.serial,
-                    percent,
+                    prepare=lambda: self._prepare_brightness(kwargs[ATTR_BRIGHTNESS])
                 )
-            await self._async_power(True)
+            await self.async_write_setting(prepare=lambda: self._prepare_power(True))
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn on light", err) from err
 
@@ -202,7 +287,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off through the shared setting writer."""
         try:
-            await self._async_power(False)
+            await self.async_write_setting(prepare=lambda: self._prepare_power(False))
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Turn off light", err) from err
 
