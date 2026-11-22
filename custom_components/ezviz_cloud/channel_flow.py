@@ -150,7 +150,7 @@ async def async_edit_stream(
             candidate = user_input.get(key)
             if key == "lens_1" and candidate == saved and saved is not None:
                 # Keep existing custom paths verbatim, including legacy root paths.
-                path = saved
+                path: str | None = saved
             else:
                 try:
                     path = validate_channel_rtsp_path(candidate)
