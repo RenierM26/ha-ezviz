@@ -6,6 +6,7 @@ from datetime import timedelta
 from io import BytesIO
 import json
 import logging
+from pathlib import Path
 from struct import pack
 from threading import Event
 from types import SimpleNamespace
@@ -44,6 +45,8 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import EntityPlatform
 
 from tests.runtime.core_policy.test_ptz_position import camera_target
+
+PUSH_FIXTURES = Path(__file__).parents[1] / "fixtures" / "push"
 
 
 @pytest.fixture(autouse=True)
@@ -366,6 +369,63 @@ async def test_lens_image_orders_poll_and_push(
             push(2, "https://images.example.invalid/push")
             assert await target.async_camera_image() == images[f"/{expected}"]
     finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("with_image", [True, False])
+@pytest.mark.parametrize(
+    ("fixture_name", "lens_count", "target_channel", "code"),
+    [
+        ("single_lens_motion", 1, "Video:1", 10002),
+        ("multi_lens_human", 2, "Video_1:2", 10120),
+    ],
+)
+async def test_sanitized_push_routes_to_the_explicit_lens(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_name: str,
+    lens_count: int,
+    target_channel: str,
+    code: int,
+    with_image: bool,
+) -> None:
+    """Replay production-shaped pushes without needing any network media."""
+    fixture_path = PUSH_FIXTURES / f"{fixture_name}.json"
+    envelope = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert envelope["event_type"] == "ezviz_push_event"
+    message = envelope["data"]
+    if not with_image:
+        del message["ext"]["image"]
+
+    coordinator, _, _ = dual(hass, monkeypatch)
+    channels = coordinator.data["CAM001"]["resourceInfos"][:lens_count]
+    coordinator.data["CAM001"]["resourceInfos"] = channels
+    entities = {
+        channel.key: event.EzvizChannelNotification(coordinator, "CAM001", channel)
+        for channel in camera_channels(coordinator.data["CAM001"])
+    }
+    platforms = [await add(hass, entity, "event") for entity in entities.values()]
+    try:
+        coordinator.merge_mqtt_update("CAM001", message)
+        await hass.async_block_till_done()
+        target = hass.states.get(entities[target_channel].entity_id)
+        assert target is not None and target.state != "unknown"
+        assert target.attributes["event_type"] == "notification"
+        assert target.attributes["code"] == code
+        assert target.attributes["source_time"] == "2025-01-01 00:00:00"
+        assert "images.example.invalid" not in str(target.attributes)
+        assert (("CAM001", target_channel) in coordinator.channel_images) == with_image
+        for key, entity in entities.items():
+            if key != target_channel:
+                sibling = hass.states.get(entity.entity_id)
+                assert sibling is not None and sibling.state == "unknown"
+
+        coordinator.merge_mqtt_update("CAM001", message)
+        await hass.async_block_till_done()
+        assert hass.states.get(target.entity_id) == target
+    finally:
+        for platform in platforms:
+            await platform.async_reset()
         await coordinator.async_close()
 
 

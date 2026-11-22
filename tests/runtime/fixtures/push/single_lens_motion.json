@@ -1,0 +1,46 @@
+{
+  "event_type": "ezviz_push_event",
+  "data": {
+    "pushType": 1,
+    "sound": "default.caf",
+    "soundType": 9013,
+    "badge": 0,
+    "id": "1000000000000000001",
+    "username": "fixture-account",
+    "title": "[EZVIZ]Fixture camera 1",
+    "alert": "Motion Detection Alarm",
+    "ext": {
+      "channel_type": 1,
+      "time": "2025-01-01 00:00:00",
+      "device_serial": "CAM001",
+      "channel_no": 1,
+      "alert_type_code": 10002,
+      "default_pic_url": "",
+      "media_url_alt1": "",
+      "media_url_alt2": "",
+      "resource_type": "",
+      "status_flag": 0,
+      "file_id": "20250101000000-CAM001-1-10002",
+      "is_encrypted": 1,
+      "picChecksum": "00000000000000000000000000000001",
+      "is_dev_video": 0,
+      "metadata": "",
+      "msgId": "fixture-message-CAM001-1",
+      "image": "https://images.example.invalid/v3/unifiedmsg/customer/message/pic/get?fileId=fixture-image-1&deviceSerialNo=CAM001&cn=1&isEncrypted=1&sign=placeholder",
+      "device_name": "Fixture camera 1",
+      "reserved": "",
+      "sequence_number": 1,
+      "customerType": "",
+      "subType": 9013
+    },
+    "pushTime": 1735689601000,
+    "device_id": "fixture-device-1"
+  },
+  "origin": "LOCAL",
+  "time_fired": "2025-01-01T00:00:01.100000+00:00",
+  "context": {
+    "id": "fixture-context-1",
+    "parent_id": null,
+    "user_id": null
+  }
+}

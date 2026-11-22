@@ -1,0 +1,46 @@
+{
+  "event_type": "ezviz_push_event",
+  "data": {
+    "pushType": 1,
+    "sound": "default.caf",
+    "soundType": 2403,
+    "badge": 0,
+    "id": "1000000000000000002",
+    "username": "fixture-account",
+    "title": "[EZVIZ]Fixture camera 2",
+    "alert": "AI Human Detection",
+    "ext": {
+      "channel_type": 1,
+      "time": "2025-01-01 00:00:00",
+      "device_serial": "CAM001",
+      "channel_no": 2,
+      "alert_type_code": 10120,
+      "default_pic_url": "",
+      "media_url_alt1": "",
+      "media_url_alt2": "eyJqb2ludENoYW4iOiJbMiwxXSJ9",
+      "resource_type": "",
+      "status_flag": 0,
+      "file_id": "20250101000000-CAM001-2-10120",
+      "is_encrypted": 1,
+      "picChecksum": "00000000000000000000000000000001",
+      "is_dev_video": 0,
+      "metadata": "",
+      "msgId": "fixture-message-CAM001-2",
+      "image": "https://images.example.invalid/v3/unifiedmsg/customer/message/pic/get?fileId=fixture-image-2&deviceSerialNo=CAM001&cn=2&isEncrypted=1&sign=placeholder",
+      "device_name": "Fixture camera 2",
+      "reserved": "",
+      "sequence_number": 2,
+      "customerType": "",
+      "subType": 2403
+    },
+    "pushTime": 1735689601000,
+    "device_id": "fixture-device-2"
+  },
+  "origin": "LOCAL",
+  "time_fired": "2025-01-01T00:00:01.100000+00:00",
+  "context": {
+    "id": "fixture-context-2",
+    "parent_id": null,
+    "user_id": null
+  }
+}
