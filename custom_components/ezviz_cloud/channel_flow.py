@@ -18,6 +18,7 @@ from .channels import (
     is_additional_camera_lens,
     lens_stream_presets,
 )
+from .const import CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 
 if TYPE_CHECKING:
@@ -40,8 +41,35 @@ def _reported_lenses(
     return tuple(channel for channel in channels if is_additional_camera_lens(channel))
 
 
-def _field(channel: CameraChannel) -> str:
-    return f"lens_{channel.local_index}"
+def _stream_fields(
+    data: dict[str, Any], channels: tuple[CameraChannel, ...]
+) -> dict[str, tuple[str, dict[str, str]]]:
+    """Map the original camera and additional lenses to their existing options."""
+    return {
+        "lens_1": (
+            CONF_FFMPEG_ARGUMENTS,
+            {
+                "substream": DEFAULT_FFMPEG_ARGUMENTS,
+                "main_stream": "/Streaming/Channels/101",
+            },
+        ),
+        **{
+            f"lens_{channel.local_index}": (
+                channel.key,
+                lens_stream_presets(data, channel),
+            )
+            for channel in channels
+        },
+    }
+
+
+def _saved_path(
+    options: dict[str, Any], key: str, presets: dict[str, str]
+) -> str | None:
+    """Use the legacy primary path and keep secondary overrides independent."""
+    if key == CONF_FFMPEG_ARGUMENTS:
+        return options.get(key, DEFAULT_FFMPEG_ARGUMENTS)
+    return options.get(CONF_LENS_RTSP_PATHS, {}).get(key, presets.get("substream"))
 
 
 async def async_select_stream(
@@ -58,22 +86,16 @@ async def async_select_stream(
         flow.lens_baseline = camera_options(flow.config_entry, serial)
         flow.lens_modes = {}
     data = flow.coordinator.data[serial]
-    paths = flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {})
     fields = {}
     modes = {}
     errors = {}
-    for channel in channels:
-        key = _field(channel)
-        presets = lens_stream_presets(data, channel)
+    for key, (option, presets) in _stream_fields(data, channels).items():
         allowed = (*presets, "custom", "stills")
-        if channel.key in paths:
-            path = paths[channel.key]
-            default = next(
-                (mode for mode, value in presets.items() if value == path),
-                "custom" if path else "stills",
-            )
-        else:
-            default = "substream" if presets else "stills"
+        path = _saved_path(flow.lens_baseline, option, presets)
+        default = next(
+            (mode for mode, value in presets.items() if value == path),
+            "custom" if path is not None and (path or key == "lens_1") else "stills",
+        )
         fields[probatio.Required(key, default=default)] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
@@ -86,7 +108,7 @@ async def async_select_stream(
         if user_input is not None:
             mode = user_input.get(key)
             if mode in allowed:
-                modes[channel.key] = mode
+                modes[option] = mode
             else:
                 errors[key] = "invalid_channel"
     if user_input is not None and not errors:
@@ -107,39 +129,51 @@ async def async_edit_stream(
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
     channels = _reported_lenses(flow, serial)
-    if {channel.key for channel in channels} != flow.lens_modes.keys():
+    data = flow.coordinator.data.get(serial, {})
+    streams = _stream_fields(data, channels)
+    if (
+        not channels
+        or {option for option, _ in streams.values()} != flow.lens_modes.keys()
+    ):
         return flow.async_abort(reason="no_camera_channels")
-    data = flow.coordinator.data[serial]
     paths = dict(flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {}))
+    patch: dict[str, Any] = {CONF_LENS_RTSP_PATHS: paths}
     fields = {}
     errors = {}
-    for channel in channels:
-        key = _field(channel)
-        mode = flow.lens_modes[channel.key]
-        presets = lens_stream_presets(data, channel)
+    for key, (option, presets) in streams.items():
+        mode = flow.lens_modes[option]
+        saved = _saved_path(flow.lens_baseline, option, presets)
         if mode == "custom":
-            fields[probatio.Required(key, default=paths.get(channel.key, ""))] = str
-            if user_input is not None:
+            fields[probatio.Required(key, default=saved or "")] = str
+            if user_input is None:
+                continue
+            candidate = user_input.get(key)
+            if key == "lens_1" and candidate == saved and saved is not None:
+                # Keep existing custom paths verbatim, including legacy root paths.
+                path = saved
+            else:
                 try:
-                    path = validate_channel_rtsp_path(user_input.get(key))
+                    path = validate_channel_rtsp_path(candidate)
                 except PyEzvizError:
                     path = ""
-                if path:
-                    paths[channel.key] = path
-                else:
+                if not path:
                     errors[key] = "invalid_rtsp_path"
         elif mode == "stills":
-            paths[channel.key] = ""
+            path = None if key == "lens_1" else ""
         elif mode in presets:
-            paths[channel.key] = presets[mode]
+            path = presets[mode]
         else:
             return flow.async_abort(reason="no_camera_channels")
+        if key == "lens_1":
+            patch[CONF_FFMPEG_ARGUMENTS] = path
+        else:
+            paths[option] = path
     if user_input is not None and not errors:
         try:
             options = build_camera_options(
                 flow.config_entry,
                 serial,
-                {CONF_LENS_RTSP_PATHS: paths},
+                patch,
                 expected=flow.lens_baseline,
             )
         except CameraOptionsConflict:

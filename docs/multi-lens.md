@@ -23,16 +23,17 @@ no per-lens detection or recording state is inferred from global state.
 ## Streams and images
 
 Under **Configure → Camera Settings**, pick the camera and open **Lens streams**.
-Configure the original camera (Lens 1) in **Shared camera settings**; it keeps
-its saved path or defaults to `/Streaming/Channels/102`. The additional H9c lens
-defaults to `/Streaming/Channels/202`. Choose **Main stream** for `201`, **Custom path**
-to enter a different path, or **Stills only** to disable live video. Other models
+Lens 1 is the original camera. It keeps its saved path or defaults to
+`/Streaming/Channels/102`. Lens 2 on the H9c defaults to
+`/Streaming/Channels/202`. Choose **Main stream** for `101` or `201`, **Custom path**
+to enter a different path, or **Stills only** to disable live video. Additional lenses on other models
 default to stills unless a custom path is supplied; cloud channel numbers alone
 do not establish separate RTSP feeds.
 
 Custom paths begin with `/`; the host, port and credentials are shared. Saving
 does not probe or move the camera, and does not change the original camera
-entity's stream or an existing lens override unless you edit that lens.
+entity's identity or shared credentials. Single-lens cameras keep their existing
+stream setting in the camera form.
 
 Without a path, a lens camera can show its channel-indexed alarm image
 or explicitly channel-tagged push image. A newer polled image can replace a

@@ -83,7 +83,9 @@ async def async_setup_entry(
         enc_key: str = per_cam.get(CONF_ENC_KEY, "")
         password: str = enc_key if not use_vc else per_cam.get(CONF_PASSWORD, "")
 
-        rtsp_path: str = per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS)
+        rtsp_path: str | None = per_cam.get(
+            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+        )
 
         if rtsp_path and not rtsp_path.startswith("/"):
             # Be lenient: if users saved path without leading slash, add it.
@@ -125,8 +127,6 @@ async def async_setup_entry(
 class EzvizCamera(EzvizEntity, Camera):
     """EZVIZ security camera entity."""
 
-    _attr_supported_features: CameraEntityFeature = CameraEntityFeature.STREAM
-
     def __init__(
         self,
         hass: HomeAssistant,
@@ -134,7 +134,7 @@ class EzvizCamera(EzvizEntity, Camera):
         serial: str,
         camera_username: str,
         camera_password: str,
-        rtsp_path: str,
+        rtsp_path: str | None,
         *,
         channel: CameraChannel | None = None,
     ) -> None:
@@ -147,7 +147,7 @@ class EzvizCamera(EzvizEntity, Camera):
 
         self._username: str = camera_username
         self._password: str = camera_password
-        self._rtsp_path: str = rtsp_path
+        self._rtsp_path: str | None = rtsp_path
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
         self._channel_key = channel.key if channel is not None else None
@@ -179,7 +179,7 @@ class EzvizCamera(EzvizEntity, Camera):
                 )
         ip = self.data["local_ip"]
         port = self.data["local_rtsp_port"]
-        path = self._rtsp_path or ""
+        path = self._rtsp_path
         if self._channel_key is not None:
             entry = self.coordinator.config_entry
             options = (
@@ -194,6 +194,8 @@ class EzvizCamera(EzvizEntity, Camera):
                 path = ""
             if not path:
                 return ""
+        if path is None:
+            return ""
         if path and not path.startswith("/"):
             path = "/" + path
         return f"rtsp://{quote(self._username, safe='')}:{quote(self._password, safe='')}@{ip}:{port}{path}"
@@ -298,13 +300,23 @@ class EzvizCamera(EzvizEntity, Camera):
         except InvalidHost as err:
             raise InvalidHost("Error disabling motion detection") from err
 
+    @property
+    @override
+    def supported_features(self) -> CameraEntityFeature:
+        """Advertise streaming only when this camera has a source."""
+        return (
+            CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
+        )
+
     @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return a single frame from the camera stream via ffmpeg."""
+        if not (source := self._build_rtsp()):
+            return None
         return await ffmpeg.async_get_image(
-            self.hass, self._build_rtsp(), width=width, height=height
+            self.hass, source, width=width, height=height
         )
 
     @override
@@ -430,14 +442,6 @@ class EzvizChannelCamera(EzvizCamera):
         """Require both device health and the exact reported channel identity."""
         return self._channel_key is not None and channel_available(
             self.coordinator, self._serial, self._channel_key
-        )
-
-    @property
-    @override
-    def supported_features(self) -> CameraEntityFeature:
-        """A lens never inherits the original camera stream."""
-        return (
-            CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
         )
 
     @property

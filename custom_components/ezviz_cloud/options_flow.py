@@ -106,7 +106,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     async def async_step_lens_stream_edit(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Keep the existing camera stream and shared credentials unchanged."""
+        """Save stream choices without changing shared credentials."""
         return await async_edit_stream(self, self._cam_serial, user_input)
 
     @property
@@ -339,9 +339,20 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 probatio.Required(
                     "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
                 ): bool,
-                probatio.Optional(
-                    CONF_FFMPEG_ARGUMENTS, default=pf[CONF_FFMPEG_ARGUMENTS]
-                ): str,
+                **(
+                    {
+                        probatio.Optional(
+                            CONF_FFMPEG_ARGUMENTS,
+                            **(
+                                {"default": pf[CONF_FFMPEG_ARGUMENTS]}
+                                if pf[CONF_FFMPEG_ARGUMENTS] is not None
+                                else {}
+                            ),
+                        ): str
+                    }
+                    if len(camera_channels(cam_info)) < 2
+                    else {}
+                ),
             }
         )
         return self.async_show_form(

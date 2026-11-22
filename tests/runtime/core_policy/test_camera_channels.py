@@ -617,7 +617,9 @@ async def test_lens_options_conflict_preserves_concurrent_path_changes(
         result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
-        result = await manager.async_configure(result["flow_id"], {"lens_2": "custom"})
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_1": "substream", "lens_2": "custom"}
+        )
         hass.config_entries.async_update_entry(
             entry,
             options={
@@ -631,7 +633,9 @@ async def test_lens_options_conflict_preserves_concurrent_path_changes(
         assert entry.options["cameras"]["CAM001"][CONF_LENS_RTSP_PATHS] == {
             "Video:1": "/concurrent"
         }
-        result = await manager.async_configure(result["flow_id"], {"lens_2": "custom"})
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_1": "substream", "lens_2": "custom"}
+        )
         result = await manager.async_configure(result["flow_id"], {"lens_2": "/second"})
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert entry.options["cameras"]["CAM001"][CONF_LENS_RTSP_PATHS] == {
@@ -827,15 +831,18 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
         )
         result = await manager.async_configure(
             result["flow_id"],
-            {"lens_2": "custom" if path else "stills"},
+            {"lens_1": "custom", "lens_2": "custom" if path else "stills"},
         )
+        assert result["step_id"] == "lens_stream_edit"
+        assert result["data_schema"]({})["lens_1"] == "/legacy"
         if path:
-            assert result["step_id"] == "lens_stream_edit"
             result = await manager.async_configure(
                 result["flow_id"], {"lens_2": "rtsp://private.invalid/credentials"}
             )
             assert result["errors"] == {"lens_2": "invalid_rtsp_path"}
-            result = await manager.async_configure(result["flow_id"], {"lens_2": path})
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_2": path} if path else {}
+        )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
         options = entry.options["cameras"]["CAM001"]
@@ -848,8 +855,12 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize(
+    ("mode", "suffix"),
+    [("main_stream", "101"), ("substream", "102"), ("custom", "103"), ("stills", "")],
+)
 async def test_h9c_lens_substreams_default_and_can_be_overridden(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, mode: str, suffix: str
 ) -> None:
     """H9c uses the independent low-bandwidth routes without editing the original."""
     coordinator, legacy, _ = dual(hass, monkeypatch)
@@ -873,10 +884,23 @@ async def test_h9c_lens_substreams_default_and_can_be_overridden(
     ]
     try:
         original = await legacy.stream_source()
-        for lens, suffix in zip(lenses, ("102", "202"), strict=True):
+        for lens, default_suffix in zip(lenses, ("102", "202"), strict=True):
             assert (await lens.stream_source()).endswith(
-                f"/Streaming/Channels/{suffix}"
+                f"/Streaming/Channels/{default_suffix}"
             )
+        shared = await manager.async_init(entry.entry_id)
+        shared = await manager.async_configure(
+            shared["flow_id"], {"next_step_id": "camera_select"}
+        )
+        shared = await manager.async_configure(shared["flow_id"], {"serial": "CAM001"})
+        shared = await manager.async_configure(
+            shared["flow_id"], {"next_step_id": "camera_edit"}
+        )
+        assert not any(
+            key.schema == "ffmpeg_arguments" for key in shared["data_schema"].schema
+        )
+        manager.async_abort(shared["flow_id"])
+
         result = await manager.async_init(entry.entry_id)
         result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "camera_select"}
@@ -886,12 +910,29 @@ async def test_h9c_lens_substreams_default_and_can_be_overridden(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
         assert result["data_schema"]({}) == {
+            "lens_1": "custom",
             "lens_2": "substream",
         }
-        result = await manager.async_configure(result["flow_id"], {"lens_2": "stills"})
+        result = await manager.async_configure(
+            result["flow_id"], {"lens_1": mode, "lens_2": "stills"}
+        )
+        if mode == "custom":
+            assert result["step_id"] == "lens_stream_edit"
+            assert result["data_schema"]({}) == {"lens_1": "/legacy"}
+            result = await manager.async_configure(
+                result["flow_id"], {"lens_1": "/Streaming/Channels/103"}
+            )
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert not await lenses[1].stream_source()
-        assert await legacy.stream_source() == original
+        assert original.endswith("/legacy")
+        if suffix:
+            assert (await legacy.stream_source()).endswith(
+                f"/Streaming/Channels/{suffix}"
+            )
+        else:
+            assert not await legacy.stream_source()
+            assert not legacy.supported_features & CameraEntityFeature.STREAM
+            assert await legacy.async_camera_image() is None
     finally:
         await coordinator.async_close()
 
