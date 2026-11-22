@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 from datetime import timedelta
+from importlib import import_module
 from io import BytesIO
 import json
 import logging
@@ -287,9 +288,11 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         created.append(stream)
         return stream
 
-    monkeypatch.setattr("homeassistant.components.camera.create_stream", create_stream)
+    camera_module = import_module(camera.Camera.__module__)
+    monkeypatch.setattr(camera_module, "create_stream", create_stream)
     monkeypatch.setattr(
-        "homeassistant.components.camera.get_dynamic_camera_stream_settings",
+        camera_module,
+        "get_dynamic_camera_stream_settings",
         AsyncMock(return_value=DynamicStreamSettings()),
     )
     try:
