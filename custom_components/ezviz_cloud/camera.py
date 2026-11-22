@@ -241,11 +241,19 @@ class EzvizCamera(EzvizEntity, Camera):
             except PyEzvizError:
                 return None
         media_key = None
+        nalu_header_size = 2
         if self.data.get("encrypted"):
             media_key = self.coordinator.credentials.key(self._serial)
             if not media_key:
                 return None
-        return CloudStreamRoute(channel, self._cloud_stream_index, media_key)
+            info = self.data.get("deviceInfos")
+            model = info.get("deviceType") if isinstance(info, Mapping) else None
+            if isinstance(model, str) and model.startswith("CS-BC1C-"):
+                # BC1C/eLife encrypts the H.264 NAL header in cloud MPEG-PS.
+                nalu_header_size = 0
+        return CloudStreamRoute(
+            channel, self._cloud_stream_index, media_key, nalu_header_size
+        )
 
     async def _async_create_cloud_stream(
         self, relay: CloudStreamRelay
