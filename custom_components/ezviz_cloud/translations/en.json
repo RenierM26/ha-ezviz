@@ -320,6 +320,14 @@
             "power_mode": {
                 "name": "Power mode (raw)"
             },
+            "sd_card_status": {
+                "name": "SD card status",
+                "state": {
+                    "no_card": "No card",
+                    "normal": "Normal",
+                    "other": "Other reported status"
+                }
+            },
             "sd_card_capacity": {
                 "name": "SD card capacity"
             },

@@ -20,7 +20,10 @@ from custom_components.ezviz_cloud import (
     config_flow,
     event,
     image,
+    light,
     media_source as media,
+    sensor,
+    switch,
     views,
 )
 from custom_components.ezviz_cloud.channels import (
@@ -1628,4 +1631,481 @@ async def test_camera_setup_reuses_original_for_first_lens(
         assert [entity.unique_id for entity in added] == expected
         assert (await added[0].stream_source()).endswith("/keep-original")
     finally:
+        await coordinator.async_close()
+
+
+def _record_switch_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    coordinator: EzvizDataUpdateCoordinator,
+    sent: list[requests.PreparedRequest],
+) -> None:
+    """Keep switch tests on the real serializer without network access."""
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        sent.append(request)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b'{"meta":{"code":200}}'
+        return response
+
+    monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
+
+
+@pytest.mark.parametrize(
+    ("legacy_flag", "flash_flag", "mode"),
+    [
+        ("1", "0", light.ColorMode.BRIGHTNESS),
+        ("1", "1", light.ColorMode.BRIGHTNESS),
+        ("0", "1", light.ColorMode.ONOFF),
+    ],
+)
+async def test_device_wide_alarm_light(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_flag: str,
+    flash_flag: str,
+    mode: light.ColorMode,
+) -> None:
+    """Both supported routes expose at most one light with the stable identity."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    entry = coordinator.config_entry
+    data = coordinator.data["CAM001"]
+    data["supportExt"].update({"113": legacy_flag, "496": flash_flag, "719": "1-2"})
+    if legacy_flag == "0":
+        del data["supportExt"]["113"]
+    data["alarm_light_luminance"] = 50
+    data["SWITCH"] = [
+        {"type": 303, "channelNo": 0, "enable": False},
+        {"type": 303, "channelNo": 1, "enable": True},
+        {"type": 303, "channelNo": 2, "enable": True},
+    ]
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "light", DOMAIN, "CAM001_Light", config_entry=entry
+    )
+    added: list[light.EzvizLight] = []
+    try:
+        await light.async_setup_entry(hass, entry, added.extend)
+        (shared,) = added
+        assert shared.unique_id == old.unique_id
+        assert shared.supported_color_modes == {mode}
+        assert shared.color_mode == mode
+        assert (shared.brightness is None) is (mode == light.ColorMode.ONOFF)
+        assert shared.is_on is False
+        assert registry.async_get(old.entity_id) is old
+        if mode == light.ColorMode.ONOFF:
+            await shared.async_turn_on(brightness=100)
+        else:
+            await shared.async_turn_on()
+        await shared.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/1/303/switchStatus",
+            "0/0/303/switchStatus",
+        ]
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("support_ext", "channel_no"),
+    [
+        ({}, 0),
+        ({}, 1),
+        ({"719": "1-2"}, 0),
+        ({"496": "0", "719": "1-2"}, 0),
+        ({"496": "1"}, 0),
+        ({"496": "1", "719": "1"}, 0),
+        ({"496": "1", "719": "1-1"}, 0),
+        ({"496": "1", "719": "1-two"}, 0),
+    ],
+)
+async def test_alarm_light_requires_supported_control(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    support_ext: dict[str, str],
+    channel_no: int,
+) -> None:
+    """Telemetry alone or a flash-only lens cannot enable channel-zero control."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    data = coordinator.data["CAM001"]
+    data["supportExt"] = support_ext
+    data["SWITCH"] = [{"type": 303, "channelNo": channel_no, "enable": False}]
+    added: list[light.EzvizLight] = []
+    try:
+        await light.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        assert not added
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("initial_camera", [False, True])
+async def test_inventory_poll_discovers_alarm_light_and_sd_status(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, initial_camera: bool
+) -> None:
+    """Late capabilities add stable native entities; scoped state stays unknown."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    entry = coordinator.config_entry
+    serial = "CAM001"
+    row = dict(coordinator.data[serial])
+    snapshot = coordinator.inventory_snapshot
+    assert snapshot is not None
+    current = replace(snapshot, devices=snapshot.devices if initial_camera else {})
+    monkeypatch.setattr(coordinator, "_poll_sync", lambda: current)
+    platforms = {}
+    registry = er.async_get(hass)
+
+    try:
+        await coordinator.async_refresh()
+        for domain, component in (("light", light), ("sensor", sensor)):
+            platform = EntityPlatform(
+                hass=hass,
+                logger=logging.getLogger(__name__),
+                domain=domain,
+                platform_name=DOMAIN,
+                platform=None,
+                scan_interval=timedelta(seconds=30),
+                entity_namespace=None,
+            )
+            platform.config_entry = entry
+            await platform.platform_data.async_load_translations()
+            platforms[domain] = platform
+            await component.async_setup_entry(
+                hass, entry, platform._async_schedule_add_entities_for_entry
+            )
+        await hass.async_block_till_done()
+        assert registry.async_get_entity_id("light", DOMAIN, "CAM001_Light") is None
+        assert (
+            registry.async_get_entity_id("sensor", DOMAIN, "CAM001_sd_card_status")
+            is None
+        )
+
+        row.update(
+            supportExt={"496": "1", "719": "1-2", "4": "1"},
+            SWITCH=[{"type": 303, "channelNo": 1, "enable": True}],
+            STATUS={"diskNum": 1, "diskState": "-1"},
+        )
+        current = replace(
+            snapshot,
+            revision=snapshot.revision + 1,
+            devices={serial: CameraState(serial, "camera", row)},
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+        light_id = registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+        sd_id = registry.async_get_entity_id("sensor", DOMAIN, "CAM001_sd_card_status")
+        assert light_id is not None
+        assert sd_id is not None
+        light_entity = platforms["light"].entities[light_id]
+        assert isinstance(light_entity, light.EzvizLight)
+        assert hass.states.get(light_id).state == "unknown"
+        assert hass.states.get(sd_id).state == "unavailable"
+        assert coordinator.camera_alarm_lights[serial] is None
+
+        await light_entity.async_turn_on()
+        await light_entity.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/1/303/switchStatus",
+            "0/0/303/switchStatus",
+        ]
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert hass.states.get(light_id).state == "unknown"
+
+        row.update(
+            SWITCH=[{"type": 303, "channelNo": 0, "enable": True}],
+            STATUS={"diskNum": 1, "diskState": "0---------------"},
+        )
+        current = replace(
+            current,
+            revision=current.revision + 1,
+            devices={serial: CameraState(serial, "camera", row)},
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert hass.states.get(light_id).state == "on"
+        assert hass.states.get(sd_id).state == "normal"
+        assert list(platforms["light"].entities) == [light_id]
+        assert platforms["light"].entities[light_id] is light_entity
+        brightness_write = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            coordinator.ezviz_client, "set_floodlight_brightness", brightness_write
+        )
+        for flag, mode in (
+            ("1", light.ColorMode.BRIGHTNESS),
+            ("0", light.ColorMode.ONOFF),
+        ):
+            row["supportExt"] = {**row["supportExt"], "113": flag}
+            current = replace(
+                current,
+                revision=current.revision + 1,
+                devices={serial: CameraState(serial, "camera", row)},
+            )
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            assert (
+                registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+                == light_id
+            )
+            assert platforms["light"].entities == {light_id: light_entity}
+            assert light_entity.supported_color_modes == {mode}
+            assert hass.states.get(light_id).attributes["supported_color_modes"] == [
+                mode
+            ]
+            await light_entity.async_turn_on(brightness=128)
+            if flag == "1":
+                brightness_write.assert_called_once_with(serial, 50)
+            else:
+                assert brightness_write.call_count == 1
+            assert sent[-1].url.endswith("/0/1/303/switchStatus")
+
+        sent.clear()
+        brightness_write.reset_mock()
+        onoff = light.ColorMode.ONOFF
+        brightness = light.ColorMode.BRIGHTNESS
+        for flags, expected_state, mode in (
+            ({"496": "1", "719": None}, "on", onoff),
+            ({"496": "1", "719": "1"}, "unavailable", onoff),
+            ({"496": "1", "719": None}, "unavailable", onoff),
+            ({"496": "1"}, "on", onoff),
+            ({"496": "1", "719": "0"}, "unavailable", onoff),
+            ({"496": "1", "719": None}, "unavailable", onoff),
+            ({"496": "1"}, "on", onoff),
+            ({"113": "1", "496": "1", "719": "0"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
+            ({"113": "0"}, "on", onoff),
+            ({"496": "0"}, "unavailable", onoff),
+            ({}, "unavailable", onoff),
+            ({"113": "0", "496": "1"}, "on", onoff),
+            ({"113": "0", "496": "0"}, "unavailable", onoff),
+            ({"113": "1", "496": "0"}, "on", brightness),
+            ({"496": "0"}, "on", brightness),
+            ({"113": "0"}, "unavailable", brightness),
+            ({"113": "1"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
+            ({"113": "1", "496": "0"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
+        ):
+            row["supportExt"] = {
+                key: value
+                for key, value in {"719": "1-2", **flags}.items()
+                if value is not None
+            }
+            current = replace(
+                current,
+                revision=current.revision + 1,
+                devices={serial: CameraState(serial, "camera", row)},
+            )
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            assert (
+                registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+                == light_id
+            )
+            assert platforms["light"].entities == {light_id: light_entity}
+            assert hass.states.get(light_id).state == expected_state
+            assert light_entity.supported_color_modes == {mode}
+            if expected_state == "unavailable":
+                with pytest.raises(
+                    HomeAssistantError, match="Alarm light is unavailable"
+                ):
+                    await light_entity.async_turn_on(brightness=128)
+                with pytest.raises(
+                    HomeAssistantError, match="Alarm light is unavailable"
+                ):
+                    await light_entity.async_turn_off()
+                assert not sent
+
+        await light_entity.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/0/303/switchStatus",
+        ]
+        brightness_write.assert_not_called()
+
+    finally:
+        for platform in platforms.values():
+            await platform.async_reset()
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ({"diskNum": 0, "diskState": "----------------"}, "no_card"),
+        ({"diskNum": 1, "diskState": "0---------------"}, "normal"),
+        ({"diskNum": 1, "diskState": "2---------------"}, "other"),
+        ({"diskNum": 1, "diskState": "-1"}, None),
+        ({"diskNum": 0, "diskState": "0---------------"}, None),
+        ({}, None),
+    ],
+)
+async def test_sd_card_status(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    status: dict[str, int | str],
+    expected: str | None,
+) -> None:
+    """Read only the current device observation, including a known empty slot."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    coordinator.data["CAM001"].update(supportExt={"4": "1"}, STATUS=status)
+    desc = next(item for item in sensor.SENSORS if item.key == "sd_card_status")
+    assert sensor._is_desc_supported(coordinator.data["CAM001"], desc)
+    entity = sensor.EzvizSensor(coordinator, "CAM001", desc)
+    assert entity.native_value == expected
+    assert entity.available is (expected is not None)
+    await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("model", "category", "flags", "share_type", "expected"),
+    [
+        (
+            "IPC",
+            "IPC",
+            {"48": "1", "96": "2", "297": "1"},
+            1,
+            {"LIGHT", "INFRARED_LIGHT", "LIGHT_FLICKER", "ALARM_LIGHT_RELEVANCE"},
+        ),
+        ("IPC", "IPC", {"48": "0", "96": "1", "297": "2"}, 0, {"LIGHT"}),
+        ("IPC", "IPC", {"96": "2", "297": "3"}, 2, {"LIGHT"}),
+        ("DB2C", "IPC", {"242": "0"}, 0, set()),
+        ("Doorbell 2 Pro", "IPC", {"242": "1"}, 0, {"LIGHT"}),
+        ("W1", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("W3", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("CS-W3C-R100", "IGateWay", {}, 0, {"LIGHT", "WIFI_LIGHT"}),
+        ("Other", "IGateWay", {}, 0, {"LIGHT"}),
+    ],
+)
+async def test_camera_light_switch_discovery(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    category: str,
+    flags: dict[str, str],
+    share_type: int,
+    expected: set[str],
+) -> None:
+    """Use the app capability gates even when every switch row is present."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    coordinator.data["CAM001"].update(
+        device_sub_category=model,
+        device_category=category,
+        supportExt=flags,
+        switches={3: False, 10: False, 13: False, 301: False, 305: False},
+        resourceInfos=[{"shareType": share_type}],
+        deviceInfos={"deviceType": model} if model.startswith("CS-") else {},
+    )
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        light_ids = {
+            f"CAM001_{key}"
+            for key in (
+                "LIGHT",
+                "INFRARED_LIGHT",
+                "LIGHT_FLICKER",
+                "ALARM_LIGHT_RELEVANCE",
+                "WIFI_LIGHT",
+            )
+        }
+        assert {entity.unique_id for entity in added} & light_ids == {
+            f"CAM001_{key}" for key in expected
+        }
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("key", "switch_id", "category", "model"),
+    [
+        ("LIGHT", 3, "IPC", "H9c"),
+        ("INFRARED_LIGHT", 10, "IPC", "H9c"),
+        ("LIGHT_FLICKER", 301, "IPC", "H9c"),
+        ("ALARM_LIGHT_RELEVANCE", 305, "IPC", "H9c"),
+        ("WIFI_LIGHT", 13, "IGateWay", "W3"),
+    ],
+)
+async def test_light_switch_keeps_device_wide_route(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    switch_id: int,
+    category: str,
+    model: str,
+) -> None:
+    """Keep a fixed channel-zero write and track its availability across polls."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    data = coordinator.data["CAM001"]
+    legacy = {"type": switch_id, "channelNo": 0, "enable": False}
+    primary = {"type": switch_id, "channelNo": 1, "enable": True}
+    sibling = {"type": switch_id, "channelNo": 2, "enable": False}
+    data.update(
+        device_category=category,
+        device_sub_category=model,
+        supportExt={"48": "1", "96": "2", "297": "1"},
+        switches={switch_id: False},
+        SWITCH=[legacy, primary, sibling],
+    )
+    current = coordinator.inventory_snapshot
+    assert current is not None
+    monkeypatch.setattr(coordinator, "_poll_sync", lambda: current)
+
+    async def poll() -> None:
+        nonlocal current
+        current = replace(
+            current,
+            revision=current.revision + 1,
+            devices={"CAM001": CameraState("CAM001", "camera", data)},
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    added: list[Entity] = []
+    platform = None
+    try:
+        await poll()
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == f"CAM001_{key}")
+        assert isinstance(entity, switch.EzvizSwitch)
+        platform = await add(hass, entity, "switch")
+        assert hass.states.get(entity.entity_id).state == "off"
+        await entity.async_turn_on()
+        assert sent[-1].url.endswith(f"/0/1/{switch_id}/switchStatus")
+
+        data["SWITCH"] = [primary, sibling]
+        await poll()
+        assert entity.is_on is None
+        assert hass.states.get(entity.entity_id).state == "unavailable"
+        with pytest.raises(
+            HomeAssistantError, match="light switch route is unavailable"
+        ):
+            await entity.async_turn_off()
+        assert len(sent) == 1
+
+        data["SWITCH"] = [{**legacy, "enable": True}]
+        await poll()
+        assert hass.states.get(entity.entity_id).state == "on"
+
+        if switch_id == 10:
+            data["supportExt"] = {**data["supportExt"], "48": "0"}
+            await poll()
+            assert hass.states.get(entity.entity_id).state == "unavailable"
+            with pytest.raises(
+                HomeAssistantError, match="light switch route is unavailable"
+            ):
+                await entity.async_turn_off()
+            assert len(sent) == 1
+            data["supportExt"] = {**data["supportExt"], "48": "1"}
+            await poll()
+            assert hass.states.get(entity.entity_id).state == "on"
+
+        assert platform.entities[entity.entity_id] is entity
+        await entity.async_turn_off()
+        assert sent[-1].url.endswith(f"/0/0/{switch_id}/switchStatus")
+    finally:
+        if platform is not None:
+            await platform.async_reset()
         await coordinator.async_close()
