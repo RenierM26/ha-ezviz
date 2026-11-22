@@ -18,8 +18,9 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
@@ -27,6 +28,7 @@ from homeassistant.util.percentage import (
 )
 
 from .channels import async_add_channel_entities, channel_available
+from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
@@ -36,6 +38,9 @@ from .setting_writes import SettingCommand
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
+
+_ALARM_LIGHT_KEY = "Light"
+_LENS_ALARM_LIGHT_ID_SEPARATOR = "_warning_channel_"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -82,7 +87,7 @@ def _is_desc_supported(
 
 LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
     EzvizLightEntityDescription(
-        key="Light",
+        key=_ALARM_LIGHT_KEY,
         translation_key="light",
         is_on_value=lambda d: (d.get("switches") or {}).get(
             DeviceSwitchType.ALARM_LIGHT.value
@@ -116,18 +121,53 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
+    registry = er.async_get(hass)
+    scoped_serials: set[str] = set()
+
+    @callback
+    def retire_legacy_alarm_light(serial: str) -> None:
+        """Retire the device-wide duplicate for this account only."""
+        if serial in scoped_serials:
+            return
+        scoped_serials.add(serial)
+        legacy_id = registry.async_get_entity_id(
+            "light", DOMAIN, f"{serial}_{_ALARM_LIGHT_KEY}"
+        )
+        if (
+            legacy_id is not None
+            and (legacy := registry.async_get(legacy_id)) is not None
+            and legacy.config_entry_id == entry.entry_id
+        ):
+            registry.async_remove(legacy_id)
+
+    # Do not restore the legacy control if a known lens is temporarily missing.
+    for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registered.domain == "light" and registered.platform == DOMAIN:
+            serial, separator, _ = registered.unique_id.rpartition(
+                _LENS_ALARM_LIGHT_ID_SEPARATOR
+            )
+            if separator:
+                retire_legacy_alarm_light(serial)
+
+    @callback
+    def discover_lens_light(
+        serial: str, channel: CameraChannel
+    ) -> list[EzvizWarningLight]:
+        entities = _warning_light_entities(coordinator, serial, channel)
+        if entities:
+            retire_legacy_alarm_light(serial)
+        return entities
+
+    async_add_channel_entities(
+        coordinator, entry, async_add_entities, discover_lens_light
+    )
+
     async_add_entities(
         EzvizLight(coordinator, serial, desc)
         for serial, camera_data in coordinator.data.items()
         for desc in LIGHTS
         if _is_desc_supported(camera_data, desc)
-    )
-
-    async_add_channel_entities(
-        coordinator,
-        entry,
-        async_add_entities,
-        lambda serial, channel: _warning_light_entities(coordinator, serial, channel),
+        and (desc.key != _ALARM_LIGHT_KEY or serial not in scoped_serials)
     )
 
 
@@ -168,7 +208,7 @@ class EzvizWarningLight(EzvizEntity, LightEntity):
         """Bind the entity to the stable video route, not its inventory position."""
         super().__init__(coordinator, serial)
         self._channel = channel
-        self._attr_unique_id = f"{serial}_warning_channel_{channel.key}"
+        self._attr_unique_id = f"{serial}{_LENS_ALARM_LIGHT_ID_SEPARATOR}{channel.key}"
         self._attr_translation_placeholders = {"channel": channel.local_index}
         self._attr_supported_color_modes = {ColorMode.ONOFF}
 

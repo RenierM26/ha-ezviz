@@ -65,9 +65,11 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 - Multi-lens cameras with explicit warning-light switch state expose separate
   on/off controls named **Lens 1 alarm light**, **Lens 2 alarm light**, and so on.
   These turn the lamp on or off directly; **Flicker light on movement** still
-  configures automatic flashing on motion. The original device-wide Alarm light and
-  brightness control are unchanged. An unavailable lens is never substituted
-  with another one. Per-lens write behavior depends on camera firmware.
+  configures automatic flashing on motion. Where lens controls are discovered, they
+  [replace the device-wide Alarm light](docs/upgrading.md#breaking-change-per-lens-alarm-lights-replace-the-device-wide-light)
+  and do not support brightness. Cameras without per-lens alarm light controls keep
+  the original light. An unavailable lens is never substituted with another one.
+  Per-lens write behavior depends on camera firmware.
 - The SD card status diagnostic uses reported disk telemetry from the account
   poll, distinguishing a reported empty slot from unavailable telemetry.
   Capacity remains a separate sensor. This does not add card formatting or

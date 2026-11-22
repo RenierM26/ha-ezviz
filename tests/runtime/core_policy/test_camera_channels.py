@@ -1657,13 +1657,13 @@ async def test_lens_warning_light_discovery_and_write(
     ]
     added = []
     await light.async_setup_entry(hass, coordinator.config_entry, added.extend)
-    legacy, first = added
-    assert legacy.unique_id == "CAM001_Light"
+    (first,) = added
+    assert first.unique_id == "CAM001_warning_channel_Video:1"
     assert first.is_on is False
     data["SWITCH"].append({"type": 303, "channelNo": 2, "enable": 1})
     coordinator.inventory_snapshot = replace(coordinator.inventory_snapshot, revision=2)
     coordinator.async_set_updated_data(coordinator.data)
-    second = added[2]
+    second = added[1]
     assert second.is_on is True
     assert second.unique_id == "CAM001_warning_channel_Video_1:2"
     try:
@@ -1680,6 +1680,77 @@ async def test_lens_warning_light_discovery_and_write(
             await second.async_turn_on()
         assert len(sent) == 2
     finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("scope_timing", ["initial", "later", "registered"])
+async def test_lens_alarm_lights_retire_only_the_matching_legacy_light(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, scope_timing: str
+) -> None:
+    """Keep the legacy light until there is actual evidence for a replacement."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    entry = coordinator.config_entry
+    data = coordinator.data["CAM001"]
+    data["supportExt"]["113"] = "1"
+    data["SWITCH"] = [{"type": 303, "enable": 1}]
+    data["alarm_light_luminance"] = 50
+    other = {**data, "resourceInfos": []}
+    coordinator.data["CAM002"] = other
+    coordinator.inventory_snapshot = replace(
+        coordinator.inventory_snapshot,
+        devices={
+            **coordinator.inventory_snapshot.devices,
+            "CAM002": CameraState("CAM002", "camera", other),
+        },
+    )
+
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "light", DOMAIN, "CAM001_Light", config_entry=entry
+    )
+    legacy_id = registry.async_update_entity(
+        old.entity_id, new_entity_id="light.custom_alarm_light"
+    ).entity_id
+    if scope_timing == "registered":
+        registry.async_get_or_create(
+            "light", DOMAIN, "CAM001_warning_channel_Video:1", config_entry=entry
+        )
+    scoped_row = {"type": 303, "channelNo": 1, "enable": 0}
+    if scope_timing == "initial":
+        data["SWITCH"].append(scoped_row)
+    added: list[light.EzvizLight | light.EzvizWarningLight] = []
+    platform = None
+    try:
+        await light.async_setup_entry(hass, entry, added.extend)
+        retained = next(
+            entity for entity in added if entity.unique_id == "CAM002_Light"
+        )
+        assert retained.supported_color_modes == {light.ColorMode.BRIGHTNESS}
+        if scope_timing == "later":
+            legacy = next(
+                entity for entity in added if entity.unique_id == "CAM001_Light"
+            )
+            platform = await add(hass, legacy, "light")
+            assert legacy.entity_id == legacy_id
+            assert legacy_id in platform.entities
+            data["SWITCH"].append(scoped_row)
+            coordinator.inventory_snapshot = replace(
+                coordinator.inventory_snapshot, revision=2
+            )
+            coordinator.async_set_updated_data(coordinator.data)
+            await hass.async_block_till_done()
+            assert legacy_id not in platform.entities
+            assert hass.states.get(legacy_id) is None
+        else:
+            assert all(entity.unique_id != "CAM001_Light" for entity in added)
+        assert registry.async_get(legacy_id) is None
+        if scope_timing != "registered":
+            assert any(
+                entity.unique_id == "CAM001_warning_channel_Video:1" for entity in added
+            )
+    finally:
+        if platform is not None:
+            await platform.async_reset()
         await coordinator.async_close()
 
 

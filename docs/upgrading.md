@@ -2,7 +2,8 @@
 
 This describes upgrading to **0.3.0**, including changes from `0.2.0.25`. Read
 the target tag's release notes and [release status](../README.md#release-status)
-before installing. A PR merge does not publish a HACS update.
+before installing. Unreleased changes are marked separately below. A PR merge
+does not publish a HACS update.
 
 ## Before upgrading
 
@@ -33,6 +34,21 @@ fall back to duplicate stale config-entry tokens. A fresh login uses the same
 persisted account identity. Expired/revoked credentials can still require reauth.
 Do not hand-edit/delete `.storage`, copy tokens from another active deployment or
 change a container MAC to try to repair account auth.
+
+## Breaking change: per-lens alarm lights replace the device-wide light
+
+**Unreleased.** On cameras with a reported per-lens alarm light, the integration
+removes the original device-wide **Alarm light** (unique-ID suffix `_Light`).
+Its registry entry is removed even if you renamed it. Cameras without per-lens
+alarm light controls keep their original light and brightness control.
+
+Update automations, scripts, scenes, dashboards, and external consumers that use
+the old `light.*` entity ID. Target **Lens 1 alarm light**, **Lens 2 alarm
+light**, or the appropriate group of lens lights instead. The new controls are
+on/off only: remove brightness arguments. References are not rewritten
+automatically. **Flicker light on movement** and other motion-triggered settings
+are unchanged. Use a matching pre-upgrade backup if a rollback must restore
+registry customizations.
 
 ## Breaking change: legacy alarm-image URL sensor removed
 
