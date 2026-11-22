@@ -1,8 +1,8 @@
 """Support for EZVIZ light entity."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, ClassVar, override
+from dataclasses import dataclass, replace
+from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -109,6 +109,31 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 )
 
 
+def _has_shared_alarm_light(data: dict[str, Any]) -> bool:
+    """The H9c reports per-lens switch rows but operates both lamps together."""
+    return str(data.get("device_sub_category", "")).casefold() == "h9c"
+
+
+def _alarm_light_state(
+    data: dict[str, Any], channel_no: int, *, require_scoped: bool = False
+) -> bool | None:
+    """Read the selected SDK switch row without using the flattened state."""
+    row = switch_rows(data.get("SWITCH"), channel_no=channel_no).get(
+        DeviceSwitchType.ALARM_LIGHT.value
+    )
+    if row is None or (require_scoped and "channelNo" not in row):
+        return None
+    return power_state(row.get("enable"))
+
+
+_SHARED_ALARM_LIGHT = replace(
+    LIGHTS[0],
+    is_on_value=lambda data: _alarm_light_state(data, 0),
+    brightness_value=lambda _: None,
+    set_brightness=None,
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
@@ -146,7 +171,11 @@ async def async_setup_entry(
             serial, separator, _ = registered.unique_id.rpartition(
                 _LENS_ALARM_LIGHT_ID_SEPARATOR
             )
-            if separator:
+            if not separator:
+                continue
+            if _has_shared_alarm_light(coordinator.device_data(serial)):
+                registry.async_remove(registered.entity_id)
+            else:
                 retire_legacy_alarm_light(serial)
 
     @callback
@@ -162,28 +191,26 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, discover_lens_light
     )
 
-    async_add_entities(
-        EzvizLight(coordinator, serial, desc)
-        for serial, camera_data in coordinator.data.items()
-        for desc in LIGHTS
-        if _is_desc_supported(camera_data, desc)
-        and (desc.key != _ALARM_LIGHT_KEY or serial not in scoped_serials)
-    )
-
-
-def _warning_light_state(data: dict[str, Any], channel: CameraChannel) -> bool | None:
-    """Apply the SDK warning-light read-back rules to the accepted inventory."""
-    rows = switch_rows(data.get("SWITCH"), channel_no=channel.channel_no)
-    row = rows.get(DeviceSwitchType.ALARM_LIGHT.value)
-    if row is None or "channelNo" not in row:
-        return None
-    return power_state(row.get("enable"))
+    lights: list[EzvizLight] = []
+    for serial, camera_data in coordinator.data.items():
+        for desc in LIGHTS:
+            if desc.key == _ALARM_LIGHT_KEY and serial in scoped_serials:
+                continue
+            if (
+                desc.key == _ALARM_LIGHT_KEY
+                and _has_shared_alarm_light(camera_data)
+                and _alarm_light_state(camera_data, 0) is not None
+            ):
+                lights.append(EzvizLight(coordinator, serial, _SHARED_ALARM_LIGHT))
+                continue
+            if _is_desc_supported(camera_data, desc):
+                lights.append(EzvizLight(coordinator, serial, desc))
+    async_add_entities(lights)
 
 
 def _lens_alarm_light_supported(data: dict[str, Any]) -> bool:
-    """Allow the H9c's scoped switch rows even without the legacy global flag."""
-    model = str(data.get("device_sub_category", "")).casefold()
-    return model == "h9c" or _is_desc_supported(data, LIGHTS[0])
+    """Do not offer independent controls on cameras known to link the lamps."""
+    return not _has_shared_alarm_light(data) and _is_desc_supported(data, LIGHTS[0])
 
 
 def _warning_light_entities(
@@ -193,7 +220,8 @@ def _warning_light_entities(
     if (
         channel.channel_no > 0
         and _lens_alarm_light_supported(data)
-        and _warning_light_state(data, channel) is not None
+        and _alarm_light_state(data, channel.channel_no, require_scoped=True)
+        is not None
     ):
         return [EzvizWarningLight(coordinator, serial, channel)]
     return []
@@ -222,7 +250,9 @@ class EzvizWarningLight(EzvizEntity, LightEntity):
     @override
     def is_on(self) -> bool | None:
         """Return the actual state of this channel only."""
-        return _warning_light_state(self.data, self._channel)
+        return _alarm_light_state(
+            self.data, self._channel.channel_no, require_scoped=True
+        )
 
     @property
     @override
@@ -268,9 +298,7 @@ class EzvizLight(EzvizEntity, LightEntity):
     - actions routed through description callables (on/off/brightness)
     """
 
-    _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_has_entity_name = True
-    _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
 
     def __init__(
@@ -283,13 +311,27 @@ class EzvizLight(EzvizEntity, LightEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
+        self._attr_color_mode = (
+            ColorMode.ONOFF
+            if description is _SHARED_ALARM_LIGHT
+            else ColorMode.BRIGHTNESS
+        )
+        self._attr_supported_color_modes = {self._attr_color_mode}
 
     @property
     @override
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return the SDK-observed light power."""
-        return bool(self.entity_description.is_on_value(self.data))
+        value = self.entity_description.is_on_value(self.data)
+        return value if self.entity_description is _SHARED_ALARM_LIGHT else bool(value)
+
+    @property
+    @override
+    def available(self) -> bool:
+        """A shared lamp requires current device-wide switch telemetry."""
+        return super().available and (
+            self.entity_description is not _SHARED_ALARM_LIGHT or self.is_on is not None
+        )
 
     @property
     @override

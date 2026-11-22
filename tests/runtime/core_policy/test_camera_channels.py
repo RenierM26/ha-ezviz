@@ -1633,12 +1633,12 @@ async def test_camera_setup_reuses_original_for_first_lens(
         await coordinator.async_close()
 
 
-@pytest.mark.parametrize("legacy_flag", [False, True])
-async def test_lens_warning_light_discovery_and_write(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, legacy_flag: bool
+def _record_switch_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    coordinator: EzvizDataUpdateCoordinator,
+    sent: list[requests.PreparedRequest],
 ) -> None:
-    """Use the actual SDK serializer, never the sibling or the flat switch."""
-    coordinator, _, sent = dual(hass, monkeypatch)
+    """Keep switch tests on the real serializer without network access."""
 
     def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
         sent.append(request)
@@ -1648,12 +1648,17 @@ async def test_lens_warning_light_discovery_and_write(
         return response
 
     monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
+
+
+async def test_lens_warning_light_discovery_and_write(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use the actual SDK serializer, never the sibling or the flat switch."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+
     data = coordinator.data["CAM001"]
-    if legacy_flag:
-        data["supportExt"]["113"] = "1"
-    else:
-        # The live H9c lists scoped 303 rows without the legacy capability flag.
-        data["device_sub_category"] = "H9c"
+    data["supportExt"]["113"] = "1"
     # Lens 2 is not supported by the first observation; an unscoped row
     # must not create an entity or stand in for its state.
     data["SWITCH"] = [
@@ -1684,6 +1689,52 @@ async def test_lens_warning_light_discovery_and_write(
         with pytest.raises(ServiceValidationError):
             await second.async_turn_on()
         assert len(sent) == 2
+    finally:
+        await coordinator.async_close()
+
+
+async def test_h9c_uses_one_shared_alarm_light(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scoped rows must not create independent H9c lamp controls."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    entry = coordinator.config_entry
+    data = coordinator.data["CAM001"]
+    data["device_sub_category"] = "H9c"
+    data["SWITCH"] = [
+        {"type": 303, "channelNo": 0, "enable": False},
+        {"type": 303, "channelNo": 1, "enable": True},
+        {"type": 303, "channelNo": 2, "enable": True},
+    ]
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create(
+        "light", DOMAIN, "CAM001_Light", config_entry=entry
+    )
+    lenses = [
+        registry.async_get_or_create(
+            "light", DOMAIN, f"CAM001_warning_channel_{channel.key}", config_entry=entry
+        )
+        for channel in camera_channels(data)
+    ]
+    added: list[light.EzvizLight] = []
+    try:
+        await light.async_setup_entry(hass, entry, added.extend)
+        (shared,) = added
+        assert shared.unique_id == old.unique_id
+        assert shared.supported_color_modes == {light.ColorMode.ONOFF}
+        assert shared.is_on is False
+        assert all(registry.async_get(lens.entity_id) is None for lens in lenses)
+        assert registry.async_get(old.entity_id) is old
+        await shared.async_turn_on()
+        await shared.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/1/303/switchStatus",
+            "0/0/303/switchStatus",
+        ]
+        data["SWITCH"].pop(0)
+        assert shared.is_on is None
+        assert not shared.available
     finally:
         await coordinator.async_close()
 

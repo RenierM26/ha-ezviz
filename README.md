@@ -69,7 +69,8 @@ of the shared 30-second cloud poll; this is not a local-only integration.
   [replace the device-wide Alarm light](docs/upgrading.md#breaking-change-per-lens-alarm-lights-replace-the-device-wide-light)
   and do not support brightness. Cameras without per-lens alarm light controls keep
   the original light. An unavailable lens is never substituted with another one.
-  Per-lens write behavior depends on camera firmware.
+  The H9c reports separate lens rows but its lamps switch together, so it has
+  one shared on/off Alarm light.
 - The SD card status diagnostic uses reported disk telemetry from the account
   poll, distinguishing a reported empty slot from unavailable telemetry.
   Capacity remains a separate sensor. This does not add card formatting or

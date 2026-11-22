@@ -46,7 +46,10 @@ Update automations, scripts, scenes, dashboards, and external consumers that use
 the old `light.*` entity ID. Target **Lens 1 alarm light**, **Lens 2 alarm
 light**, or the appropriate group of lens lights instead. The new controls are
 on/off only: remove brightness arguments. References are not rewritten
-automatically. **Flicker light on movement** and other motion-triggered settings
+automatically. The H9c is an exception: its lamps switch together despite
+separate reported lens rows. It uses one device-wide on/off **Alarm light**;
+if you tested an earlier PR build, replace any references to its removed H9c
+lens lights with that shared light. **Flicker light on movement** and other motion-triggered settings
 are unchanged. Use a matching pre-upgrade backup if a rollback must restore
 registry customizations.
 

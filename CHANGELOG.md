@@ -5,7 +5,8 @@
 - **Breaking:** On cameras with per-lens alarm lights, replace the device-wide
   **Alarm light** with separate on/off lens controls. Update automations and
   dashboards to target the appropriate lens and remove brightness settings.
-  Other cameras keep their existing Alarm light. See the
+  The H9c keeps one shared on/off Alarm light because both lamps switch together.
+  See the
   [upgrade guide](docs/upgrading.md#breaking-change-per-lens-alarm-lights-replace-the-device-wide-light).
 - Add a read-only SD card status sensor that distinguishes an empty slot from
   unavailable telemetry.
