@@ -73,7 +73,7 @@ def _sd_card_status(data: dict[str, Any]) -> str | None:
     if count == 0 and set(state) == {"-"}:
         return "no_card"
     active = state.replace("-", "")
-    if count > 0 and len(active) == count and active.isascii() and active.isdigit():
+    if 0 < count == len(active) and active.isascii() and active.isdigit():
         return "normal" if set(active) == {"0"} else "other"
     return None
 

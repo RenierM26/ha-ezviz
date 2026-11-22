@@ -168,7 +168,7 @@ class EzvizWarningLight(EzvizEntity, LightEntity):
         """Bind the entity to the stable video route, not its inventory position."""
         super().__init__(coordinator, serial)
         self._channel = channel
-        self._attr_unique_id = f"{serial}_warning_light_channel_{channel.key}"
+        self._attr_unique_id = f"{serial}_warning_channel_{channel.key}"
         self._attr_translation_placeholders = {"channel": channel.local_index}
         self._attr_supported_color_modes = {ColorMode.ONOFF}
 

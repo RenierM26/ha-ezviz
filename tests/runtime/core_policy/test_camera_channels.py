@@ -1665,7 +1665,7 @@ async def test_lens_warning_light_discovery_and_write(
     coordinator.async_set_updated_data(coordinator.data)
     second = added[2]
     assert second.is_on is True
-    assert second.unique_id == "CAM001_warning_light_channel_Video_1:2"
+    assert second.unique_id == "CAM001_warning_channel_Video_1:2"
     try:
         await first.async_turn_on()
         await second.async_turn_off()
