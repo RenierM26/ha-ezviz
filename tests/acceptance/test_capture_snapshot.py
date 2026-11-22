@@ -7,7 +7,6 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 from PIL import Image as PILImage
 from pyezvizapi import DeviceSnapshot
 from pyezvizapi.devices.snapshot import CameraState, DeviceHealth
@@ -16,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ezviz_cloud import camera, coordinator, image, services
 from custom_components.ezviz_cloud.const import DOMAIN, SERVICE_CAPTURE_PICTURE
+from custom_components.ezviz_cloud.image import httpx
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import current_entry
 from homeassistant.core import SupportsResponse

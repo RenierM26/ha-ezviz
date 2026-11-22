@@ -11,13 +11,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from Crypto.Cipher import AES
-import httpx
 from PIL import Image
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 import pytest
 
 from custom_components.ezviz_cloud import light, siren, switch, views
-from custom_components.ezviz_cloud.image import EzvizLastMotion
+from custom_components.ezviz_cloud.image import EzvizLastMotion, httpx
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import EntityPlatform
 

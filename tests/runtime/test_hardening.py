@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import atomicwrites
-import httpx
 from PIL import Image as PILImage
 from pyezvizapi import DeviceSnapshot
 from pyezvizapi.devices import images as sdk_images
@@ -34,6 +33,7 @@ from custom_components.ezviz_cloud.const import (
     DOMAIN,
     REGION_EU,
 )
+from custom_components.ezviz_cloud.image import httpx
 from homeassistant.components.ffmpeg import DATA_FFMPEG
 from homeassistant.config_entries import SOURCE_USER, ConfigEntry, ConfigEntryState, current_entry
 from homeassistant.core import EVENT_HOMEASSISTANT_STOP, CoreState

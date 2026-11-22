@@ -253,7 +253,12 @@ class EzvizCamera(EzvizEntity, Camera):
             self.stream = None
             settings = stream.dynamic_stream_settings
             stream.dynamic_stream_settings = replace(settings, preload_stream=False)
+            outputs = stream.outputs()
             await stream.stop()
+            # Core drops the outputs without cancelling their idle timers. An
+            # old timer must not remove a replacement HLS output on this stream.
+            for output in outputs.values():
+                output.cleanup()
             if reuse:
                 stream.dynamic_stream_settings = settings
                 self._stopped_stream = stream
@@ -362,12 +367,28 @@ class EzvizCamera(EzvizEntity, Camera):
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return an RTSP frame or a verified cloud still for this lens."""
+        if self._removed or self.coordinator.shutting_down:
+            return None
         if self._channel_key is not None and not self.available:
             return None
         if rtsp_source := self._build_rtsp():
-            frame = await ffmpeg.async_get_image(
-                self.hass, rtsp_source, width=width, height=height
+            frame = await self.coordinator.async_image_download(
+                (self._serial, "rtsp_preview", rtsp_source, width, height),
+                partial(
+                    ffmpeg.async_get_image,
+                    self.hass,
+                    rtsp_source,
+                    width=width,
+                    height=height,
+                ),
             )
+            if (
+                self._removed
+                or self.coordinator.shutting_down
+                or (self._channel_key is not None and not self.available)
+                or rtsp_source != self._build_rtsp()
+            ):
+                return None
             # Keep the original camera's RTSP preview behavior when configured.
             if frame or self._channel_key is None:
                 return frame

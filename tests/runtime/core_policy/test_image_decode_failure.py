@@ -5,7 +5,7 @@ from threading import get_ident
 from unittest.mock import AsyncMock, patch
 
 from custom_components.ezviz_cloud import image
-import httpx
+from custom_components.ezviz_cloud.image import httpx
 from PIL import Image as PILImage
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 from pyezvizapi.exceptions import PyEzvizError

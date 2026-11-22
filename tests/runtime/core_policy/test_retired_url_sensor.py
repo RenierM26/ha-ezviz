@@ -10,8 +10,8 @@ import custom_components
 from custom_components.ezviz_cloud import image, sensor
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.coordinator import EzvizDataUpdateCoordinator
+from custom_components.ezviz_cloud.image import httpx
 from custom_components.ezviz_cloud.runtime import EzvizConfigEntry, RuntimeCleanup
-import httpx
 from PIL import Image as PILImage
 import pytest
 

@@ -1,8 +1,9 @@
 """Native HA channel targets, isolated captures, images, options and notifications."""
 
 import asyncio
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from io import BytesIO
 import json
@@ -28,7 +29,7 @@ from custom_components.ezviz_cloud.channels import (
 )
 from custom_components.ezviz_cloud.const import DOMAIN
 from custom_components.ezviz_cloud.coordinator import EzvizDataUpdateCoordinator
-import httpx
+from custom_components.ezviz_cloud.image import httpx
 from PIL import Image
 from pyezvizapi.devices.channels import camera_channels
 from pyezvizapi.devices.snapshot import CameraState, DeviceSnapshot
@@ -39,8 +40,12 @@ from homeassistant import loader
 from homeassistant.components.camera import CameraEntityFeature
 from homeassistant.components.camera.prefs import DynamicStreamSettings
 from homeassistant.components.media_source import Unresolvable
-from homeassistant.components.stream import Stream
-from homeassistant.components.stream.const import ATTR_SETTINGS, ATTR_STREAMS
+from homeassistant.components.stream import Stream, core as stream_core
+from homeassistant.components.stream.const import (
+    ATTR_SETTINGS,
+    ATTR_STREAMS,
+    HLS_PROVIDER,
+)
 from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -291,10 +296,11 @@ async def test_lens_stream_is_explicit_and_does_not_replace_primary(
     await coordinator.async_close()
 
 
+@pytest.mark.parametrize("preload", [False, True])
 async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, preload: bool
 ) -> None:
-    """A queued viewer cannot open a stale lens, and a lost route stops its worker."""
+    """Stop the worker and cancel old HLS timers before reusing the stream."""
     coordinator, _, _ = dual(hass, monkeypatch)
     entry = coordinator.config_entry
     hass.config_entries.async_update_entry(
@@ -314,7 +320,15 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         ATTR_STREAMS: streams,
     }
     requesting_prefs, release_prefs = asyncio.Event(), asyncio.Event()
-    prefs = DynamicStreamSettings(preload_stream=True)
+    prefs = DynamicStreamSettings(preload_stream=preload)
+    idle_handles: list[asyncio.TimerHandle] = []
+
+    def schedule_idle(
+        _hass: HomeAssistant, delay: float, action: Callable[[datetime], None]
+    ) -> Callable[[], None]:
+        handle = hass.loop.call_later(delay, action, datetime.now(UTC))
+        idle_handles.append(handle)
+        return handle.cancel
 
     async def get_prefs(_hass: HomeAssistant, _entity_id: str) -> DynamicStreamSettings:
         requesting_prefs.set()
@@ -327,6 +341,7 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
     camera_module = import_module(camera.Camera.__module__)
     monkeypatch.setattr(camera_module, "get_dynamic_camera_stream_settings", get_prefs)
     monkeypatch.setattr(Stream, "_run_worker", run_worker)
+    monkeypatch.setattr(stream_core, "async_call_later", schedule_idle)
     try:
         async with target._stream_lifecycle_lock:
             request = asyncio.create_task(target.async_create_stream())
@@ -350,7 +365,11 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         rows = coordinator.data["CAM001"]["resourceInfos"]
         for last_octet in (2, 3, 4):
             assert await target.async_create_stream() is original
-            assert original.dynamic_stream_settings is prefs and prefs.preload_stream
+            assert original.dynamic_stream_settings is prefs
+            output = original.add_provider(HLS_PROVIDER)
+            output.idle_timer.start()
+            idle_handle = idle_handles[-1]
+            assert not idle_handle.cancelled()
             await original.start()
             worker = original._thread
             assert worker is not None and worker.is_alive()
@@ -368,6 +387,8 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
             assert await target.async_create_stream() is original
             assert original.source.endswith(f"192.0.2.{last_octet}:554/second")
             assert streams == [original]
+            assert idle_handle.cancelled()
+            assert HLS_PROVIDER not in original.outputs()
     finally:
         release_prefs.set()
         await platform.async_reset()
@@ -379,6 +400,134 @@ def jpeg(color: str) -> bytes:
     with BytesIO() as output, Image.new("RGB", (8, 8), color) as frame:
         frame.save(output, format="JPEG")
         return output.getvalue()
+
+
+type RtspLens = tuple[EzvizDataUpdateCoordinator, camera.EzvizChannelCamera]
+
+
+@pytest.fixture
+async def rtsp_lens(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[RtspLens]:
+    """An additional lens with a configured RTSP route."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={
+            "cameras": {"CAM001": {CONF_LENS_RTSP_PATHS: {"Video_1:2": "/second"}}}
+        },
+    )
+    channel = camera_channels(coordinator.data["CAM001"])[1]
+    target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    try:
+        yield coordinator, target
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("change", ["missing", "unhealthy", "new_source"])
+async def test_rtsp_preview_discards_frames_from_a_stale_lens(
+    rtsp_lens: RtspLens, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """A frame already being grabbed must not outlive its route or lens health."""
+    coordinator, target = rtsp_lens
+    frame = jpeg("blue")
+
+    async def grab(*_args: object, **_kwargs: object) -> bytes:
+        if change == "missing":
+            coordinator.data["CAM001"]["resourceInfos"].pop()
+        elif change == "unhealthy":
+            coordinator.last_update_success = False
+        else:
+            coordinator.data["CAM001"]["local_ip"] = "192.0.2.20"
+        return frame
+
+    monkeypatch.setattr(camera.ffmpeg, "async_get_image", grab)
+    assert await target.async_camera_image() is None
+
+
+async def test_concurrent_rtsp_previews_share_only_matching_frame_grabs(
+    rtsp_lens: RtspLens, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled viewer does not cancel a shared grab or cache a stale frame."""
+    _, target = rtsp_lens
+    frame = jpeg("blue")
+    first_started = asyncio.Event()
+    resized_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def grab(
+        _hass: HomeAssistant, _source: str, *, width: int, height: int
+    ) -> bytes:
+        if (width, height) == (320, 240):
+            first_started.set()
+        else:
+            resized_started.set()
+        await release.wait()
+        return frame
+
+    ffmpeg_image = AsyncMock(side_effect=grab)
+    monkeypatch.setattr(camera.ffmpeg, "async_get_image", ffmpeg_image)
+    first = asyncio.create_task(target.async_camera_image(320, 240))
+    tasks = [first]
+    try:
+        async with asyncio.timeout(2):
+            await first_started.wait()
+            second = asyncio.create_task(target.async_camera_image(320, 240))
+            resized = asyncio.create_task(target.async_camera_image(640, 480))
+            tasks.extend((second, resized))
+            await resized_started.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert ffmpeg_image.await_count == 2
+        release.set()
+        assert await asyncio.gather(second, resized) == [frame, frame]
+        assert await target.async_camera_image(320, 240) == frame
+        assert ffmpeg_image.await_count == 3
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def test_malformed_cloud_url_falls_through_to_alternate_lens_still(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An invalid preferred URL cannot block the next verified still."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    valid_url = "https://images.example.invalid/poll"
+    malformed_url = "https://images.example.invalid:bad/push"
+    coordinator.inventory_data["CAM001"]["last_alarm_pic"] = valid_url
+    coordinator.inventory_data["CAM001"].pop("last_alarm_time", None)
+    coordinator.merge_mqtt_update(
+        "CAM001", {"ext": {"channel_type": 1, "channel_no": 2, "image": malformed_url}}
+    )
+    channel = camera_channels(coordinator.data["CAM001"])[1]
+    target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
+    body = jpeg("blue")
+    payload = (
+        b"mutichhikpic\x81\xfe"
+        + pack(">HHII", 2, 0xCAFE, 4 + len(body), len(body))
+        + body
+    )
+
+    async def get(url: str, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        assert url == valid_url
+        return httpx.Response(200, content=payload, request=request)
+
+    mock_get = AsyncMock(side_effect=get)
+    monkeypatch.setattr(
+        image, "get_async_client", lambda _hass: SimpleNamespace(get=mock_get)
+    )
+    try:
+        assert await target.async_camera_image() == body
+        assert [call.args[0] for call in mock_get.await_args_list] == [
+            malformed_url,
+            valid_url,
+        ]
+    finally:
+        await coordinator.async_close()
 
 
 @pytest.mark.parametrize("multi_lens", [False, True])

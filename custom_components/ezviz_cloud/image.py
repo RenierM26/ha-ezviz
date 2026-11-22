@@ -5,10 +5,8 @@ from collections.abc import Mapping
 from functools import partial
 from io import BytesIO
 import logging
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
-# Supported HA image clients still use httpx, not httpx2.
-import httpx  # noqa: TID251
 from PIL import Image as PilImage
 from propcache.api import cached_property
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
@@ -33,6 +31,7 @@ from homeassistant.components.image import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import httpx_client
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.httpx_client import get_async_client
@@ -49,6 +48,12 @@ from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
 from .workers import create_critical_task
+
+if TYPE_CHECKING:
+    import httpx2 as httpx
+else:
+    # Match the transport HA actually uses: 2026.10 uses httpx, 2026.11 uses httpx2.
+    httpx = vars(httpx_client).get("httpx2") or vars(httpx_client)["httpx"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -195,7 +200,7 @@ async def async_channel_image(
                     channel if known_source else None,
                 )
             )
-        except httpx.HTTPError, ValueError, PyEzvizError:
+        except httpx.HTTPError, httpx.InvalidURL, ValueError, PyEzvizError:
             return {}, False
 
     try:
