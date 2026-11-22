@@ -2,6 +2,7 @@
 
 import asyncio
 from io import BytesIO
+from pathlib import Path
 import socket
 from threading import Event
 from unittest.mock import AsyncMock, Mock
@@ -28,7 +29,7 @@ from homeassistant.components.camera.prefs import (
     CameraPreferences,
     DynamicStreamSettings,
 )
-from homeassistant.components.stream import create_stream
+from homeassistant.components.stream import Stream, create_stream
 from homeassistant.components.stream.const import (
     ATTR_SETTINGS,
     ATTR_STREAMS,
@@ -247,6 +248,71 @@ async def test_cloud_stream_lifecycle(
                 assert closed.is_set()
     finally:
         closed.set()
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
+async def test_cloud_primary_channel_zero_is_provisional(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Move the primary to channel 1 rather than sharing the new secondary."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={OPTIONS_KEY_CAMERAS: {"CAM001": {CONF_STREAM_SOURCE: "cloud_main"}}},
+    )
+    device = coordinator.data["CAM001"]
+    zero = {"resourceIdentifier": "Video", "localIndex": 0}
+    one = {"resourceIdentifier": "Video", "localIndex": 1}
+    device["resourceInfos"] = [zero]
+    primary = camera.EzvizCamera(hass, coordinator, "CAM001", "", "", None)
+    try:
+        assert primary._cloud_route() == cloud_stream.CloudStreamRoute(0, 1, None)
+
+        device["resourceInfos"] = [zero, one]
+        zero_channel = next(ch for ch in camera_channels(device) if ch.channel_no == 0)
+        secondary = camera.EzvizChannelCamera(hass, coordinator, "CAM001", zero_channel)
+        assert primary._cloud_route() == cloud_stream.CloudStreamRoute(1, 1, None)
+        assert secondary._cloud_route() == cloud_stream.CloudStreamRoute(0, 1, None)
+
+        device["resourceInfos"] = [zero]
+        assert primary._cloud_route() is None
+    finally:
+        await coordinator.async_close()
+
+
+async def test_cold_cloud_recording_expires_and_can_retry(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A cold recorder releases its provider without arming its duration timer."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={OPTIONS_KEY_CAMERAS: {"CAM001": {CONF_STREAM_SOURCE: "cloud_main"}}},
+    )
+    target = camera.EzvizCamera(hass, coordinator, "CAM001", "", "", None)
+    hass.config.components.add("stream")
+    hass.config.allowlist_external_dirs.add(str(tmp_path))
+    hass.data[DATA_CAMERA_PREFS] = CameraPreferences(hass)
+    await hass.data[DATA_CAMERA_PREFS].async_load()
+    hass.data["stream"] = {ATTR_SETTINGS: STREAM_SETTINGS_NON_LL_HLS, ATTR_STREAMS: []}
+    monkeypatch.setattr(camera, "CLOUD_RECORDING_STARTUP_TIMEOUT", 0.05)
+
+    def run_worker(stream: Stream) -> None:
+        stream._thread_quit.wait()
+
+    monkeypatch.setattr(Stream, "_run_worker", run_worker)
+    platform = await add(hass, target, "camera")
+    try:
+        for _ in range(2):
+            stream = await target.async_create_stream()
+            assert stream is not None
+            async with asyncio.timeout(2):
+                await stream.async_record(str(tmp_path / "cold.mp4"), duration=60)
+                await hass.async_block_till_done(wait_background_tasks=True)
+            assert not stream.outputs()
+            assert stream._thread is None
+    finally:
         await platform.async_reset()
         await coordinator.async_close()
 

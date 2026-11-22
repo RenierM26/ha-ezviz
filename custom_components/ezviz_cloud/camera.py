@@ -17,6 +17,7 @@ from io import BytesIO
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
+from weakref import WeakSet
 
 from PIL import Image
 from pyezvizapi.devices.channels import (
@@ -38,7 +39,9 @@ from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import (
     CONF_USE_WALLCLOCK_AS_TIMESTAMPS,
     HLS_PROVIDER,
+    RECORDER_PROVIDER,
     Stream,
+    StreamOutput,
     create_stream,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STOP
@@ -82,6 +85,7 @@ _LOGGER = logging.getLogger(__name__)
 # HA gives a camera image request 10 seconds. Reserve most of it for a cloud still.
 RTSP_PREVIEW_TIMEOUT = 4
 STREAM_STOP_REASSERT_INTERVAL = 0.05
+CLOUD_RECORDING_STARTUP_TIMEOUT = 30
 
 
 def _preview_jpeg(body: bytes) -> bytes | None:
@@ -200,7 +204,8 @@ class EzvizCamera(EzvizEntity, Camera):
         self._cloud_stream_index = CLOUD_STREAM_INDEXES.get(
             options.get(CONF_STREAM_SOURCE, "")
         )
-        self._cloud_primary_channel: int | None = None
+        self._cloud_primary_seen = False
+        self._watched_recorders: WeakSet[StreamOutput] = WeakSet()
         self._cloud_relay = (
             CloudStreamRelay(
                 hass,
@@ -226,19 +231,19 @@ class EzvizCamera(EzvizEntity, Camera):
             return None
         if self._channel_key is None:
             numbers = reported_video_channel_numbers(self.data)
-            if self._cloud_primary_channel is None:
-                # The ordinary entity is lens 1, except on a legacy camera
-                # that reports only channel 0. Never promote a surviving sibling.
-                if 1 in numbers:
-                    self._cloud_primary_channel = 1
-                elif numbers == (0,):
-                    entry = self.coordinator.config_entry
-                    if entry is None or self._serial not in registered_lens_serials(
-                        self.coordinator, entry
-                    ):
-                        self._cloud_primary_channel = 0
-            channel = self._cloud_primary_channel
-            if channel is None or channel not in numbers:
+            if 1 in numbers:
+                self._cloud_primary_seen = True
+                channel = 1
+            elif numbers == (0,) and not self._cloud_primary_seen:
+                # Channel 0 is provisional until we see lens 1 or know that
+                # the device already has a separately registered lens.
+                entry = self.coordinator.config_entry
+                if entry is not None and self._serial in registered_lens_serials(
+                    self.coordinator, entry
+                ):
+                    return None
+                channel = 0
+            else:
                 return None
         else:
             try:
@@ -256,13 +261,44 @@ class EzvizCamera(EzvizEntity, Camera):
 
     @callback
     def _arm_cloud_startup_timeout(self) -> None:
-        """Start Core's HLS idle timer even when no segment arrives."""
-        if (
-            stream := self.stream
-        ) is None or stream.dynamic_stream_settings.preload_stream:
+        """Bound cloud startup even when no segment arrives."""
+        if (stream := self.stream) is None:
             return
-        if (output := stream.outputs().get(HLS_PROVIDER)) is not None:
+        if (
+            not stream.dynamic_stream_settings.preload_stream
+            and (output := stream.outputs().get(HLS_PROVIDER)) is not None
+        ):
             output.idle_timer.start()
+        self._arm_cloud_recorder_timeout(stream)
+
+    @callback
+    def _arm_cloud_recorder_timeout(self, stream: Stream) -> None:
+        """Watch for the first recording segment without starting its duration."""
+        if (
+            self.stream is stream
+            and (recorder := stream.outputs().get(RECORDER_PROVIDER)) is not None
+            and recorder not in self._watched_recorders
+        ):
+            self._watched_recorders.add(recorder)
+            if recorder.last_segment is None:
+                self.hass.async_create_background_task(
+                    self._async_bound_recorder_startup(stream, recorder),
+                    "EZVIZ cloud recording startup",
+                )
+
+    async def _async_bound_recorder_startup(
+        self, stream: Stream, recorder: StreamOutput
+    ) -> None:
+        try:
+            async with asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT):
+                if recorder.last_segment is None:
+                    await recorder.recv()
+        except TimeoutError:
+            if (
+                stream.outputs().get(RECORDER_PROVIDER) is recorder
+                and recorder.last_segment is None
+            ):
+                await stream.remove_provider(recorder)
 
     async def _async_create_cloud_stream(
         self, relay: CloudStreamRelay
@@ -285,6 +321,9 @@ class EzvizCamera(EzvizEntity, Camera):
                 stream_label=self.entity_id,
             )
             self.stream.set_update_callback(self.async_write_ha_state)
+        # Core's record service adds its output immediately after obtaining the
+        # stream, including when it joins an already-open relay connection.
+        self.hass.loop.call_soon(self._arm_cloud_recorder_timeout, self.stream)
         return self.stream
 
     def _build_rtsp(self) -> str:
