@@ -1,6 +1,7 @@
 """Qualify opt-in cloud playback without authenticating or accessing cameras."""
 
 import asyncio
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 import socket
@@ -35,8 +36,9 @@ from homeassistant.components.stream.const import (
     ATTR_STREAMS,
     HLS_PROVIDER,
 )
-from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS
+from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS, Segment
 from homeassistant.components.stream.hls import HlsMasterPlaylistView, HlsSegmentView
+from homeassistant.components.stream.recorder import RecorderOutput
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
@@ -310,9 +312,9 @@ async def test_cloud_primary_remembers_inventory_before_playback(
         await coordinator.async_close()
 
 
-@pytest.mark.parametrize("preload", [False, True])
+@pytest.mark.parametrize("startup", ["recorder_only", "empty_hls", "hls_lookback"])
 async def test_cold_cloud_recording_expires_and_can_retry(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, preload: bool
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, startup: str
 ) -> None:
     """A cold recorder releases its provider without arming its duration timer."""
     coordinator, _, _ = dual(hass, monkeypatch)
@@ -337,16 +339,36 @@ async def test_cold_cloud_recording_expires_and_can_retry(
         stream = await target.async_create_stream()
         assert stream is not None
         expected = {}
-        if preload:
+        if startup != "recorder_only":
             stream.dynamic_stream_settings = DynamicStreamSettings(preload_stream=True)
             expected[HLS_PROVIDER] = stream.add_provider(HLS_PROVIDER)
             await stream.start()
+        lookback_seen = asyncio.Event()
+
+        async def record_lookback(recorder: RecorderOutput) -> None:
+            assert recorder.last_segment is not None
+            lookback_seen.set()
+            await recorder.recv()
+
+        if startup == "hls_lookback":
+            monkeypatch.setattr(RecorderOutput, "async_record", record_lookback)
+
         for _ in range(2):
+            if startup == "hls_lookback":
+                lookback_seen.clear()
+                hls = expected[HLS_PROVIDER]
+                # Publish HLS history and wake Core's lookback wait, but never
+                # publish a fresh segment to the recorder itself.
+                for sequence in range(2):
+                    segment = Segment(sequence, b"", 0, datetime.now(UTC), ())
+                    hass.loop.call_soon(hls._async_put, segment)
             async with asyncio.timeout(2):
                 with pytest.raises(HomeAssistantError, match="recording did not start"):
                     await stream.async_record(str(tmp_path / "cold.mp4"), duration=60)
+            if startup == "hls_lookback":
+                assert lookback_seen.is_set()
             assert stream.outputs() == expected
-            if preload:
+            if startup != "recorder_only":
                 assert stream._thread is not None and stream._thread.is_alive()
             else:
                 assert stream._thread is None

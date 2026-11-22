@@ -299,12 +299,16 @@ class EzvizCamera(EzvizEntity, Camera):
             deadline = asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT)
 
             async def wait_for_startup() -> None:
-                if hls is not None:
-                    await hls.recv()
-                if recorder.last_segment is None:
-                    await recorder.recv()
-                if not deadline.expired():
-                    deadline.reschedule(None)
+                # Subscribe before waiting for HLS. Lookback is prepended to
+                # the recorder queue without signaling a fresh segment.
+                fresh_segment = asyncio.create_task(recorder.recv(), eager_start=True)
+                try:
+                    if hls is not None:
+                        await hls.recv()
+                    if await fresh_segment and not deadline.expired():
+                        deadline.reschedule(None)
+                finally:
+                    fresh_segment.cancel()
 
             try:
                 async with deadline:
