@@ -388,10 +388,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     def _show_delivery(self, error: str | None = None) -> ConfigFlowResult:
         channels = self._verification_channels
         selected = self._verification_channel
-        options = [
-            {"value": CHANNEL_NAMES[channel], "label": CHANNEL_NAMES[channel]}
-            for channel in channels
-        ]
+        options = [CHANNEL_NAMES[channel] for channel in channels]
         schema: dict[Any, Any] = {
             probatio.Required(
                 "method",
