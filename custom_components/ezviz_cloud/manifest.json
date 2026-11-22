@@ -8,6 +8,6 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/RenierM26/ha-ezviz/issues",
   "loggers": ["paho_mqtt", "pyezvizapi"],
-  "requirements": ["pyezvizapi>=2.6.0"],
+  "requirements": ["pyezvizapi @ https://github.com/RenierM26/pyEzvizApi/archive/963437107d5879bb3a0e999e3a410add8f4445d1.tar.gz"],
   "version": "0.3.0"
 }

@@ -36,7 +36,6 @@ class CloudStreamRoute:
     channel: int
     stream_index: int
     media_key: str | None = field(repr=False)
-    nalu_header_size: int = 2
 
 
 class CloudStreamRelay:
@@ -114,7 +113,6 @@ class CloudStreamRelay:
                 channel=route.channel,
                 ffmpeg_path=self._ffmpeg_binary,
                 media_key=route.media_key,
-                nalu_header_size=route.nalu_header_size,
                 cloud_stream_index=route.stream_index,
             )
         except PyEzvizError, OSError, ValueError:
