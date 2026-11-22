@@ -366,15 +366,15 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             self._invalidate_image()
 
     def _sync_image_url(self) -> None:
-        """Follow the last alarm picture reported by the cloud."""
+        """Follow the cloud alarm timestamp without refetching unchanged URLs."""
         if self.data["last_alarm_pic"] != self._attr_image_url:
             _LOGGER.debug("Image URL changed for %s", self.entity_id)
 
             self._attr_image_url = self.data["last_alarm_pic"]
             self._invalidate_image()
-            self._attr_image_last_updated = dt_util.parse_datetime(
-                str(self.data["last_alarm_time"])
-            )
+        self._attr_image_last_updated = dt_util.parse_datetime(
+            str(self.data["last_alarm_time"])
+        )
 
 
 class EzvizSnapshot(EzvizLastMotion):

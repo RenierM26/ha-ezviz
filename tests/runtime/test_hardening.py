@@ -235,6 +235,25 @@ async def test_cancelled_image_cpu_work_remains_owned_until_http_close(hass, mon
     assert snap._cached_image is None
 
 
+async def test_last_motion_timestamp_advances_when_alarm_url_repeats(hass, monkeypatch):
+    _, _, data, _, snapshot, alarm = entities(hass)
+    fetch = AsyncMock(return_value=httpx.Response(200, content=b"cached image"))
+    monkeypatch.setattr(alarm, "_fetch_url", fetch)
+    try:
+        assert alarm.image_last_updated == datetime(2026, 11, 8, 12, tzinfo=UTC)
+        assert await alarm.async_image() == b"cached image"
+        data.data["CAM001"]["last_alarm_time"] = "2026-11-08T12:01:00+00:00"
+        alarm._handle_coordinator_update()
+        snapshot._handle_coordinator_update()
+
+        assert alarm.image_last_updated == datetime(2026, 11, 8, 12, 1, tzinfo=UTC)
+        assert snapshot.image_last_updated is None
+        assert await alarm.async_image() == b"cached image"
+        fetch.assert_awaited_once()
+    finally:
+        await data.async_close()
+
+
 async def test_last_motion_generation_discards_older_alarm_download(hass, monkeypatch):
     _, _, data, _, _, alarm = entities(hass)
     entered, release = asyncio.Event(), asyncio.Event()
