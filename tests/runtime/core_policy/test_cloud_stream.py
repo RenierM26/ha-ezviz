@@ -117,9 +117,14 @@ async def test_playback_option_preserves_rtsp_settings(
         await coordinator.async_close()
 
 
-@pytest.mark.parametrize("lens_index", [0, 1, 2])
+@pytest.mark.parametrize(
+    ("lens_index", "legacy_headers"), [(0, False), (1, False), (2, False), (1, True)]
+)
 async def test_cloud_stream_lifecycle(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, lens_index: int
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    lens_index: int,
+    legacy_headers: bool,
 ) -> None:
     """Core owns HLS while the loopback connection owns the exact SDK reader."""
     coordinator, legacy, _ = dual(hass, monkeypatch)
@@ -129,7 +134,9 @@ async def test_cloud_stream_lifecycle(
         options={
             OPTIONS_KEY_CAMERAS: {
                 "CAM001": {
-                    CONF_STREAM_SOURCE: "cloud_standard",
+                    CONF_STREAM_SOURCE: (
+                        "cloud_main" if legacy_headers else "cloud_standard"
+                    ),
                     CONF_ENC_KEY: "synthetic-media-key",
                     CONF_RTSP_STREAM_PATH: None,
                 }
@@ -137,6 +144,10 @@ async def test_cloud_stream_lifecycle(
         },
     )
     coordinator.data["CAM001"]["encrypted"] = True
+    if legacy_headers:
+        coordinator.data["CAM001"]["deviceInfos"] = {
+            "deviceType": "CS-BC1C-B0-2C2WPBDL"
+        }
     if lens_index == 0:
         coordinator.data["CAM001"]["resourceInfos"] = [
             {"resourceIdentifier": "Video", "localIndex": 0}
@@ -178,6 +189,7 @@ async def test_cloud_stream_lifecycle(
         channel: int,
         ffmpeg_path: str,
         media_key: str | None,
+        nalu_header_size: int,
         cloud_stream_index: int,
     ) -> Reader:
         assert client is not coordinator.ezviz_client
@@ -186,8 +198,9 @@ async def test_cloud_stream_lifecycle(
         assert channel == lens_index
         assert source.mode == "cloud"
         assert ffmpeg_path
-        assert cloud_stream_index == 2
+        assert cloud_stream_index == (1 if legacy_headers else 2)
         assert media_key == "synthetic-media-key"
+        assert nalu_header_size == (0 if legacy_headers else 2)
         readers.append(Reader())
         return readers[-1]
 
