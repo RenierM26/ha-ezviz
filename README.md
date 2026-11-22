@@ -69,8 +69,17 @@ of the shared 30-second cloud poll; this is not a local-only integration.
   poll, distinguishing a reported empty slot from unavailable telemetry.
   Capacity remains a separate sensor. This does not add card formatting or
   local recording playback.
-- Camera options select local RTSP credentials and path. This work adds no new
-  streaming protocol or universal battery-camera RTSP support.
+- Camera options select local RTSP credentials and paths. To try experimental
+  **EZVIZ cloud live view**, open **Configure → Cameras → [camera] → Live playback
+  source** and pick **Main** or **Standard** (cloud substream, where supported).
+  The choice applies to all reported lenses of that camera, each using its own
+  channel. Local RTSP remains the default; switching back restores the existing
+  RTSP paths and credentials. Stills and controls do not switch routes.
+  Cloud live view uses HA's HLS player (not WebRTC), needs FFmpeg and cloud
+  access, and may fail on unsupported models, sharing permissions, or encrypted
+  formats. Encrypted cameras need a saved camera encryption key. Keep HA camera
+  stream preloading off for on-demand playback, especially on battery devices.
+  There is no automatic fallback between local, cloud, or quality levels.
 - Opt-in [local RTSP service control](docs/local-rtsp.md) reads and changes the
   service configuration over TCP 8000 on supported non-battery cameras. A shared
   Camera settings dropdown selects the existing sticker code or encryption key

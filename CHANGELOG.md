@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add experimental, per-camera EZVIZ cloud live view with Main and Standard
+  quality via Home Assistant HLS. Local RTSP remains the default; saved paths,
+  camera identities, stills and controls are unchanged.
+
 - Read device-wide **Alarm light** state without using sibling lens switch rows.
   Only cameras advertising alarm-light support expose the control. Existing
   light identities and brightness support remain unchanged.

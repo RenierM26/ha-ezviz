@@ -23,15 +23,24 @@ from pyezvizapi.devices.channels import (
     CameraChannel,
     camera_channels,
     capture_channel_number,
+    reported_video_channel_numbers,
     resolve_camera_channel,
 )
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityFeature,
+    get_dynamic_camera_stream_settings,
+)
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
-from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.components.stream import (
+    CONF_USE_WALLCLOCK_AS_TIMESTAMPS,
+    Stream,
+    create_stream,
+)
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -46,10 +55,13 @@ from .channels import (
     lens_stream_path,
     reported_lens_channels,
 )
+from .cloud_stream import CloudStreamRelay, CloudStreamRoute
 from .const import (
+    CLOUD_STREAM_INDEXES,
     CONF_ENC_KEY,
     CONF_RTSP_STREAM_PATH,
     CONF_RTSP_USES_VERIFICATION_CODE,
+    CONF_STREAM_SOURCE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_RTSP_STREAM_PATH,
     DOMAIN,
@@ -108,7 +120,7 @@ async def async_setup_entry(
             # Be lenient: if users saved path without leading slash, add it.
             rtsp_path = "/" + rtsp_path
 
-        if not password:
+        if not password and per_cam.get(CONF_STREAM_SOURCE) not in CLOUD_STREAM_INDEXES:
             _LOGGER.warning(
                 "Camera %s missing RTSP password%s; stream may be unavailable until provided",
                 serial,
@@ -179,7 +191,84 @@ class EzvizCamera(EzvizEntity, Camera):
             self._attr_name = None
         self._stream_lifecycle_lock = asyncio.Lock()
         self._removed = False
+        entry = coordinator.config_entry
+        options = (
+            entry.options.get(OPTIONS_KEY_CAMERAS, {}).get(serial, {}) if entry else {}
+        )
+        self._cloud_stream_index = CLOUD_STREAM_INDEXES.get(
+            options.get(CONF_STREAM_SOURCE, "")
+        )
+        self._cloud_primary_channel: int | None = None
+        self._cloud_relay = (
+            CloudStreamRelay(
+                hass,
+                coordinator.ezviz_client,
+                serial,
+                self._ffmpeg.binary,
+                self._cloud_route,
+            )
+            if self._cloud_stream_index is not None
+            else None
+        )
         self._rtsp_stream: str = self._build_rtsp()
+
+    def _cloud_route(self) -> CloudStreamRoute | None:
+        """Read the exact lens and credential at admission, not at option save."""
+        if (
+            self._cloud_stream_index is None
+            or self._removed
+            or not device_available(self.coordinator, self._serial)
+            or self.coordinator.shutting_down
+        ):
+            return None
+        if self._channel_key is None:
+            numbers = reported_video_channel_numbers(self.data)
+            if self._cloud_primary_channel is None:
+                # The ordinary entity is lens 1, except on a legacy camera
+                # that reports only channel 0. Never promote a surviving sibling.
+                if 1 in numbers:
+                    self._cloud_primary_channel = 1
+                elif numbers == (0,):
+                    self._cloud_primary_channel = 0
+            channel = self._cloud_primary_channel
+            if channel is None or channel not in numbers:
+                return None
+        else:
+            try:
+                channel = resolve_camera_channel(
+                    self.data, self._channel_key
+                ).channel_no
+            except PyEzvizError:
+                return None
+        media_key = None
+        if self.data.get("encrypted"):
+            media_key = self.coordinator.credentials.key(self._serial)
+            if not media_key:
+                return None
+        return CloudStreamRoute(channel, self._cloud_stream_index, media_key)
+
+    async def _async_create_cloud_stream(
+        self, relay: CloudStreamRelay
+    ) -> Stream | None:
+        """Use the Core HLS worker without publishing a WebRTC source URL."""
+        if self._cloud_route() is None:
+            return None
+        if self.stream is None:
+            settings = await get_dynamic_camera_stream_settings(
+                self.hass, self.entity_id
+            )
+            source = await relay.async_start()
+            if self._cloud_route() is None:
+                return None
+            self.stream = create_stream(
+                self.hass,
+                source,
+                options={},
+                dynamic_stream_settings=settings,
+                stream_label=self.entity_id,
+            )
+            self.stream.set_update_callback(self.async_write_ha_state)
+        return self.stream
 
     def _build_rtsp(self) -> str:
         """Build an RTSP URL from coordinator data and per-camera credentials.
@@ -229,6 +318,12 @@ class EzvizCamera(EzvizEntity, Camera):
         """Refresh the source when added or re-added after an options reload."""
         self._removed = False
         await super().async_added_to_hass()
+        if self._cloud_relay is not None:
+            self.async_on_remove(
+                self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STOP, self._async_stop_cloud_on_shutdown
+                )
+            )
         # OptionsFlowWithReload owns form changes; entry update listeners are
         # incompatible with it. Credential actions notify the coordinator after
         # committing, so they still update an existing stream without a reload.
@@ -238,6 +333,9 @@ class EzvizCamera(EzvizEntity, Camera):
     def _refresh_stream_source(self) -> None:
         """Restart an existing stream only when its selected source changes."""
         if self._removed or self.coordinator.shutting_down:
+            return
+        if self._cloud_relay is not None:
+            self._cloud_relay.async_invalidate()
             return
         source = self._build_rtsp()
         if source != self._rtsp_stream:
@@ -281,6 +379,9 @@ class EzvizCamera(EzvizEntity, Camera):
             stream.dynamic_stream_settings = replace(settings, preload_stream=False)
             outputs = stream.outputs()
             await self._async_stop_stream_worker(stream)
+            if self._cloud_relay is not None:
+                # Core retains stopped Stream objects until HA shutdown.
+                stream.set_update_callback(lambda: None)
             # Core drops the outputs without cancelling their idle timers. An
             # old timer must not remove a replacement HLS output on this stream.
             for output in outputs.values():
@@ -322,12 +423,21 @@ class EzvizCamera(EzvizEntity, Camera):
     @override
     async def async_will_remove_from_hass(self) -> None:
         """Fence queued updates before stopping the owned stream."""
+        await self._async_remove_stream()
+        await super().async_will_remove_from_hass()
+
+    async def _async_stop_cloud_on_shutdown(self, _event: Any) -> None:
+        """Release the private listener even when HA stops without unloading."""
+        await self._async_remove_stream()
+
+    async def _async_remove_stream(self) -> None:
         self._removed = True
         async with self._stream_lifecycle_lock:
             await self._async_wait_for_stream_teardown()
+            if self._cloud_relay is not None:
+                await self._cloud_relay.async_stop()
             self._stopped_stream = None
             await self._async_stop_stream()
-        await super().async_will_remove_from_hass()
 
     @override
     async def async_create_stream(self) -> Stream | None:
@@ -336,6 +446,8 @@ class EzvizCamera(EzvizEntity, Camera):
             await self._async_wait_for_stream_teardown()
             if self._removed or self.coordinator.shutting_down:
                 return None
+            if self._cloud_relay is not None:
+                return await self._async_create_cloud_stream(self._cloud_relay)
             # Only additional lenses require current cloud health; the RTSP
             # builder below verifies the exact route as well as the path.
             if self._channel_key is not None and not device_available(
@@ -409,7 +521,9 @@ class EzvizCamera(EzvizEntity, Camera):
     def supported_features(self) -> CameraEntityFeature:
         """Advertise streaming only when this camera has a source."""
         return (
-            CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
+            CameraEntityFeature.STREAM
+            if self._cloud_relay is not None or self._build_rtsp()
+            else CameraEntityFeature(0)
         )
 
     @override
@@ -503,8 +617,10 @@ class EzvizCamera(EzvizEntity, Camera):
         return await asyncio.shield(task)
 
     @override
-    async def stream_source(self) -> str:
-        """Return the RTSP stream source for HA's stream component."""
+    async def stream_source(self) -> str | None:
+        """Return a shareable source only for the existing RTSP route."""
+        if self._cloud_relay is not None:
+            return None
         _LOGGER.debug(
             "Configuring Camera %s with ip: %s rtsp port: %s path: %s",
             self._serial,

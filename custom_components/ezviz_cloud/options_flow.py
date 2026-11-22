@@ -34,14 +34,17 @@ from .camera_flow import (
 from .channel_flow import async_edit_stream, async_select_stream
 from .const import (
     ATTR_SERIAL,
+    CLOUD_STREAM_INDEXES,
     CONF_CAM_ENC_2FA_CODE,
     CONF_CAM_VERIFICATION_2FA_CODE,
     CONF_ENC_KEY,
     CONF_RTSP_USES_VERIFICATION_CODE,
+    CONF_STREAM_SOURCE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
     DEFAULT_TIMEOUT,
     OPTIONS_KEY_CAMERAS,
+    STREAM_SOURCE_RTSP,
 )
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 from .flow_validation import validate_timeout
@@ -91,7 +94,56 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Separate shared settings from lens quality without repeating camera selection."""
         return self.async_show_menu(
-            step_id="camera_menu", menu_options=["camera_edit", "lens_streams"]
+            step_id="camera_menu",
+            menu_options=["camera_edit", "lens_streams", "playback_source"],
+        )
+
+    async def async_step_playback_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select live playback independently of saved RTSP paths and credentials."""
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        if runtime is None or runtime.coordinator.shutting_down:
+            return self.async_abort(reason="integration_unavailable")
+        if self._cam_serial not in self.coordinator.data:
+            return self.async_abort(reason="no_cameras")
+
+        sources = (STREAM_SOURCE_RTSP, *CLOUD_STREAM_INDEXES)
+        errors = {}
+        if user_input is not None:
+            try:
+                options = build_camera_options(
+                    self.config_entry,
+                    self._cam_serial,
+                    {CONF_STREAM_SOURCE: user_input[CONF_STREAM_SOURCE]},
+                    expected=self._camera_baseline,
+                )
+            except CameraOptionsConflict:
+                self._camera_baseline = camera_options(
+                    self.config_entry, self._cam_serial
+                )
+                errors["base"] = "options_changed"
+            else:
+                return self.async_create_entry(title="", data=options)
+
+        current = self._camera_baseline.get(CONF_STREAM_SOURCE, STREAM_SOURCE_RTSP)
+        return self.async_show_form(
+            step_id="playback_source",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_STREAM_SOURCE,
+                        default=current if current in sources else STREAM_SOURCE_RTSP,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=list(sources),
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key=CONF_STREAM_SOURCE,
+                        )
+                    )
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_lens_streams(

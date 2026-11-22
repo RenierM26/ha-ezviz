@@ -37,6 +37,9 @@ CONF_CAM_ENC_2FA_CODE: Final = "cam_encryption_2fa_code"
 # It is NOT passed as ffmpeg CLI arguments.
 CONFIG_ENTRY_MINOR_VERSION: Final = 2
 CONF_RTSP_STREAM_PATH: Final = "rtsp_stream_path"
+CONF_STREAM_SOURCE: Final = "live_stream_source"
+STREAM_SOURCE_RTSP: Final = "rtsp"
+CLOUD_STREAM_INDEXES: Final = {"cloud_main": 1, "cloud_standard": 2}
 
 # Region handling
 CONF_REGION: Final = "region"
