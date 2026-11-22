@@ -147,13 +147,13 @@ async def async_setup_entry(
                     return EzvizLight(coordinator, serial, desc)
                 existing.set_description(desc)
                 return None
-        if existing is not None:
-            support = support_ext_dict(data)
-            # Missing flags are not evidence that the device lost support.
-            if all(
-                str(support.get(key)).strip() == "0"
-                for key in (_ALARM_LIGHT_SUPPORT, _FLASH_LAMP_SUPPORT)
-            ):
+        if (
+            existing is not None
+            and (active_key := existing.entity_description.supported_ext_key)
+            is not None
+        ):
+            # An omitted active flag does not revoke the last observed support.
+            if str(support_ext_dict(data).get(active_key)).strip() == "0":
                 existing.disable_control()
         return None
 
@@ -199,7 +199,7 @@ class EzvizLight(EzvizEntity, LightEntity):
         self._attr_supported_color_modes = {self._attr_color_mode}
 
     def disable_control(self) -> None:
-        """Keep the entity registered while both control routes are disabled."""
+        """Keep the entity registered when its control route is revoked."""
         self._control_supported = False
 
     @property

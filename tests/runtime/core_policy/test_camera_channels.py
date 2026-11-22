@@ -1862,11 +1862,21 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
 
         sent.clear()
         brightness_write.reset_mock()
-        for flags, expected_state in (
-            ({"113": "0"}, "on"),
-            ({"113": "0", "496": "0"}, "unavailable"),
-            ({}, "unavailable"),
-            ({"113": "0", "496": "1"}, "on"),
+        onoff = light.ColorMode.ONOFF
+        brightness = light.ColorMode.BRIGHTNESS
+        for flags, expected_state, mode in (
+            ({"113": "0"}, "on", onoff),
+            ({"496": "0"}, "unavailable", onoff),
+            ({}, "unavailable", onoff),
+            ({"113": "0", "496": "1"}, "on", onoff),
+            ({"113": "0", "496": "0"}, "unavailable", onoff),
+            ({"113": "1", "496": "0"}, "on", brightness),
+            ({"496": "0"}, "on", brightness),
+            ({"113": "0"}, "unavailable", brightness),
+            ({"113": "1"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
+            ({"113": "1", "496": "0"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
         ):
             row["supportExt"] = {"719": "1-2", **flags}
             current = replace(
@@ -1882,6 +1892,7 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
             )
             assert platforms["light"].entities == {light_id: light_entity}
             assert hass.states.get(light_id).state == expected_state
+            assert light_entity.supported_color_modes == {mode}
             if expected_state == "unavailable":
                 with pytest.raises(
                     HomeAssistantError, match="Alarm light is unavailable"
