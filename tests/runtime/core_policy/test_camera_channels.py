@@ -1866,6 +1866,12 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
         onoff = light.ColorMode.ONOFF
         brightness = light.ColorMode.BRIGHTNESS
         for flags, expected_state, mode in (
+            ({"496": "1", "719": None}, "on", onoff),
+            ({"496": "1", "719": "0"}, "unavailable", onoff),
+            ({"496": "1", "719": None}, "unavailable", onoff),
+            ({"496": "1"}, "on", onoff),
+            ({"113": "1", "496": "1", "719": "0"}, "on", brightness),
+            ({"113": "0", "496": "1"}, "on", onoff),
             ({"113": "0"}, "on", onoff),
             ({"496": "0"}, "unavailable", onoff),
             ({}, "unavailable", onoff),
@@ -1879,7 +1885,11 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
             ({"113": "1", "496": "0"}, "on", brightness),
             ({"113": "0", "496": "1"}, "on", onoff),
         ):
-            row["supportExt"] = {"719": "1-2", **flags}
+            row["supportExt"] = {
+                key: value
+                for key, value in {"719": "1-2", **flags}.items()
+                if value is not None
+            }
             current = replace(
                 current,
                 revision=current.revision + 1,

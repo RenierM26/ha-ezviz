@@ -40,6 +40,7 @@ PARALLEL_UPDATES = 1
 
 _ALARM_LIGHT_SUPPORT = str(SupportExt.SupportAlarmLight.value)
 _FLASH_LAMP_SUPPORT = str(SupportExt.SupportFlashLamp.value)
+_COMBINED_VIEW_SUPPORT = str(SupportExt.SupportMultiChannelType.value)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -87,7 +88,7 @@ def _is_desc_supported(
 
 def _supports_combined_view(data: dict[str, Any]) -> bool:
     """Check the app's advertised list of channels in a combined view."""
-    channels = support_ext_dict(data).get(str(SupportExt.SupportMultiChannelType.value))
+    channels = support_ext_dict(data).get(_COMBINED_VIEW_SUPPORT)
     return (
         isinstance(channels, str)
         and re.fullmatch(r"[1-9][0-9]*(?:-[1-9][0-9]*)+", channels) is not None
@@ -152,8 +153,14 @@ async def async_setup_entry(
             and (active_key := existing.entity_description.supported_ext_key)
             is not None
         ):
-            # An omitted active flag does not revoke the last observed support.
-            if str(support_ext_dict(data).get(active_key)).strip() == "0":
+            # The flash route needs both flags; omission alone revokes neither.
+            keys = (
+                (active_key, _COMBINED_VIEW_SUPPORT)
+                if active_key == _FLASH_LAMP_SUPPORT
+                else (active_key,)
+            )
+            support = support_ext_dict(data)
+            if any(str(support.get(key)).strip() == "0" for key in keys):
                 existing.disable_control()
         return None
 
