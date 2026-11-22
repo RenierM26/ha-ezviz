@@ -272,7 +272,8 @@ class EzvizCamera(EzvizEntity, Camera):
         ):
             output.idle_timer.start()
 
-    def _wrap_cloud_recording(self, stream: Stream) -> None:
+    @staticmethod
+    def _wrap_cloud_recording(stream: Stream) -> None:
         """Bound only record startup, including Core's separate HLS lookback wait."""
         record = stream.async_record
 
@@ -302,11 +303,12 @@ class EzvizCamera(EzvizEntity, Camera):
                     await hls.recv()
                 if recorder.last_segment is None:
                     await recorder.recv()
-                deadline.reschedule(None)
+                if not deadline.expired():
+                    deadline.reschedule(None)
 
             try:
                 async with deadline:
-                    startup = self.hass.async_create_background_task(
+                    startup = stream.hass.async_create_background_task(
                         wait_for_startup(), "EZVIZ cloud recording startup"
                     )
                     try:
