@@ -71,7 +71,8 @@ of the shared 30-second cloud poll; this is not a local-only integration.
   local recording playback.
 - Camera options select local RTSP credentials and paths. To try experimental
   **EZVIZ cloud live view**, open **Configure → Cameras → [camera] → Live playback
-  source** and pick **Main** or **Standard** (cloud substream, where supported).
+  source** and pick **Full HD** (main stream) or **Standard** (substream, where
+  supported). Actual resolution depends on the camera.
   The choice applies to all reported lenses of that camera, each using its own
   channel. Local RTSP remains the default; switching back restores the existing
   RTSP paths and credentials. Stills and controls do not switch routes.

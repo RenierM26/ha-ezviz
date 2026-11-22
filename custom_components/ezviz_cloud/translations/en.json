@@ -839,7 +839,7 @@
         "live_stream_source": {
             "options": {
                 "rtsp": "Local RTSP (default)",
-                "cloud_main": "EZVIZ cloud \u2014 Main",
+                "cloud_main": "EZVIZ cloud \u2014 Full HD",
                 "cloud_standard": "EZVIZ cloud \u2014 Standard"
             }
         },

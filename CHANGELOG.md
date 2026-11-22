@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add experimental, per-camera EZVIZ cloud live view with Main and Standard
+- Add experimental, per-camera EZVIZ cloud live view with Full HD and Standard
   quality via Home Assistant HLS. Local RTSP remains the default; saved paths,
   camera identities, stills and controls are unchanged.
 
