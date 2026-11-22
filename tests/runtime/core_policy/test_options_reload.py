@@ -37,7 +37,7 @@ async def test_options_save_with_attached_camera(
         "password": "sticker",
         "enc_key": "key",
         "rtsp_uses_verification_code": False,
-        "ffmpeg_arguments": "/old/path",
+        "rtsp_stream_path": "/old/path",
     }
     hass.config_entries.async_update_entry(
         entry, options={"timeout": 41, "cameras": {"CAM001": original_camera}}
@@ -55,11 +55,15 @@ async def test_options_save_with_attached_camera(
             result = await manager.async_configure(
                 result["flow_id"], {"serial": "CAM001"}
             )
-            payload = {
-                **original_camera,
-                "ffmpeg_arguments": "/new/path" if changed else "/old/path",
-                "ephemeral_test_rtsp": False,
-            }
+            result = await manager.async_configure(
+                result["flow_id"], {"next_step_id": "lens_streams"}
+            )
+            assert result["data_schema"]({}) == {"lens_1": "custom"}
+            result = await manager.async_configure(
+                result["flow_id"], {"lens_1": "custom"}
+            )
+            assert result["data_schema"]({}) == {"lens_1": "/old/path"}
+            payload = {"lens_1": "/new/path" if changed else "/old/path"}
         else:
             payload = {"timeout": 42 if changed else 41}
         result = await manager.async_configure(result["flow_id"], payload)
@@ -73,7 +77,7 @@ async def test_options_save_with_attached_camera(
         assert entry.options["timeout"] == (
             42 if changed and not camera_options else 41
         )
-        assert entry.options["cameras"]["CAM001"]["ffmpeg_arguments"] == (
+        assert entry.options["cameras"]["CAM001"]["rtsp_stream_path"] == (
             "/new/path" if changed and camera_options else "/old/path"
         )
     finally:

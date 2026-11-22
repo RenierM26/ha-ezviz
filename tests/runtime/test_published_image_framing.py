@@ -5,12 +5,12 @@ from struct import pack
 from unittest.mock import AsyncMock, MagicMock
 
 from Crypto.Cipher import AES
-import httpx
 from PIL import Image as PILImage
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 import pytest
 
 from custom_components.ezviz_cloud import image
+from custom_components.ezviz_cloud.image import httpx
 
 from .test_hardening import entities
 

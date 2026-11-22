@@ -1,9 +1,11 @@
 # Capture pictures and snapshot images
 
-`ezviz_cloud.capture_picture` asks the cloud to take a new picture on channel 1.
+`ezviz_cloud.capture_picture` asks the cloud to take a new picture. Target the
+original camera to capture channel 1 and update the original Snapshot. On a
+[multi-lens camera](multi-lens.md), target an additional Lens camera to capture
+its reported channel and update its own Lens Snapshot.
 It does not require RTSP; battery devices may wake for the request. The original
 feature was contributed in [#235](https://github.com/RenierM26/ha-ezviz/pull/235).
-Multi-lens capture selection is not added by this follow-up.
 
 Example action (replace the entity ID):
 
@@ -50,8 +52,8 @@ phase. Normal unload retains cleanup after its foreground wait; late results
 cannot publish after shutdown begins. HA's forced-shutdown deadlines still apply;
 Python cannot terminate an arbitrary stuck OS thread.
 
-The manifest requires published `pyezvizapi>=2.4.0` for shared inventory and
-channel-99 migration. All CI runtime jobs qualify the actual published 2.4.0 minimum.
+The manifest requires published `pyezvizapi>=2.6.0`. CI runtime jobs qualify the
+exact published version in [`requirements/sdk.txt`](../requirements/sdk.txt).
 The earlier bounded 1.x dependency from #237 is intentionally superseded here.
 HACS requires HA 2026.10.4 or newer, matching the tested baseline.
 
@@ -64,7 +66,7 @@ boundaries remain synthetic. They do not establish production boot, real camera
 captures, broker delivery or player/browser compatibility.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt homeassistant==2026.11.0 pyezvizapi==2.4.0
+python -m pip install -r tests/runtime/requirements.txt -r requirements/sdk.txt homeassistant==2026.11.0
 python -m pytest --asyncio-mode=auto -o asyncio_default_fixture_loop_scope=function tests/runtime
 ```
 

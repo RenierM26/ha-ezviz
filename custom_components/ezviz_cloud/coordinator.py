@@ -4,13 +4,19 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Callable, Coroutine, Mapping
 from copy import deepcopy
-from datetime import timedelta, tzinfo
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta, tzinfo
 import logging
 from secrets import token_urlsafe
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.devices.channels import (
+    camera_channel_notification,
+    camera_channels,
+    resolve_camera_channel,
+)
 from pyezvizapi.devices.intercom_events import intercom_event_type
 from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import (
@@ -23,6 +29,7 @@ from pyezvizapi.exceptions import (
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
@@ -37,6 +44,47 @@ from .workers import create_critical_task, create_executor_task
 if TYPE_CHECKING:
     from .runtime import EzvizConfigEntry
 _LOGGER = logging.getLogger(__name__)
+
+
+# URL, explicit push-channel provenance, and download/cache generation.
+type ChannelImageSource = tuple[str, bool, str | int | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PushedChannelImage:
+    """A lens-tagged image and the poll watermark when it arrived."""
+
+    url: str = field(repr=False)
+    revision: int
+    source_time: datetime | None
+    poll_time: datetime | None
+
+
+def _image_time(value: object, zone: tzinfo | None) -> datetime | None:
+    """Normalize ISO and epoch event times without guessing an unknown zone."""
+    try:
+        if isinstance(value, str) and not value.isdecimal():
+            stamp = datetime.fromisoformat(value)
+            if stamp.tzinfo is None and zone is not None:
+                stamp = stamp.replace(tzinfo=zone)
+            return stamp if stamp.tzinfo is None else stamp.astimezone(UTC)
+        if type(value) is int or isinstance(value, str):
+            epoch = int(value)
+            if epoch > 0:
+                return datetime.fromtimestamp(
+                    epoch / 1000 if epoch >= 10**12 else epoch, UTC
+                )
+    except ValueError, OverflowError, OSError:
+        pass
+    return None
+
+
+def _comparable(first: datetime | None, second: datetime | None) -> bool:
+    return (
+        first is not None
+        and second is not None
+        and (first.tzinfo is None) == (second.tzinfo is None)
+    )
 
 
 class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -65,8 +113,19 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
+        self._channel_image_batches: OrderedDict[tuple[Any, ...], dict[str, bytes]] = (
+            OrderedDict()
+        )
         self._image_downloads: dict[tuple[Any, ...], asyncio.Task] = {}
-        self.image_records: OrderedDict[str, tuple[str, str]] = OrderedDict()
+        self.image_records: OrderedDict[str, tuple[str, str] | tuple[str, str, str]] = (
+            OrderedDict()
+        )
+        self.channel_images: dict[tuple[str, str], PushedChannelImage] = {}
+        self._image_zones: dict[str, tzinfo] = {}
+        self._channel_image_revision = 0
+        self._channel_notification_ids: OrderedDict[tuple[str, str, str], None] = (
+            OrderedDict()
+        )
         self._action_futures: set[asyncio.Future] = set()
         self._close_task: asyncio.Task | None = None
         self._close_succeeded = False
@@ -103,6 +162,17 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             )
             self.inventory_snapshot = result
             self.inventory_data = inventory
+            self._image_zones = zones
+            valid_channels = {
+                (serial, channel.key)
+                for serial, data in cameras.items()
+                for channel in camera_channels(data)
+            }
+            self.channel_images = {
+                key: value
+                for key, value in self.channel_images.items()
+                if key in valid_channels
+            }
             self.intercom_events.snapshot(result, zones)
 
         except (EzvizAuthTokenExpired, EzvizAuthVerificationCode) as error:
@@ -124,11 +194,15 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             DevicePollOptions(timeout=self._api_timeout, include_intercom_events=True)
         )
 
-    def register_image(self, serial: str, url: str) -> str:
+    def register_image(
+        self, serial: str, url: str, channel_key: str | None = None
+    ) -> str:
         """Remember only SDK-provided images in a bounded account-local registry."""
         if serial not in (self.data or {}):
             raise ValueError("Unknown camera")
-        record = (serial, url)
+        if channel_key is not None:
+            resolve_camera_channel(self.data[serial], channel_key)
+        record = (serial, url) if channel_key is None else (serial, url, channel_key)
         for reference, existing in self.image_records.items():
             if existing == record:
                 return reference
@@ -202,10 +276,30 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         task.add_done_callback(_retrieve_worker_error)
         return await asyncio.shield(task)
 
+    async def async_channel_image_batch(
+        self,
+        key: tuple[Any, ...],
+        operation: Callable[[], Coroutine[Any, Any, tuple[dict[str, bytes], bool]]],
+    ) -> dict[str, bytes]:
+        """Retain verified batches, including those missing the requested lens."""
+        if key in self._channel_image_batches:
+            self._channel_image_batches.move_to_end(key)
+            return self._channel_image_batches[key]
+        result, cacheable = await self.async_image_download(key, operation)
+        if (
+            not self.shutting_down
+            and cacheable
+            and sum(map(len, result.values())) <= 4 * 1024 * 1024
+        ):
+            self._channel_image_batches[key] = result
+            if len(self._channel_image_batches) > 8:
+                self._channel_image_batches.popitem(last=False)
+        return result
+
     async def async_image_download(
         self, key: tuple[Any, ...], operation: Callable[[], Coroutine[Any, Any, Any]]
     ) -> Any:
-        """Share only concurrent downloads for one account/camera/image generation."""
+        """Share in-flight cloud image downloads."""
         if self._closing:
             raise HomeAssistantError("EZVIZ coordinator is shutting down")
         if key not in self._image_downloads:
@@ -257,6 +351,38 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         await self.hass.async_add_executor_job(self.ezviz_client.close_session)
         self._close_succeeded = True
 
+    def channel_image_sources(
+        self, serial: str, channel_key: str
+    ) -> tuple[ChannelImageSource, ...]:
+        """Order poll and push candidates; decoding still has to verify the lens."""
+        data = self.inventory_data.get(serial, {})
+        url, generation = data.get("last_alarm_pic"), data.get("last_alarm_time")
+        polled: ChannelImageSource | None = None
+        if isinstance(url, str) and url:
+            polled = (
+                url,
+                False,
+                generation if type(generation) in (str, int) else None,
+            )
+        pushed = self.channel_images.get((serial, channel_key))
+        if pushed is None:
+            return (polled,) if polled is not None else ()
+        observed = (pushed.url, True, pushed.revision)
+        if polled is None:
+            return (observed,)
+
+        poll_time = _image_time(polled[2], self._image_zones.get(serial))
+        comparison = pushed.source_time
+        if not _comparable(poll_time, comparison):
+            # Without a comparable push timestamp, only an advancing poll can win.
+            comparison = pushed.poll_time
+        if poll_time is not None and (
+            comparison is None
+            or (_comparable(poll_time, comparison) and poll_time > comparison)
+        ):
+            return polled, observed
+        return observed, polled
+
     def merge_mqtt_update(self, serial: str, mqtt_data: dict) -> None:
         """Merge MQTT update data into the coordinator."""
 
@@ -268,6 +394,53 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             return
         if ext.get("channel_type", 1) not in (1, "1"):
             return
+        notification = camera_channel_notification(self.data[serial], mqtt_data)
+        if notification is not None:
+            key = (serial, notification.channel.key)
+            already_seen = (
+                notification.event_id is not None
+                and (*key, notification.event_id) in self._channel_notification_ids
+            )
+            previous = self.channel_images.get(key)
+            zone = self._image_zones.get(serial)
+            source_time = _image_time(notification.source_time, zone)
+            previous_time = previous.source_time if previous is not None else None
+            older = (
+                source_time is not None
+                and previous_time is not None
+                and _comparable(source_time, previous_time)
+                and source_time < previous_time
+            )
+            if (
+                notification.image_url is not None
+                and not older
+                and (
+                    not already_seen
+                    or previous is None
+                    or previous.url != notification.image_url
+                )
+            ):
+                self._channel_image_revision += 1
+                self.channel_images[key] = PushedChannelImage(
+                    notification.image_url,
+                    self._channel_image_revision,
+                    source_time,
+                    _image_time(
+                        self.inventory_data.get(serial, {}).get("last_alarm_time"),
+                        zone,
+                    ),
+                )
+            if notification.event_id is not None:
+                event_key = (*key, notification.event_id)
+                if event_key not in self._channel_notification_ids:
+                    self._channel_notification_ids[event_key] = None
+                    if len(self._channel_notification_ids) > 1024:
+                        self._channel_notification_ids.popitem(last=False)
+                    async_dispatcher_send(
+                        self.hass,
+                        "ezviz_cloud_channel_notification_{}_{}".format(*key),
+                        notification,
+                    )
         intercom_event = self.intercom_events.push(mqtt_data)
         if not ext.get("image"):
             return

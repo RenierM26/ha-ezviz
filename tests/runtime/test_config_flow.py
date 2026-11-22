@@ -22,7 +22,6 @@ from custom_components.ezviz_cloud import camera_flow, config_flow as flow
 from custom_components.ezviz_cloud.const import (
     ATTR_TYPE_CLOUD,
     DEFAULT_FETCH_MY_KEY,
-    DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     DOMAIN,
     REGION_URLS,
@@ -49,7 +48,6 @@ CAMERA = {
     "enc_key": "encryption",
     "rtsp_uses_verification_code": False,
     "ephemeral_test_rtsp": False,
-    "ffmpeg_arguments": DEFAULT_FFMPEG_ARGUMENTS,
 }
 
 
@@ -281,6 +279,7 @@ async def start_camera(hass, monkeypatch, *, cameras=True, battery=False):
     if cameras:
         assert result["step_id"] == "camera_select"
         result = await manager.async_configure(result["flow_id"], {"serial": "CAM"})
+        result = await manager.async_configure(result["flow_id"], {"next_step_id": "camera_edit"})
         assert result["step_id"] == "camera_edit"
     return entry, client, rtsp, result
 

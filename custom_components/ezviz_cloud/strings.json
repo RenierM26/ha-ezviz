@@ -96,7 +96,6 @@
           "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
           "rtsp_uses_verification_code": "RTSP playback credential",
           "ephemeral_test_rtsp": "Test RTSP connection",
-          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
           "local_control_auth": "Local LAN control (HCNetSDK)"
         },
         "data_description": {
@@ -118,6 +117,29 @@
         "data": {
           "enable_rtsp": "Enable RTSP before testing"
         }
+      },
+      "camera_menu": {
+        "title": "Camera settings",
+        "menu_options": {
+          "camera_edit": "Shared camera settings",
+          "lens_streams": "Lens streams"
+        }
+      },
+      "lens_streams": {
+        "title": "Lens streams",
+        "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only turns off live video and shows the last alarm image for that lens when available.",
+        "data": {
+          "lens_1": "Lens 1 (original camera)",
+          "lens_2": "Lens 2"
+        }
+      },
+      "lens_stream_edit": {
+        "title": "Custom lens paths",
+        "description": "Enter a path beginning with / for each custom stream. Do not enter a complete URL or credentials. Saving does not test or change the camera.",
+        "data": {
+          "lens_1": "Lens 1 RTSP path",
+          "lens_2": "Lens 2 RTSP path"
+        }
       }
     },
     "error": {
@@ -135,10 +157,13 @@
       "local_control_cannot_connect": "Cannot validate local controls with the selected credential. Check that credential and local TCP port 8000; no other credential will be tried.",
       "rtsp_enable_unverified": "RTSP enablement was refused or could not be verified. The outcome may be unknown; no automatic write retry was made. Wait for camera services to recover, then test again to read its actual status.",
       "rtsp_enabled_test_failed": "RTSP configuration was verified enabled, but the connection/credential test failed. No camera options were saved. Review the playback credential and connection before testing again.",
-      "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings."
+      "rtsp_enabled_options_changed": "RTSP configuration was verified enabled, but the saved camera settings changed during the test. No options were overwritten. Review the current settings.",
+      "invalid_channel": "Select a currently reported camera lens.",
+      "invalid_rtsp_path": "Enter a path beginning with /, not a complete RTSP URL. To disable this stream, select Stills only."
     },
     "abort": {
-      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available."
+      "integration_unavailable": "Load the EZVIZ integration before editing camera settings. Cloud options remain available.",
+      "no_camera_channels": "No unambiguous multi-lens video channels are currently reported. Refresh the camera inventory before configuring lens streams."
     },
     "create_entry": {
       "rtsp_enabled_and_tested": "RTSP service configuration was verified enabled, and the RTSP DESCRIBE credential test passed. Camera settings were saved. This does not verify media playback.",
@@ -287,6 +312,9 @@
       },
       "snapshot": {
         "name": "Snapshot"
+      },
+      "channel_snapshot": {
+        "name": "Lens {channel} snapshot"
       }
     },
     "text": {
@@ -602,6 +630,21 @@
             }
           }
         }
+      },
+      "channel_notification": {
+        "name": "Lens {channel} last notification",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "notification": "Notification"
+            }
+          }
+        }
+      }
+    },
+    "camera": {
+      "camera_channel": {
+        "name": "Lens {channel}"
       }
     }
   },
@@ -785,6 +828,9 @@
     },
     "ptz_lens_unavailable": {
       "message": "Lens {lens} has no unique supported video channel on this camera. Choose another lens, or use Automatic for a single-lens camera."
+    },
+    "channel_setting_shared": {
+      "message": "This setting is shared by the physical camera. Use its original camera entity rather than a lens entity."
     }
   }
 }

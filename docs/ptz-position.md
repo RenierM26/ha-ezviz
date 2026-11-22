@@ -1,9 +1,12 @@
 # Point-based PTZ action
 
+> This branch requires published SDK 2.6.0. See [multi-lens support](multi-lens.md).
+
 The new `ezviz_cloud.ptz_control_coordinates` action uses the existing SDK point
 function, corrected in [SDK #446](https://github.com/RenierM26/pyEzvizApi/pull/446).
-It requires **published SDK 2.5.1 or newer**. The ordinary development and CI
-profiles qualify the exact 2.5.1 PyPI wheel, without SDK source overrides.
+The point payload was corrected in **published SDK 2.5.1**. This branch now
+requires the published SDK 2.6.0 channel-routing API. Its development and CI
+profiles pin that exact version.
 The action is not in integration 0.3.0; a merged PR is not a HACS release.
 
 ## Usage
@@ -34,14 +37,17 @@ arrival. Generic directional PTZ support alone is insufficient.
 
 The **Lens** dropdown replaces the raw Camera resource and Resource index fields:
 
-- **Automatic** (default): use the app's verified direct-control route, or the
-  camera's only reported point-control video channel.
+- **Automatic** (default): an additional-lens camera entity targets its own
+  reported lens. On the original camera entity, the SDK's verified direct route
+  (`Video_1/1`, capability `586`) takes precedence. Without that capability,
+  Automatic uses reported Lens 1 on a known multi-lens camera, or the only
+  reported point-control channel on a single-channel camera.
 - **Lens 1** or **Lens 2**: select that camera's reported video channel 1 or 2.
   These labels do not identify a fixed, upper, lower or moving lens.
 
-For a multi-lens camera, choose a lens explicitly. If Automatic cannot choose
-uniquely, the action asks you to select Lens 1 or Lens 2 rather than guessing.
-An unavailable or ambiguous selected lens fails without trying another lens.
+Choose a lens explicitly on the original camera entity to select a different
+reported route when the camera supports lens selection (`724`). An unavailable
+or ambiguous selected lens fails without trying another lens.
 
 ```yaml
 action: ezviz_cloud.ptz_control_coordinates
@@ -74,8 +80,7 @@ The retained app has two distinct paths:
 | App support / route | HA behavior |
 | --- | --- |
 | Direct control, support586 exactly 1 | Automatic uses `Video_1/1`, matching app direct tapping; a direct-only camera can also use Lens 1 for that fixed route |
-| Point location, support724 exactly 1 | Automatic uses the unique reported Video channel; explicit Lens 1/2 requires a unique matching reported channel |
-| Multiple selected-point routes with Automatic | Ask the user to choose a lens before sending any command |
+| Point location, support724 exactly 1 (no direct route) | Automatic uses the targeted lens, or reported Lens 1 on the original camera of a known multi-lens device. A single-channel original camera uses its only reported channel. Explicit Lens 1/2 requires a unique matching reported channel. |
 | Missing, malformed or ambiguous selected lens | Fail before a command; never choose the first/other lens or manufacture a route |
 | Only generic pan/tilt flags, no point/direct proof | Reject as unsupported |
 
@@ -97,7 +102,7 @@ This is a confirmed app-contract mismatch, not evidence that a particular camera
 fails without the field. See the SDK's point-control documentation/PR for exact
 provenance. No latest-app, iOS or universal firmware compatibility is claimed.
 
-Tests use synthetic data, real HA dispatch and the published SDK 2.5.1 serializer
+Candidate tests use synthetic data, real HA dispatch and the SDK channel APIs
 with socket/DNS denial. Physical positioning, app UI and hardware behavior remain
 unverified. No live PTZ commands, deployment, HA reload or release is performed by
 these checks. No existing IDs/options/storage formats or streaming behavior change.

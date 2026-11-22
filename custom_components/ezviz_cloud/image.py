@@ -2,14 +2,24 @@
 
 import asyncio
 from collections.abc import Mapping
+from functools import partial
+from io import BytesIO
 import logging
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
-# Supported HA image clients still use httpx, not httpx2.
-import httpx  # noqa: TID251
+from PIL import Image as PilImage
 from propcache.api import cached_property
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
-from pyezvizapi.devices.images import process_image_bytes as _process_image_bytes
+from pyezvizapi.devices.channels import (
+    CameraChannel,
+    CameraChannelError,
+    camera_channels,
+    resolve_camera_channel,
+)
+from pyezvizapi.devices.images import (
+    process_channel_images,
+    process_image_bytes as _process_image_bytes,
+)
 from pyezvizapi.exceptions import PyEzvizError
 
 from homeassistant.components.image import (
@@ -21,15 +31,29 @@ from homeassistant.components.image import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import httpx_client
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS, SIGNAL_PICTURE_CAPTURED
+from .channels import (
+    async_add_channel_entities,
+    capture_signal,
+    channel_available,
+    is_additional_camera_lens,
+)
+from .const import CONF_ENC_KEY, OPTIONS_KEY_CAMERAS
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .runtime import EzvizConfigEntry
 from .workers import create_critical_task
+
+if TYPE_CHECKING:
+    import httpx2 as httpx
+else:
+    # Match the transport HA actually uses: 2026.10 uses httpx, 2026.11 uses httpx2.
+    httpx = vars(httpx_client).get("httpx2") or vars(httpx_client)["httpx"]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +77,29 @@ def _has_residual_encryption(content: bytes) -> bool:
         and infer_image_type(content) is None
         and HIK_ENCRYPTION_HEADER in content
     )
+
+
+def _decode_channel_image_batch(
+    content: bytes,
+    password: str | None,
+    channels: tuple[CameraChannel, ...],
+    source_channel: CameraChannel | None,
+) -> tuple[dict[str, bytes], bool]:
+    """Validate frames before caching; an incomplete decode must be retryable."""
+    decoded = process_channel_images(
+        content, password, channels, source_channel=source_channel
+    )
+    valid: dict[str, bytes] = {}
+    for key, body in decoded.items():
+        if not body.startswith(b"\xff\xd8\xff") and infer_image_type(body) is None:
+            continue
+        try:
+            with PilImage.open(BytesIO(body)) as frame:
+                frame.load()
+        except OSError, ValueError, SyntaxError, PilImage.DecompressionBombError:
+            continue
+        valid[key] = body
+    return valid, bool(valid) and len(valid) == len(decoded)
 
 
 async def async_setup_entry(
@@ -99,6 +146,70 @@ async def async_setup_entry(
         for camera in coordinator.data
     )
     async_add_entities(entities)
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: (
+            [
+                EzvizChannelSnapshot(
+                    hass, coordinator, serial, cams_options.get(serial, {}), channel
+                )
+            ]
+            if is_additional_camera_lens(channel)
+            else []
+        ),
+    )
+
+
+async def async_channel_image(
+    hass: HomeAssistant,
+    coordinator: EzvizDataUpdateCoordinator,
+    serial: str,
+    channel_key: str,
+    url: Any,
+    password: str | None,
+    *,
+    known_source: bool = False,
+    generation: object = None,
+) -> bytes | None:
+    """Share one download/decode across concurrent lens viewers; never cross lenses."""
+    if coordinator.shutting_down or not isinstance(url, str) or not url:
+        return None
+    data = coordinator.device_data(serial)
+    channels = camera_channels(data)
+    try:
+        channel = resolve_camera_channel(data, channel_key)
+    except CameraChannelError:
+        return None
+    source_key = channel_key if known_source else None
+    key = (serial, "channel_images", url, password, channels, source_key, generation)
+
+    async def download() -> tuple[dict[str, bytes], bool]:
+        try:
+            response = await get_async_client(hass).get(
+                url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
+            )
+            response.raise_for_status()
+            return await coordinator.async_execute(
+                partial(
+                    _decode_channel_image_batch,
+                    response.content,
+                    password,
+                    channels,
+                    channel if known_source else None,
+                )
+            )
+        except httpx.HTTPError, httpx.InvalidURL, ValueError, PyEzvizError:
+            return {}, False
+
+    try:
+        result = await coordinator.async_channel_image_batch(key, download)
+    except HomeAssistantError:
+        if coordinator.shutting_down:
+            return None
+        raise
+    return None if coordinator.shutting_down else result.get(channel_key)
 
 
 class EzvizLastMotion(EzvizEntity, ImageEntity):
@@ -280,15 +391,15 @@ class EzvizLastMotion(EzvizEntity, ImageEntity):
             self._invalidate_image()
 
     def _sync_image_url(self) -> None:
-        """Follow the last alarm picture reported by the cloud."""
+        """Follow the cloud alarm timestamp without refetching unchanged URLs."""
         if self.data["last_alarm_pic"] != self._attr_image_url:
             _LOGGER.debug("Image URL changed for %s", self.entity_id)
 
             self._attr_image_url = self.data["last_alarm_pic"]
             self._invalidate_image()
-            self._attr_image_last_updated = dt_util.parse_datetime(
-                str(self.data["last_alarm_time"])
-            )
+        self._attr_image_last_updated = dt_util.parse_datetime(
+            str(self.data["last_alarm_time"])
+        )
 
 
 class EzvizSnapshot(EzvizLastMotion):
@@ -307,6 +418,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self._attr_unique_id = f"{serial}_{SNAPSHOT_TYPE.key}"
         self._attr_image_url = None
         self._attr_image_last_updated = None
+        self._channel_key: str | None = None
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -315,7 +427,7 @@ class EzvizSnapshot(EzvizLastMotion):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                SIGNAL_PICTURE_CAPTURED.format(self._serial),
+                capture_signal(self._serial, self._channel_key),
                 self._handle_picture_captured,
             )
         )
@@ -336,6 +448,62 @@ class EzvizSnapshot(EzvizLastMotion):
     @override
     def _sync_image_url(self) -> None:
         """Snapshots only change through capture_picture."""
+
+
+class EzvizChannelSnapshot(EzvizSnapshot):
+    """Only a capture addressed to this channel updates this image."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        credentials: Mapping[str, Any],
+        channel: CameraChannel,
+    ) -> None:
+        """Preserve the existing legacy Snapshot entity and its subscription."""
+        super().__init__(hass, coordinator, serial, credentials)
+        self._channel_key = channel.key
+        self._attr_unique_id = f"{serial}_channel_{channel.key}_snapshot"
+        self.entity_description = ImageEntityDescription(
+            key="channel_snapshot", translation_key="channel_snapshot"
+        )
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Keep stale/missing lens identities unavailable without deleting IDs."""
+        return self._channel_key is not None and channel_available(
+            self.coordinator, self._serial, self._channel_key
+        )
+
+    @override
+    async def async_image(self) -> bytes | None:
+        """Do not serve even a cached capture when this lens is unavailable."""
+        if not self.available:
+            return None
+        body = await super().async_image()
+        return body if self.available else None
+
+    @override
+    async def _async_load_image_from_url(self, url: str) -> Image | None:
+        """A targeted capture establishes the source channel of an unindexed JPEG."""
+        if self._channel_key is None or not self.available:
+            return None
+        body = await async_channel_image(
+            self.hass,
+            self.coordinator,
+            self._serial,
+            self._channel_key,
+            url,
+            self.alarm_image_password,
+            known_source=True,
+            generation=self._image_generation,
+        )
+        if body is None or not self.available:
+            return None
+        return Image(content=body, content_type=infer_image_type(body) or "image/jpeg")
 
 
 def _retrieve_image_error(task: asyncio.Task) -> None:

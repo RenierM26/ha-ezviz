@@ -1,5 +1,7 @@
 # Native Home Assistant tests
 
+> This branch requires published SDK 2.6.0. See [multi-lens support](../../docs/multi-lens.md).
+
 These tests run on the minimum supported HA 2026.10.4 and current HA 2026.11.0,
 with the published minimum SDK, without overriding HA's dependencies or applying
 version-pinned test-plugin patches. `conftest.py` provides isolated real HA core,
@@ -34,7 +36,7 @@ CI requires **100% statement and branch coverage** of `config_flow.py`,
 both HA versions. Extracted helpers remain inside the same gate. Defensive exception handlers are included, not marked `no cover`.
 
 ```sh
-python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.5.1'
+python -m pip install -r tests/runtime/requirements.txt 'homeassistant==2026.11.0' 'pyezvizapi==2.6.0'
 python tools/check.py native
 ```
 
@@ -247,10 +249,10 @@ startup, API rejection, and cancellation/shutdown ownership. Ordinary directiona
 PTZ is not proof of point control: direct586 and selected-point724 paths have
 distinct requirements.
 
-The **published 2.5.1** minimum includes the SDK point-payload correction in
-SDK #446. The ordinary `tools/check.py` profiles now run against the exact PyPI pin
-without SDK source overrides. Published-wheel qualification is complete; the
-manifest/profile/installed-version guard remains unchanged.
+Published SDK 2.5.1 supplied the corrected point payload. SDK 2.6.0 adds
+SDK-owned channel discovery/routing and batch images. CI installs the exact
+PyPI release and checks that it satisfies the integration manifest.
+
 
 The native Lens selector exposes `auto`, `1` and `2`, with translated labels.
 Explicit choices match reported video channel indices, not metadata list order;
@@ -260,3 +262,14 @@ with an instruction to choose a lens. Direct586 retains only the fixed app route
 Tests cover schema/selector metadata, actual SDK URLs/payloads, unsafe vendor
 indices and rejection of obsolete experimental resource/index fields. They do
 not establish which physical lens moves, render the frontend or issue live PTZ.
+
+
+## Per-lens targets
+
+`core_policy/test_camera_channels.py` covers native translated camera/image/event
+entities, stable identities and registry restoration, bound PTZ, isolated capture
+URLs/signals, explicit stream paths, batch image downloads/caching, stale-key and
+shutdown fences, scoped/deduplicated notification delivery and options conflicts.
+Media checks exercise channel-matched history, opaque reference binding, SDK
+image selection and retained auth/public-address protections. These are offline
+candidate checks, not browser, firmware or physical-movement qualification.

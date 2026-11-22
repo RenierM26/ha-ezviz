@@ -1,15 +1,22 @@
-"""Doorbell and access events, independent of alarm pictures or motion state."""
+"""Camera notifications, doorbell rings and access events."""
 
 from typing import override
 
+from pyezvizapi.devices.channels import CameraChannel, CameraChannelNotification
 from pyezvizapi.devices.intercom import device_category
 from pyezvizapi.devices.intercom_events import IntercomEvent
 from pyezvizapi.devices.snapshot import DeviceState
 
 from homeassistant.components.event import EventDeviceClass, EventEntity
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .channels import (
+    SIGNAL_CHANNEL_NOTIFICATION,
+    async_add_channel_entities,
+    channel_available,
+)
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizInventoryEntity
 from .inventory import async_add_inventory_entities
@@ -23,7 +30,7 @@ async def async_setup_entry(
     entry: EzvizConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Discover doorbell event entities from the accepted SDK inventory."""
+    """Discover device and lens event entities from the accepted SDK inventory."""
     async_add_inventory_entities(
         entry.runtime_data.coordinator,
         entry,
@@ -31,6 +38,61 @@ async def async_setup_entry(
         "camera",
         intercom_events,
     )
+    coordinator = entry.runtime_data.coordinator
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: [
+            EzvizChannelNotification(coordinator, serial, channel)
+        ],
+        require_multiple=False,
+    )
+
+
+class EzvizChannelNotification(EzvizInventoryEntity, EventEntity):
+    """A deduplicated received channel notification, not a motion-state guess."""
+
+    def __init__(
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        channel: CameraChannel,
+    ) -> None:
+        """Keep notifications on the physical device and the exact channel."""
+        super().__init__(coordinator, serial)
+        self._channel_key = channel.key
+        self._attr_unique_id = f"{serial}_channel_{channel.key}_notification"
+        self._attr_translation_key = "channel_notification"
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+        self._attr_event_types = ["notification"]
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Missing or stale metadata cannot redirect an event to another lens."""
+        return channel_available(self.coordinator, self._serial, self._channel_key)
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Revoke the subscription on unload and native registry rename."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_CHANNEL_NOTIFICATION.format(self._serial, self._channel_key),
+                self._received,
+            )
+        )
+
+    @callback
+    def _received(self, notification: CameraChannelNotification) -> None:
+        if self.available:
+            self._trigger_event(
+                "notification",
+                {"code": notification.code, "source_time": notification.source_time},
+            )
+            self.async_write_ha_state()
 
 
 def intercom_events(

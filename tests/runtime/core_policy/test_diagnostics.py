@@ -54,7 +54,7 @@ def inventory(hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch) -> Inventory
                     "enc_key": "PRIVATE_KEY",
                     "rtsp_uses_verification_code": True,
                     "ip": "PRIVATE_IP",
-                    "ffmpeg_arguments": "PRIVATE_RTSP_PATH",
+                    "rtsp_stream_path": "PRIVATE_RTSP_PATH",
                     "future_secret": {"payload": "PRIVATE_NESTED"},
                 }
             },

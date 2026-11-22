@@ -6,19 +6,25 @@ flows. Per-camera configuration is read from the cloud entry's options at:
 
     entry.options["cameras"][<SERIAL>]
 
-Where <SERIAL> is the camera serial. The legacy
-option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
-"/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
+The RTSP stream path is stored per camera as `rtsp_stream_path`.
 """
 
 import asyncio
 from collections.abc import Mapping
 from dataclasses import replace
 from functools import partial
+from io import BytesIO
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
 
+from PIL import Image
+from pyezvizapi.devices.channels import (
+    CameraChannel,
+    camera_channels,
+    capture_channel_number,
+    resolve_camera_channel,
+)
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 
 from homeassistant.components import ffmpeg
@@ -27,27 +33,51 @@ from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .availability import device_available
+from .channels import (
+    async_add_channel_entities,
+    capture_signal,
+    channel_available,
+    is_additional_camera_lens,
+    lens_stream_path,
+    reported_lens_channels,
+)
 from .const import (
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,  # used here as RTSP path (main/sub)
+    CONF_RTSP_STREAM_PATH,
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
-    DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
+    DEFAULT_RTSP_STREAM_PATH,
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
-    SIGNAL_PICTURE_CAPTURED,
 )
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity
 from .errors import request_error
+from .image import async_channel_image
 from .ptz import point_route
 from .runtime import EzvizConfigEntry
+from .workers import create_critical_task
 
 _LOGGER = logging.getLogger(__name__)
+
+# HA gives a camera image request 10 seconds. Reserve most of it for a cloud still.
+RTSP_PREVIEW_TIMEOUT = 4
+STREAM_STOP_REASSERT_INTERVAL = 0.05
+
+
+def _preview_jpeg(body: bytes) -> bytes | None:
+    """Encode non-JPEG cloud previews for HA's multipart still stream."""
+    try:
+        with Image.open(BytesIO(body)) as image, BytesIO() as output:
+            image.convert("RGB").save(output, format="JPEG")
+            return output.getvalue()
+    except OSError, Image.DecompressionBombError:
+        return None
 
 
 async def async_setup_entry(
@@ -70,7 +100,9 @@ async def async_setup_entry(
         enc_key: str = per_cam.get(CONF_ENC_KEY, "")
         password: str = enc_key if not use_vc else per_cam.get(CONF_PASSWORD, "")
 
-        rtsp_path: str = per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS)
+        rtsp_path: str | None = per_cam.get(
+            CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
+        )
 
         if rtsp_path and not rtsp_path.startswith("/"):
             # Be lenient: if users saved path without leading slash, add it.
@@ -97,13 +129,20 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities)
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: (
+            [EzvizChannelCamera(hass, coordinator, serial, channel)]
+            if is_additional_camera_lens(channel)
+            else []
+        ),
+    )
 
 
 class EzvizCamera(EzvizEntity, Camera):
     """EZVIZ security camera entity."""
-
-    _attr_name: str | None = None
-    _attr_supported_features: CameraEntityFeature = CameraEntityFeature.STREAM
 
     def __init__(
         self,
@@ -112,20 +151,32 @@ class EzvizCamera(EzvizEntity, Camera):
         serial: str,
         camera_username: str,
         camera_password: str,
-        rtsp_path: str,
+        rtsp_path: str | None,
+        *,
+        channel: CameraChannel | None = None,
     ) -> None:
         """Initialize the camera entity."""
         super().__init__(coordinator, serial)
         Camera.__init__(self)
         self.stream: Stream | None = None
+        self._stopped_stream: Stream | None = None
+        self._stream_teardown: asyncio.Task[None] | None = None
 
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
         self._username: str = camera_username
         self._password: str = camera_password
-        self._rtsp_path: str = rtsp_path
+        self._rtsp_path: str | None = rtsp_path
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
+        self._channel_key = channel.key if channel is not None else None
+        self._channel_image_key: tuple[Any, ...] | None = None
+        self._channel_image: bytes | None = None
+        self._preview_tasks: dict[
+            tuple[str, int | None, int | None], asyncio.Task[bytes | None]
+        ] = {}
+        if channel is None:
+            self._attr_name = None
         self._stream_lifecycle_lock = asyncio.Lock()
         self._removed = False
         self._rtsp_stream: str = self._build_rtsp()
@@ -148,11 +199,27 @@ class EzvizCamera(EzvizEntity, Camera):
                 )
                 self._password = options.get(field, "")
                 self._rtsp_path = options.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                    CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
                 )
         ip = self.data["local_ip"]
         port = self.data["local_rtsp_port"]
-        path = self._rtsp_path or ""
+        path = self._rtsp_path
+        if self._channel_key is not None:
+            entry = self.coordinator.config_entry
+            options = (
+                entry.options.get(OPTIONS_KEY_CAMERAS, {}).get(self._serial, {})
+                if entry
+                else {}
+            )
+            try:
+                channel = resolve_camera_channel(self.data, self._channel_key)
+                path = lens_stream_path(self.data, options, channel)
+            except PyEzvizError:
+                path = ""
+            if not path:
+                return ""
+        if path is None:
+            return ""
         if path and not path.startswith("/"):
             path = "/" + path
         return f"rtsp://{quote(self._username, safe='')}:{quote(self._password, safe='')}@{ip}:{port}{path}"
@@ -176,7 +243,73 @@ class EzvizCamera(EzvizEntity, Camera):
         if source != self._rtsp_stream:
             self._rtsp_stream = source
             if self.stream is not None:
-                self.stream.update_source(source)
+                if source:
+                    self.stream.update_source(source)
+                else:
+                    self.hass.async_create_task(
+                        self._async_stop_missing_stream(),
+                        "Stop unavailable EZVIZ stream",
+                    )
+
+    async def _async_stop_missing_stream(self) -> None:
+        """Stop the worker without handing it an empty source."""
+        async with self._stream_lifecycle_lock:
+            await self._async_wait_for_stream_teardown()
+            if not self._removed and not self._build_rtsp():
+                await self._async_stop_stream(reuse=True)
+
+    async def _async_stop_stream(self, *, reuse: bool = False) -> None:
+        if (stream := self.stream) is not None:
+            self.stream = None
+            self._stream_teardown = create_critical_task(
+                self.hass,
+                self._async_finish_stream_teardown(stream, reuse=reuse),
+                "EZVIZ stream teardown",
+            )
+            await self._async_wait_for_stream_teardown()
+
+    async def _async_wait_for_stream_teardown(self) -> None:
+        """Wait for detached teardown before making another lifecycle change."""
+        if (teardown := self._stream_teardown) is not None:
+            await asyncio.shield(teardown)
+
+    async def _async_finish_stream_teardown(
+        self, stream: Stream, *, reuse: bool
+    ) -> None:
+        try:
+            settings = stream.dynamic_stream_settings
+            stream.dynamic_stream_settings = replace(settings, preload_stream=False)
+            outputs = stream.outputs()
+            await self._async_stop_stream_worker(stream)
+            # Core drops the outputs without cancelling their idle timers. An
+            # old timer must not remove a replacement HLS output on this stream.
+            for output in outputs.values():
+                output.cleanup()
+            if reuse and not self._removed:
+                stream.dynamic_stream_settings = settings
+                self._stopped_stream = stream
+        finally:
+            self._stream_teardown = None
+
+    async def _async_stop_stream_worker(self, stream: Stream) -> None:
+        """Keep Core's quit signal set until its worker joins."""
+        # Core's update_source() arms a one-shot restart. The worker may
+        # already be past the flag check and about to clear the quit event.
+        stream._fast_restart_once = False  # noqa: SLF001
+        quit_event = stream._thread_quit  # noqa: SLF001
+        loop = asyncio.get_running_loop()
+        retry: asyncio.TimerHandle
+
+        def reassert_stop() -> None:
+            nonlocal retry
+            quit_event.set()
+            retry = loop.call_later(STREAM_STOP_REASSERT_INTERVAL, reassert_stop)
+
+        retry = loop.call_later(STREAM_STOP_REASSERT_INTERVAL, reassert_stop)
+        try:
+            await stream.stop()
+        finally:
+            retry.cancel()
 
     @callback
     @override
@@ -191,29 +324,43 @@ class EzvizCamera(EzvizEntity, Camera):
         """Fence queued updates before stopping the owned stream."""
         self._removed = True
         async with self._stream_lifecycle_lock:
-            if self.stream is not None:
-                self.stream.dynamic_stream_settings = replace(
-                    self.stream.dynamic_stream_settings, preload_stream=False
-                )
-                await self.stream.stop()
-                # HA 2026.10 re-adds this object on registry rename. Recreate
-                # the stream with current preferences and the new state callback.
-                self.stream = None
+            await self._async_wait_for_stream_teardown()
+            self._stopped_stream = None
+            await self._async_stop_stream()
         await super().async_will_remove_from_hass()
 
     @override
     async def async_create_stream(self) -> Stream | None:
         """Serialize stream creation with removal and refresh after creation awaits."""
         async with self._stream_lifecycle_lock:
+            await self._async_wait_for_stream_teardown()
             if self._removed or self.coordinator.shutting_down:
                 return None
-            stream = await super().async_create_stream()
-            # Removal may have started while HA awaited stream settings.
-            if self._removed or self.coordinator.shutting_down:
+            # Only additional lenses require current cloud health; the RTSP
+            # builder below verifies the exact route as well as the path.
+            if self._channel_key is not None and not device_available(
+                self.coordinator, self._serial
+            ):
                 return None
-            # Options may have changed during the same await.
+            if not (source := self._build_rtsp()):
+                await self._async_stop_stream(reuse=True)
+                return None
+            if (stream := self._stopped_stream) is not None:
+                self._stopped_stream = None
+                # No worker to restart; update_source would arm a restart.
+                stream.source = source
+                self.stream = stream
+            else:
+                stream = await super().async_create_stream()
+            # Removal or lens health may have changed while HA awaited preferences.
+            if self._removed or self.coordinator.shutting_down:
+                await self._async_stop_stream()
+                return None
             if stream is not None:
                 source = self._build_rtsp()
+                if not source or (self._channel_key is not None and not self.available):
+                    await self._async_stop_stream(reuse=True)
+                    return None
                 if stream.source != source:
                     stream.update_source(source)
                 self._rtsp_stream = source
@@ -257,14 +404,103 @@ class EzvizCamera(EzvizEntity, Camera):
         except InvalidHost as err:
             raise InvalidHost("Error disabling motion detection") from err
 
+    @property
+    @override
+    def supported_features(self) -> CameraEntityFeature:
+        """Advertise streaming only when this camera has a source."""
+        return (
+            CameraEntityFeature.STREAM if self._build_rtsp() else CameraEntityFeature(0)
+        )
+
     @override
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Return a single frame from the camera stream via ffmpeg."""
-        return await ffmpeg.async_get_image(
-            self.hass, self._build_rtsp(), width=width, height=height
+        """Return an RTSP frame or a verified cloud still for this lens."""
+        if self._removed or self.coordinator.shutting_down:
+            return None
+        if self._channel_key is not None and not self.available:
+            return None
+        if rtsp_source := self._build_rtsp():
+            # The original camera has no RTSP-to-cloud fallback to budget for.
+            timeout = RTSP_PREVIEW_TIMEOUT if self._channel_key is not None else None
+            try:
+                async with asyncio.timeout(timeout):
+                    frame = await self._async_rtsp_preview(rtsp_source, width, height)
+            except TimeoutError:
+                frame = None
+            if (
+                self._removed
+                or self.coordinator.shutting_down
+                or (self._channel_key is not None and not self.available)
+                or rtsp_source != self._build_rtsp()
+            ):
+                return None
+            # Keep the original camera's RTSP preview behavior when configured.
+            if frame or self._channel_key is None:
+                return frame
+
+        if self._removed or not self.available:
+            return None
+        channels = camera_channels(self.data)
+        key = self._channel_key or next(
+            (channel.key for channel in channels if channel.channel_no == 1), None
         )
+        if key is None:
+            return None
+        sources = self.coordinator.channel_image_sources(self._serial, key)
+        password = self.coordinator.credentials.key(self._serial)
+        for source in sources:
+            url, known_source, generation = source
+            image_key = (key, channels, source, password)
+            if image_key == self._channel_image_key:
+                return self._channel_image
+            result = await async_channel_image(
+                self.hass,
+                self.coordinator,
+                self._serial,
+                key,
+                url,
+                password,
+                known_source=known_source,
+                generation=generation,
+            )
+            if result is not None and not result.startswith(b"\xff\xd8\xff"):
+                result = await self.hass.async_add_executor_job(_preview_jpeg, result)
+            if (
+                self._removed
+                or not self.available
+                or channels != camera_channels(self.data)
+                or password != self.coordinator.credentials.key(self._serial)
+                or sources != self.coordinator.channel_image_sources(self._serial, key)
+            ):
+                return None
+            if result is not None:
+                self._channel_image_key = image_key
+                self._channel_image = result
+                return result
+        return None
+
+    async def _async_rtsp_preview(
+        self, source: str, width: int | None, height: int | None
+    ) -> bytes | None:
+        """Share a local frame grab without making it part of cloud session cleanup."""
+        key = (source, width, height)
+        if (task := self._preview_tasks.get(key)) is None:
+            # Don't tie this to entry unload: FFmpeg already owns its timeout.
+            task = self.hass.async_create_background_task(
+                ffmpeg.async_get_image(self.hass, source, width=width, height=height),
+                "EZVIZ RTSP preview",
+            )
+            self._preview_tasks[key] = task
+
+            def finished(future: asyncio.Task[bytes | None]) -> None:
+                self._preview_tasks.pop(key)
+                if not future.cancelled():
+                    future.exception()
+
+            task.add_done_callback(finished)
+        return await asyncio.shield(task)
 
     @override
     async def stream_source(self) -> str:
@@ -293,9 +529,14 @@ class EzvizCamera(EzvizEntity, Camera):
         Works without RTSP and wakes battery devices from standby. The picture
         is shown by the camera's snapshot image entity.
         """
+        if self._channel_key is not None and (self._removed or not self.available):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
         try:
+            channel_no = capture_channel_number(self.data, self._channel_key)
             result = await self.coordinator.async_execute(
-                self.coordinator.ezviz_client.capture_picture, self._serial, 1
+                self.coordinator.ezviz_client.capture_picture, self._serial, channel_no
             )
         except (HTTPError, PyEzvizError, OSError, TimeoutError) as err:
             raise request_error("Capture picture", err) from err
@@ -319,9 +560,13 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError("EZVIZ returned an invalid picture URL") from err
         if not valid_url:
             raise HomeAssistantError("EZVIZ returned an invalid picture URL")
+        if self._channel_key is not None and (self._removed or not self.available):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
+            )
 
         async_dispatcher_send(
-            self.hass, SIGNAL_PICTURE_CAPTURED.format(self._serial), pic_url
+            self.hass, capture_signal(self._serial, self._channel_key), pic_url
         )
         return {"picture_url": pic_url}
 
@@ -336,7 +581,15 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
-        resource, index = point_route(self.data, lens)
+        bind_primary = (
+            lens == "auto"
+            and self._channel_key is None
+            and (entry := self.coordinator.config_entry) is not None
+            and bool(reported_lens_channels(self.coordinator, entry, self._serial))
+        )
+        resource, index = point_route(
+            self.data, lens, channel_key=self._channel_key, bind_primary=bind_primary
+        )
         try:
             accepted = await self.coordinator.async_execute(
                 partial(
@@ -354,3 +607,54 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_rejected"
             )
+
+
+class EzvizChannelCamera(EzvizCamera):
+    """A channel-specific target sharing the physical camera's account/device."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        channel: CameraChannel,
+    ) -> None:
+        """Keep the existing camera ID and source separate from channel views."""
+        super().__init__(hass, coordinator, serial, "", "", "", channel=channel)
+        self._attr_unique_id = f"{serial}_channel_{channel.key}"
+        self._attr_translation_key = "camera_channel"
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Require both device health and the exact reported channel identity."""
+        return self._channel_key is not None and channel_available(
+            self.coordinator, self._serial, self._channel_key
+        )
+
+    @property
+    @override
+    def is_recording(self) -> bool:
+        """No lens-specific recording state is inferred from device alarm settings."""
+        return False
+
+    @property
+    @override
+    def motion_detection_enabled(self) -> bool:
+        """Shared defence is not a reported per-lens setting."""
+        return False
+
+    @override
+    async def async_enable_motion_detection(self) -> None:
+        """Use the existing physical-device target for shared defence settings."""
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="channel_setting_shared"
+        )
+
+    @override
+    async def async_disable_motion_detection(self) -> None:
+        """Do not turn off every lens through an apparently lens-scoped target."""
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="channel_setting_shared"
+        )

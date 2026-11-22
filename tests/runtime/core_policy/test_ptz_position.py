@@ -298,15 +298,14 @@ async def test_lens_selection_uses_reported_channels_without_fallback(
         "lens": lens,
     }
     try:
-        with pytest.raises(ServiceValidationError) as error:
-            await hass.services.async_call(
-                DOMAIN,
-                "ptz_control_coordinates",
-                {**call_data, "lens": "auto"},
-                blocking=True,
-            )
-        assert error.value.translation_key == "ptz_lens_required"
-        assert not sent
+        await hass.services.async_call(
+            DOMAIN,
+            "ptz_control_coordinates",
+            {**call_data, "lens": "auto"},
+            blocking=True,
+        )
+        assert sent[-1].url.endswith("/CAM001/Video/1/PTZManualCtrl/CtrlPTZ3DPosition")
+        sent.clear()
         await hass.services.async_call(
             DOMAIN, "ptz_control_coordinates", call_data, blocking=True
         )

@@ -1,2 +1,2 @@
-# Published patch minimum, qualified by all ordinary repository profiles.
-pyezvizapi==2.5.1
+# Published SDK version used for CI and runtime qualification.
+pyezvizapi==2.6.0

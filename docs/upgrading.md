@@ -87,6 +87,12 @@ history, logs or backups containing earlier values.
 - Reinstalling an old component version does **not** reverse config-entry/token
   migrations. Older code may reject version-5 entries or misunderstand storage.
   There is no promise of source-only downgrade compatibility.
+- If the older integration loads after a downgrade from the multi-lens version,
+  restore any custom RTSP path in **Configure → Camera Settings → select the
+  camera → RTSP path**. The older version does not read the migrated
+  `rtsp_stream_path` option and otherwise uses `/Streaming/Channels/102`.
+  Note custom paths before downgrading. If the old entry does not load, use a
+  matching pre-upgrade backup instead.
 - A coherent rollback may require the **matching pre-upgrade backup**, including
   integration code and relevant configuration/private state. A full HA restore
   also rolls back unrelated changes and restarts HA; choose that scope deliberately.

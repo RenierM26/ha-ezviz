@@ -45,6 +45,9 @@ async def start_saved_camera(
         result["flow_id"], {"next_step_id": "camera_select"}
     )
     result = await manager.async_configure(result["flow_id"], {"serial": "CAM"})
+    result = await manager.async_configure(
+        result["flow_id"], {"next_step_id": "camera_edit"}
+    )
     return entry, client, result
 
 

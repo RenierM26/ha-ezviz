@@ -31,16 +31,15 @@ from .camera_flow import (
     async_resolve_camera_credentials,
     async_validate_local_controls,
 )
+from .channel_flow import async_edit_stream, async_select_stream
 from .const import (
     ATTR_SERIAL,
     CONF_CAM_ENC_2FA_CODE,
     CONF_CAM_VERIFICATION_2FA_CODE,
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
-    DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     OPTIONS_KEY_CAMERAS,
 )
@@ -73,6 +72,8 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         """Initialize options flow."""
         self._cam_serial: str
         self._camera_baseline: dict[str, Any] = {}
+        self.lens_baseline: dict[str, Any] = {}
+        self.lens_modes: dict[str, str] = {}
         self._rtsp_pending: tuple[RuntimeCleanup, dict[str, Any]] | None = None
         self._pending: dict | None = None  # hold values between edit -> 2FA
         self._prefill: dict | None = (
@@ -84,6 +85,26 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
         return self.async_show_menu(
             step_id="init", menu_options=["cloud", "camera_select"]
         )
+
+    async def async_step_camera_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Separate shared settings from lens quality without repeating camera selection."""
+        return self.async_show_menu(
+            step_id="camera_menu", menu_options=["camera_edit", "lens_streams"]
+        )
+
+    async def async_step_lens_streams(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure independent streams only for reported camera lenses."""
+        return await async_select_stream(self, self._cam_serial, user_input)
+
+    async def async_step_lens_stream_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Save stream choices without changing shared credentials."""
+        return await async_edit_stream(self, self._cam_serial, user_input)
 
     @property
     def coordinator(self) -> EzvizDataUpdateCoordinator:
@@ -103,7 +124,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             except probatio.Invalid:
                 errors[CONF_TIMEOUT] = "invalid_timeout"
             else:
-                # No cloud-level CONF_FFMPEG_ARGUMENTS anymore (per-camera only)
                 return self.async_create_entry(title="", data=opts)
 
         schema = probatio.Schema(
@@ -140,7 +160,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             self._rtsp_pending = None
             self._cam_serial = user_input["serial"]
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
-            return await self.async_step_camera_edit()
+            return await self.async_step_camera_menu()
 
         return self.async_show_form(
             step_id="camera_select",
@@ -202,13 +222,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     ui.get(
                         CONF_RTSP_USES_VERIFICATION_CODE,
                         per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
-                    ),
-                ),
-                CONF_FFMPEG_ARGUMENTS: src.get(
-                    CONF_FFMPEG_ARGUMENTS,
-                    ui.get(
-                        CONF_FFMPEG_ARGUMENTS,
-                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
                     ),
                 ),
                 "ephemeral_test_rtsp": ui.get("ephemeral_test_rtsp", test_rtsp_default),
@@ -313,9 +326,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 probatio.Required(
                     "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
                 ): bool,
-                probatio.Optional(
-                    CONF_FFMPEG_ARGUMENTS, default=pf[CONF_FFMPEG_ARGUMENTS]
-                ): str,
             }
         )
         return self.async_show_form(
@@ -434,12 +444,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             CONF_RTSP_USES_VERIFICATION_CODE: resolved[
                 CONF_RTSP_USES_VERIFICATION_CODE
             ],
-            CONF_FFMPEG_ARGUMENTS: resolved.get(
-                CONF_FFMPEG_ARGUMENTS,
-                self._camera_baseline.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                ),
-            ),
         }
         auth = resolved.get(
             CONF_LOCAL_CONTROL_AUTH,

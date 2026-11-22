@@ -1,5 +1,10 @@
 # Development and checks
 
+The development and CI profiles use the published
+[`pyezvizapi` 2.6.0 wheel](https://pypi.org/project/pyezvizapi/2.6.0/), pinned in
+[`requirements/sdk.txt`](../requirements/sdk.txt). See
+[multi-lens qualification](multi-lens.md#qualification-limits).
+
 Python **3.14.2+** is required. These profiles target Linux/devcontainers (or WSL),
 matching CI; native Windows environment paths are not provided. Bootstrap creates two repository-local environments
 from checked-in profiles; it does not launch HA, authenticate, touch production
