@@ -61,6 +61,7 @@ from .errors import request_error
 from .image import async_channel_image
 from .ptz import point_route
 from .runtime import EzvizConfigEntry
+from .workers import create_critical_task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -159,6 +160,7 @@ class EzvizCamera(EzvizEntity, Camera):
         Camera.__init__(self)
         self.stream: Stream | None = None
         self._stopped_stream: Stream | None = None
+        self._stream_teardown: asyncio.Task[None] | None = None
 
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
@@ -252,12 +254,29 @@ class EzvizCamera(EzvizEntity, Camera):
     async def _async_stop_missing_stream(self) -> None:
         """Stop the worker without handing it an empty source."""
         async with self._stream_lifecycle_lock:
+            await self._async_wait_for_stream_teardown()
             if not self._removed and not self._build_rtsp():
                 await self._async_stop_stream(reuse=True)
 
     async def _async_stop_stream(self, *, reuse: bool = False) -> None:
         if (stream := self.stream) is not None:
             self.stream = None
+            self._stream_teardown = create_critical_task(
+                self.hass,
+                self._async_finish_stream_teardown(stream, reuse=reuse),
+                "EZVIZ stream teardown",
+            )
+            await self._async_wait_for_stream_teardown()
+
+    async def _async_wait_for_stream_teardown(self) -> None:
+        """Wait for detached teardown before making another lifecycle change."""
+        if (teardown := self._stream_teardown) is not None:
+            await asyncio.shield(teardown)
+
+    async def _async_finish_stream_teardown(
+        self, stream: Stream, *, reuse: bool
+    ) -> None:
+        try:
             settings = stream.dynamic_stream_settings
             stream.dynamic_stream_settings = replace(settings, preload_stream=False)
             outputs = stream.outputs()
@@ -266,9 +285,11 @@ class EzvizCamera(EzvizEntity, Camera):
             # old timer must not remove a replacement HLS output on this stream.
             for output in outputs.values():
                 output.cleanup()
-            if reuse:
+            if reuse and not self._removed:
                 stream.dynamic_stream_settings = settings
                 self._stopped_stream = stream
+        finally:
+            self._stream_teardown = None
 
     async def _async_stop_stream_worker(self, stream: Stream) -> None:
         """Keep Core's quit signal set until its worker joins."""
@@ -303,6 +324,7 @@ class EzvizCamera(EzvizEntity, Camera):
         """Fence queued updates before stopping the owned stream."""
         self._removed = True
         async with self._stream_lifecycle_lock:
+            await self._async_wait_for_stream_teardown()
             self._stopped_stream = None
             await self._async_stop_stream()
         await super().async_will_remove_from_hass()
@@ -311,6 +333,7 @@ class EzvizCamera(EzvizEntity, Camera):
     async def async_create_stream(self) -> Stream | None:
         """Serialize stream creation with removal and refresh after creation awaits."""
         async with self._stream_lifecycle_lock:
+            await self._async_wait_for_stream_teardown()
             if self._removed or self.coordinator.shutting_down:
                 return None
             # Only additional lenses require current cloud health; the RTSP

@@ -395,8 +395,9 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize("cancel_request", [False, True])
 async def test_lost_route_stops_core_worker_during_source_restart(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, cancel_request: bool
 ) -> None:
     """A Core worker already committed to a restart cannot lose the stop signal."""
     coordinator, _, _ = dual(hass, monkeypatch)
@@ -417,8 +418,13 @@ async def test_lost_route_stops_core_worker_during_source_restart(
         DynamicStreamSettings(preload_stream=True),
     )
     target.stream = stream
+    output = stream.add_provider(HLS_PROVIDER)
+    output.idle_timer.start()
+    cleanup = MagicMock(wraps=output.cleanup)
+    monkeypatch.setattr(output, "cleanup", cleanup)
     entered, clearing, stopping = asyncio.Event(), asyncio.Event(), asyncio.Event()
     release_clear = Event()
+    cleared = asyncio.Event()
     clear = stream._thread_quit.clear
     stop = stream.stop
 
@@ -437,6 +443,9 @@ async def test_lost_route_stops_core_worker_during_source_restart(
         if entered.is_set():
             hass.loop.call_soon_threadsafe(clearing.set)
             release_clear.wait()
+            clear()
+            hass.loop.call_soon_threadsafe(cleared.set)
+            return
         clear()
 
     async def stop_stream() -> None:
@@ -447,7 +456,8 @@ async def test_lost_route_stops_core_worker_during_source_restart(
     monkeypatch.setattr(worker_module, "stream_worker", transport)
     monkeypatch.setattr(stream._thread_quit, "clear", clear_for_restart)
     monkeypatch.setattr(stream, "stop", stop_stream)
-    stopped: asyncio.Task[None] | None = None
+    request: asyncio.Task[Stream | None] | None = None
+    recovery: asyncio.Task[Stream | None] | None = None
     try:
         await stream.start()
         worker = stream._thread
@@ -458,20 +468,34 @@ async def test_lost_route_stops_core_worker_during_source_restart(
             target._refresh_stream_source()
             await clearing.wait()
             sibling = coordinator.data["CAM001"]["resourceInfos"].pop()
-            stopped = asyncio.create_task(target._async_stop_missing_stream())
+            request = asyncio.create_task(target.async_create_stream())
             await stopping.wait()
+            if cancel_request:
+                request.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await request
+            coordinator.data["CAM001"]["resourceInfos"].append(sibling)
+            recovery = asyncio.create_task(target.async_create_stream())
+            await asyncio.sleep(0)
+            assert not recovery.done()
+            cleanup.assert_not_called()
             release_clear.set()
-            await asyncio.shield(stopped)
+            assert await asyncio.shield(recovery) is stream
+            if not cancel_request:
+                assert await request is None
         assert not worker.is_alive()
-        assert target.stream is None
-        coordinator.data["CAM001"]["resourceInfos"].append(sibling)
-        assert await target.async_create_stream() is stream
+        cleanup.assert_called_once_with()
+        assert not stream.outputs()
     finally:
         release_clear.set()
+        if clearing.is_set():
+            await cleared.wait()
         stream._thread_quit.set()
-        if stopped is not None:
-            await stopped
+        pending = [task for task in (request, recovery) if task is not None]
+        await asyncio.gather(*pending, return_exceptions=True)
         await platform.async_reset()
+        await stop()
+        output.idle_timer.clear()
         await coordinator.async_close()
 
 
