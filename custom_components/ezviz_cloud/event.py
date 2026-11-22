@@ -1,4 +1,4 @@
-"""Doorbell and access events, independent of alarm pictures or motion state."""
+"""Camera notifications, doorbell rings and access events."""
 
 from typing import override
 
@@ -30,7 +30,7 @@ async def async_setup_entry(
     entry: EzvizConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Discover doorbell event entities from the accepted SDK inventory."""
+    """Discover device and lens event entities from the accepted SDK inventory."""
     async_add_inventory_entities(
         entry.runtime_data.coordinator,
         entry,
@@ -46,6 +46,7 @@ async def async_setup_entry(
         lambda serial, channel: [
             EzvizChannelNotification(coordinator, serial, channel)
         ],
+        require_multiple=False,
     )
 
 

@@ -632,7 +632,7 @@
         }
       },
       "channel_notification": {
-        "name": "Lens {channel} notification",
+        "name": "Lens {channel} last notification",
         "state_attributes": {
           "event_type": {
             "state": {

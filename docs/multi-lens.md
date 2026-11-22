@@ -10,7 +10,8 @@ camera IDs, configured streams, last-motion images, Snapshot images and shared
 settings are preserved. A single-lens camera keeps only its original camera
 entity. On a multi-lens camera the original entity represents Lens 1; only
 additional lenses get new camera and Snapshot entities. The existing Snapshot
-serves Lens 1, and notification events remain available for all reported lenses.
+serves Lens 1. **Last notification** is available for each reported lens on
+both single- and multi-lens cameras.
 A count alone does not create a lens. Missing channels become unavailable;
 list order does not renumber entities. Native registry identities allow a healthy
 remaining lens to return after restart while its sibling is absent.
@@ -54,10 +55,12 @@ publish after key/target changes or shutdown. No stream is prewarmed.
   Returned signed URLs are private; acknowledgement is not physical verification.
 - Use the original camera for shared defence settings. Lens targets reject
   apparently scoped changes that would actually affect the whole device.
-- Lens event entities represent receipt of channel-tagged push notifications,
-  not inferred persistent motion/recording state. Vendor IDs are deduplicated in
-  one bounded account cache. Unknown channels are not assigned; no-ID messages
-  can update a scoped image but do not invent an event. Attributes exclude URLs.
+- **Last notification** shows when Home Assistant received the latest
+  channel-tagged push, even without an image. Its attributes include the vendor
+  alert code and source time when supplied, not image URLs. It does not indicate
+  ongoing motion or recording. Vendor message IDs are deduplicated in one bounded
+  account cache. Pushes without a known channel are not assigned to a lens;
+  no-ID messages can update a scoped image but do not fire the entity.
 
 ## Alarm media
 

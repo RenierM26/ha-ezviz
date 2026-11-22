@@ -400,27 +400,48 @@ async def test_sanitized_push_routes_to_the_explicit_lens(
     coordinator, _, _ = dual(hass, monkeypatch)
     channels = coordinator.data["CAM001"]["resourceInfos"][:lens_count]
     coordinator.data["CAM001"]["resourceInfos"] = channels
-    entities = {
-        channel.key: event.EzvizChannelNotification(coordinator, "CAM001", channel)
-        for channel in camera_channels(coordinator.data["CAM001"])
-    }
-    platforms = [await add(hass, entity, "event") for entity in entities.values()]
+    entry = coordinator.config_entry
+    registry = er.async_get(hass)
+    legacy = (
+        registry.async_get_or_create(
+            "event",
+            DOMAIN,
+            f"CAM001_channel_{target_channel}_notification",
+            config_entry=entry,
+            suggested_object_id="camera_lens_2_notification",
+        )
+        if lens_count > 1
+        else None
+    )
+    discovered: list[event.EzvizChannelNotification] = []
+    platforms = []
     try:
+        await event.async_setup_entry(hass, entry, discovered.extend)
+        assert len(discovered) == lens_count
+        entities = {entity.unique_id: entity for entity in discovered}
+        target_entity = entities[f"CAM001_channel_{target_channel}_notification"]
+        platforms = [await add(hass, entity, "event") for entity in discovered]
+        if legacy is not None:
+            assert target_entity.entity_id == legacy.entity_id
         coordinator.merge_mqtt_update("CAM001", message)
         await hass.async_block_till_done()
-        target = hass.states.get(entities[target_channel].entity_id)
+        target = hass.states.get(target_entity.entity_id)
         assert target is not None and target.state != "unknown"
+        assert target.name.endswith(f"Lens {lens_count} last notification")
         assert target.attributes["event_type"] == "notification"
         assert target.attributes["code"] == code
         assert target.attributes["source_time"] == "2025-01-01 00:00:00"
         assert "images.example.invalid" not in str(target.attributes)
         assert (("CAM001", target_channel) in coordinator.channel_images) == with_image
-        for key, entity in entities.items():
-            if key != target_channel:
+        for entity in discovered:
+            if entity is not target_entity:
                 sibling = hass.states.get(entity.entity_id)
                 assert sibling is not None and sibling.state == "unknown"
 
         coordinator.merge_mqtt_update("CAM001", message)
+        unscoped = {**message["ext"], "msgId": "device-wide-notification"}
+        del unscoped["channel_no"]
+        coordinator.merge_mqtt_update("CAM001", {**message, "ext": unscoped})
         await hass.async_block_till_done()
         assert hass.states.get(target.entity_id) == target
     finally:
@@ -728,18 +749,24 @@ async def test_lens_options_keep_primary_when_no_reported_channels_remain(
         await coordinator.async_close()
 
 
-async def test_existing_channel_registry_identity_restores_a_remaining_lens(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("known_camera_lens", [True, False])
+async def test_only_multi_lens_registry_evidence_restores_a_remaining_camera_lens(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, known_camera_lens: bool
 ) -> None:
-    """Restarting with one missing lens does not suppress the other known channel."""
+    """A saved notification alone does not establish that a camera has extra lenses."""
     coordinator, _, _ = dual(hass, monkeypatch)
     entry = coordinator.config_entry
-    er.async_get(hass).async_get_or_create(
-        "camera", DOMAIN, "CAM001_channel_Video:1", config_entry=entry
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "event", DOMAIN, "CAM001_channel_Video_1:2_notification", config_entry=entry
     )
+    if known_camera_lens:
+        registry.async_get_or_create(
+            "camera", DOMAIN, "CAM001_channel_Video_1:2", config_entry=entry
+        )
     coordinator.data["CAM001"]["resourceInfos"] = coordinator.data["CAM001"][
         "resourceInfos"
-    ][:1]
+    ][1:]
     added = []
     try:
         async_add_channel_entities(
@@ -750,8 +777,10 @@ async def test_existing_channel_registry_identity_restores_a_remaining_lens(
                 camera.EzvizChannelCamera(hass, coordinator, serial, channel)
             ],
         )
-        assert len(added) == 1 and added[0].unique_id == "CAM001_channel_Video:1"
-        assert added[0].available
+        assert len(added) == int(known_camera_lens)
+        if known_camera_lens:
+            assert added[0].unique_id == "CAM001_channel_Video_1:2"
+            assert added[0].available
     finally:
         await coordinator.async_close()
 

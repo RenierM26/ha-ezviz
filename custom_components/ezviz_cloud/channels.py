@@ -77,17 +77,22 @@ def async_add_channel_entities(
     entry: EzvizConfigEntry,
     add: AddConfigEntryEntitiesCallback,
     factory: Callable[[str, CameraChannel], Iterable[Any]],
+    *,
+    require_multiple: bool = True,
 ) -> None:
-    """Add stable child entities when multi-channel metadata becomes available."""
+    """Add stable entities for reported channels as inventory becomes available."""
     seen: set[str] = set()
     registry_entries = er.async_entries_for_config_entry(
         er.async_get(coordinator.hass), entry.entry_id
     )
+    # A notification entity can belong to a single-lens camera.
     multi_channel: set[str] = {
         serial
         for serial in coordinator.data
         if any(
-            e.platform == DOMAIN and e.unique_id.startswith(f"{serial}_channel_")
+            e.platform == DOMAIN
+            and e.domain in ("camera", "image")
+            and e.unique_id.startswith(f"{serial}_channel_")
             for e in registry_entries
         )
     }
@@ -104,7 +109,7 @@ def async_add_channel_entities(
             channels = camera_channels(data)
             if len(channels) > 1:
                 multi_channel.add(serial)
-            if serial not in multi_channel:
+            if require_multiple and serial not in multi_channel:
                 continue
             for channel in channels:
                 for entity in factory(serial, channel):
