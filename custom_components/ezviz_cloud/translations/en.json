@@ -792,7 +792,7 @@
             },
             "lens_streams": {
                 "title": "Lens streams",
-                "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only turns off live video and shows the last alarm image for that lens when available.",
+                "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only disables RTSP for that lens and shows its last alarm image when available. It does not disable EZVIZ cloud playback.",
                 "data": {
                     "lens_1": "Lens 1 (original camera)",
                     "lens_2": "Lens 2"

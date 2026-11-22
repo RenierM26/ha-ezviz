@@ -27,6 +27,8 @@ from .workers import create_critical_task
 _LOGGER = logging.getLogger(__name__)
 _HOST = "127.0.0.1"
 _READ_TIMEOUT = 15
+_CLEANUP_WAIT = 1
+_PLAYBACK_OWNERS = "ezviz_cloud_playback_owners"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +50,7 @@ class CloudStreamRelay:
         serial: str,
         ffmpeg_binary: str,
         route: Callable[[], CloudStreamRoute | None],
+        on_request: Callable[[], None] | None = None,
     ) -> None:
         """Create an inert relay; neither a listener nor media are opened here."""
         self._hass = hass
@@ -55,6 +58,10 @@ class CloudStreamRelay:
         self._serial = serial
         self._ffmpeg_binary = ffmpeg_binary
         self._route = route
+        self._on_request = on_request
+        self._owners: set[tuple[str, int]] = hass.data.setdefault(
+            _PLAYBACK_OWNERS, set()
+        )
         self._secret = token_urlsafe(32)
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
@@ -98,7 +105,7 @@ class CloudStreamRelay:
             await self._runner.cleanup()
             self._runner = None
         if self._cleanup is not None:
-            await asyncio.shield(self._cleanup)
+            await asyncio.wait((self._cleanup,), timeout=_CLEANUP_WAIT)
 
     def _open(self, route: CloudStreamRoute) -> tuple[EzvizClient, LiveMpegtsStream]:
         """Use a playback-only snapshot; only the account owner may rotate tokens."""
@@ -126,15 +133,23 @@ class CloudStreamRelay:
             request.query.get("auth", "").encode(), self._secret.encode()
         ):
             raise web.HTTPNotFound
+        if self._on_request is not None:
+            self._on_request()
         if (
             self._url is None
             or self._failed_cleanup
             or (route := self._route()) is None
         ):
             raise web.HTTPServiceUnavailable
-        if self._handler is not None or self._cleanup is not None:
+        owner = (self._serial, route.channel)
+        if (
+            self._handler is not None
+            or self._cleanup is not None
+            or owner in self._owners
+        ):
             raise web.HTTPConflict
 
+        self._owners.add(owner)
         self._handler = asyncio.current_task()
         self._active_route = route
         opening = self._hass.async_add_executor_job(self._open, route)
@@ -162,12 +177,12 @@ class CloudStreamRelay:
         finally:
             self._cleanup = create_critical_task(
                 self._hass,
-                self._async_finish(opening, reading, read_executor),
+                self._async_finish(opening, reading, read_executor, owner),
                 "Close EZVIZ cloud playback",
             )
             self._handler = None
             self._active_route = None
-            await asyncio.shield(self._cleanup)
+            await asyncio.wait((self._cleanup,), timeout=_CLEANUP_WAIT)
 
         if not response.prepared:
             raise web.HTTPBadGateway
@@ -178,6 +193,7 @@ class CloudStreamRelay:
         opening: asyncio.Future[tuple[EzvizClient, LiveMpegtsStream]],
         reading: asyncio.Future[bytes] | None,
         read_executor: ThreadPoolExecutor,
+        owner: tuple[str, int],
     ) -> None:
         """Finish any abandoned open/read before releasing the playback slot."""
         try:
@@ -205,4 +221,6 @@ class CloudStreamRelay:
                 await self._hass.async_add_executor_job(client.close_session)
         finally:
             read_executor.shutdown(wait=False)
+            if not self._failed_cleanup:
+                self._owners.discard(owner)
             self._cleanup = None

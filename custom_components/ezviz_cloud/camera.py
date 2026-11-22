@@ -40,6 +40,7 @@ from homeassistant.components.stream import (
     Stream,
     create_stream,
 )
+from homeassistant.components.stream.const import HLS_PROVIDER
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -53,6 +54,7 @@ from .channels import (
     channel_available,
     is_additional_camera_lens,
     lens_stream_path,
+    registered_lens_serials,
     reported_lens_channels,
 )
 from .cloud_stream import CloudStreamRelay, CloudStreamRoute
@@ -206,6 +208,7 @@ class EzvizCamera(EzvizEntity, Camera):
                 serial,
                 self._ffmpeg.binary,
                 self._cloud_route,
+                self._arm_cloud_startup_timeout,
             )
             if self._cloud_stream_index is not None
             else None
@@ -229,7 +232,11 @@ class EzvizCamera(EzvizEntity, Camera):
                 if 1 in numbers:
                     self._cloud_primary_channel = 1
                 elif numbers == (0,):
-                    self._cloud_primary_channel = 0
+                    entry = self.coordinator.config_entry
+                    if entry is None or self._serial not in registered_lens_serials(
+                        self.coordinator, entry
+                    ):
+                        self._cloud_primary_channel = 0
             channel = self._cloud_primary_channel
             if channel is None or channel not in numbers:
                 return None
@@ -246,6 +253,16 @@ class EzvizCamera(EzvizEntity, Camera):
             if not media_key:
                 return None
         return CloudStreamRoute(channel, self._cloud_stream_index, media_key)
+
+    @callback
+    def _arm_cloud_startup_timeout(self) -> None:
+        """Start Core's HLS idle timer even when no segment arrives."""
+        if (
+            stream := self.stream
+        ) is None or stream.dynamic_stream_settings.preload_stream:
+            return
+        if (output := stream.outputs().get(HLS_PROVIDER)) is not None:
+            output.idle_timer.start()
 
     async def _async_create_cloud_stream(
         self, relay: CloudStreamRelay
