@@ -49,7 +49,7 @@
       "password": "synthetic-verification",
       "enc_key": "synthetic-encryption",
       "rtsp_uses_verification_code": false,
-      "ffmpeg_arguments": "/Streaming/Channels/101"
+      "rtsp_stream_path": "/Streaming/Channels/101"
     }
   }
 }

@@ -66,7 +66,7 @@ async def test_historical_upgrade_preserves_identity_and_credentials(hass, histo
     entries, expected = historical
     cloud = entries[0]
     original_data = deepcopy(dict(cloud.data))
-    identity = cloud.entry_id, cloud.unique_id, cloud.title, cloud.minor_version
+    identity = cloud.entry_id, cloud.unique_id, cloud.title
     registry = er.async_get(hass)
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=cloud.entry_id, identifiers={(DOMAIN, "SERIAL001")}
@@ -89,7 +89,8 @@ async def test_historical_upgrade_preserves_identity_and_credentials(hass, histo
     saved = await TokenPersistence(hass, cloud).async_load()
     assert saved["session_id"] == original_data["session_id"]
     assert cloud.options == {"timeout": 41, "cameras": expected}
-    assert (cloud.entry_id, cloud.unique_id, cloud.title, cloud.minor_version) == identity
+    assert cloud.minor_version == EzvizConfigFlow.MINOR_VERSION
+    assert (cloud.entry_id, cloud.unique_id, cloud.title) == identity
     assert registry.async_get(entity.entity_id) == entity
     assert dr.async_get(hass).async_get(device.id) == device
     assert [e.entry_id for e in hass.config_entries.async_entries(DOMAIN)] == [cloud.entry_id]
@@ -350,7 +351,7 @@ async def test_historical_encryption_and_rtsp_defaults(hass, version, key):
         "password": "verification",
         "enc_key": expected,
         "rtsp_uses_verification_code": version <= 2,
-        "ffmpeg_arguments": "/Streaming/Channels/102",
+        "rtsp_stream_path": "/Streaming/Channels/102",
     }
 
 
@@ -494,3 +495,28 @@ async def test_old_token_without_internal_user_id_requires_reauth(hass, version)
     with pytest.raises(ConfigEntryAuthFailed, match="Missing EZVIZ token fields"):
         await ezviz_cloud.async_setup_entry(hass, entry)
     assert "user_id" not in entry.data
+
+
+async def test_rtsp_path_minor_upgrade_preserves_values(hass):
+    entry = add_entry(
+        hass,
+        version=5,
+        minor_version=1,
+        data={"type": "EZVIZ_CLOUD_ACCOUNT"},
+        options={"timeout": 61, "cameras": {
+            "custom": {"ffmpeg_arguments": "custom/path", "enc_key": "synthetic"},
+            "root": {"ffmpeg_arguments": ""},
+            "disabled": {"ffmpeg_arguments": None},
+            "both": {"ffmpeg_arguments": "/old", "rtsp_stream_path": "/new"},
+            "default": {},
+        }},
+    )
+    assert await ezviz_cloud.async_migrate_entry(hass, entry)
+    assert entry.minor_version == EzvizConfigFlow.MINOR_VERSION
+    assert entry.options == {"timeout": 61, "cameras": {
+        "custom": {"rtsp_stream_path": "custom/path", "enc_key": "synthetic"},
+        "root": {"rtsp_stream_path": ""},
+        "disabled": {"rtsp_stream_path": None},
+        "both": {"rtsp_stream_path": "/new"},
+        "default": {},
+    }}

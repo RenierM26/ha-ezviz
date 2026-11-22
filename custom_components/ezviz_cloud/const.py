@@ -35,7 +35,8 @@ CONF_CAM_ENC_2FA_CODE: Final = "cam_encryption_2fa_code"
 # Legacy naming retained — this field is actually the RTSP *path*
 # e.g. "/Streaming/Channels/101" (main stream) or "/Streaming/Channels/102" (sub stream).
 # It is NOT passed as ffmpeg CLI arguments.
-CONF_FFMPEG_ARGUMENTS: Final = "ffmpeg_arguments"
+CONFIG_ENTRY_MINOR_VERSION: Final = 2
+CONF_RTSP_STREAM_PATH: Final = "rtsp_stream_path"
 
 # Region handling
 CONF_REGION: Final = "region"
@@ -58,7 +59,7 @@ REGION_URLS: Final = {
 
 DEFAULT_CAMERA_USERNAME: Final = "admin"
 DEFAULT_TIMEOUT: Final = 25
-DEFAULT_FFMPEG_ARGUMENTS: Final = "/Streaming/Channels/102"  # substream = safer default
+DEFAULT_RTSP_STREAM_PATH: Final = "/Streaming/Channels/102"  # substream = safer default
 DEFAULT_FETCH_MY_KEY: Final = "fetch_my_key"
 
 # ---------------------------

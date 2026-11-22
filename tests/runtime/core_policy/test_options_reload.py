@@ -37,7 +37,7 @@ async def test_options_save_with_attached_camera(
         "password": "sticker",
         "enc_key": "key",
         "rtsp_uses_verification_code": False,
-        "ffmpeg_arguments": "/old/path",
+        "rtsp_stream_path": "/old/path",
     }
     hass.config_entries.async_update_entry(
         entry, options={"timeout": 41, "cameras": {"CAM001": original_camera}}
@@ -77,7 +77,7 @@ async def test_options_save_with_attached_camera(
         assert entry.options["timeout"] == (
             42 if changed and not camera_options else 41
         )
-        assert entry.options["cameras"]["CAM001"]["ffmpeg_arguments"] == (
+        assert entry.options["cameras"]["CAM001"]["rtsp_stream_path"] == (
             "/new/path" if changed and camera_options else "/old/path"
         )
     finally:

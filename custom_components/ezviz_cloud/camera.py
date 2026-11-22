@@ -6,9 +6,7 @@ flows. Per-camera configuration is read from the cloud entry's options at:
 
     entry.options["cameras"][<SERIAL>]
 
-Where <SERIAL> is the camera serial. The legacy
-option name `CONF_FFMPEG_ARGUMENTS` is used to store the RTSP *path* (e.g.,
-"/Streaming/Channels/102"). We keep this name for compatibility with existing setups.
+The RTSP stream path is stored per camera as `rtsp_stream_path`.
 """
 
 import asyncio
@@ -46,10 +44,10 @@ from .channels import (
 )
 from .const import (
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,  # used here as RTSP path (main/sub)
+    CONF_RTSP_STREAM_PATH,
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
-    DEFAULT_FFMPEG_ARGUMENTS,  # default RTSP path
+    DEFAULT_RTSP_STREAM_PATH,
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
 )
@@ -84,7 +82,7 @@ async def async_setup_entry(
         password: str = enc_key if not use_vc else per_cam.get(CONF_PASSWORD, "")
 
         rtsp_path: str | None = per_cam.get(
-            CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
         )
 
         if rtsp_path and not rtsp_path.startswith("/"):
@@ -175,7 +173,7 @@ class EzvizCamera(EzvizEntity, Camera):
                 )
                 self._password = options.get(field, "")
                 self._rtsp_path = options.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+                    CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
                 )
         ip = self.data["local_ip"]
         port = self.data["local_rtsp_port"]

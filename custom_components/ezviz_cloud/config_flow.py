@@ -29,6 +29,7 @@ from .const import (
     ATTR_TYPE_CLOUD,
     CONF_AUTH_REF,
     CONF_REGION,
+    CONFIG_ENTRY_MINOR_VERSION,
     DEFAULT_TIMEOUT,
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
@@ -57,6 +58,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     """Handle the cloud account config flow for EZVIZ."""
 
     VERSION = VERSION
+    MINOR_VERSION = CONFIG_ENTRY_MINOR_VERSION
 
     _reauth_entry: ConfigEntry[Any]
     _reauth_username: str

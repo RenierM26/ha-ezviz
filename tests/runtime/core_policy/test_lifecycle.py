@@ -83,7 +83,7 @@ async def test_credential_commit_updates_existing_stream(
         "password": "p:/@ss",
         "enc_key": "key",
         "rtsp_uses_verification_code": verification,
-        "ffmpeg_arguments": "new/path",
+        "rtsp_stream_path": "new/path",
     }
     hass.config_entries.async_update_entry(entry, options={"cameras": {"CAM001": opts}})
     await cam.async_added_to_hass()

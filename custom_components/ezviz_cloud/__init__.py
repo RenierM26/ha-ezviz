@@ -22,7 +22,7 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
     Platform,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
@@ -35,11 +35,12 @@ from .const import (
     ATTR_TYPE_CAMERA,
     ATTR_TYPE_CLOUD,
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,
+    CONF_RTSP_STREAM_PATH,
     CONF_RTSP_USES_VERIFICATION_CODE,
+    CONFIG_ENTRY_MINOR_VERSION,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
-    DEFAULT_FFMPEG_ARGUMENTS,
+    DEFAULT_RTSP_STREAM_PATH,
     DEFAULT_TIMEOUT,
     DOMAIN,
     OPTIONS_KEY_CAMERAS,
@@ -287,6 +288,29 @@ async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> No
     create_critical_task(hass, remove(), "EZVIZ credential removal")
 
 
+_LEGACY_RTSP_PATH_KEY = "ffmpeg_arguments"
+
+
+@callback
+def _migrate_rtsp_stream_paths(hass: HomeAssistant, entry: EzvizConfigEntry) -> None:
+    """Rename stored paths without changing values or other camera options."""
+    if entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION:
+        return
+    options = dict(entry.options)
+    if OPTIONS_KEY_CAMERAS in options:
+        cameras = {}
+        for serial, saved in options[OPTIONS_KEY_CAMERAS].items():
+            camera = dict(saved)
+            if _LEGACY_RTSP_PATH_KEY in camera:
+                legacy_path = camera.pop(_LEGACY_RTSP_PATH_KEY)
+                camera.setdefault(CONF_RTSP_STREAM_PATH, legacy_path)
+            cameras[serial] = camera
+        options[OPTIONS_KEY_CAMERAS] = cameras
+    hass.config_entries.async_update_entry(
+        entry, options=options, minor_version=CONFIG_ENTRY_MINOR_VERSION
+    )
+
+
 # HA 2026.10.4 requires boolean entry hooks.
 # pylint: disable-next=home-assistant-return-type
 async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bool:
@@ -297,6 +321,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
             translation_domain=DOMAIN, translation_key="migration_future_version"
         )
     if entry.version == TARGET_VERSION:
+        if entry.data.get(CONF_TYPE) == ATTR_TYPE_CLOUD:
+            _migrate_rtsp_stream_paths(hass, entry)
         clear_migration_issue(hass, entry)
         return True
 
@@ -310,6 +336,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
             raise ConfigEntryNotReady(
                 translation_domain=DOMAIN, translation_key="credential_storage_failed"
             ) from err
+        _migrate_rtsp_stream_paths(hass, entry)
         clear_migration_issue(hass, entry)
         return True
 
@@ -364,8 +391,8 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
                 if cam.version <= 2
                 else cam.data.get(CONF_RTSP_USES_VERIFICATION_CODE, False)
             ),
-            CONF_FFMPEG_ARGUMENTS: cam.options.get(
-                CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+            CONF_RTSP_STREAM_PATH: cam.options.get(
+                _LEGACY_RTSP_PATH_KEY, DEFAULT_RTSP_STREAM_PATH
             ),
         }
 
@@ -406,5 +433,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> b
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN, translation_key="credential_storage_failed"
         ) from err
+    _migrate_rtsp_stream_paths(hass, entry)
     _LOGGER.info("Migrated EZVIZ cloud entry %s to v%d", entry.entry_id, TARGET_VERSION)
     return True

@@ -18,7 +18,7 @@ from .channels import (
     is_additional_camera_lens,
     lens_stream_presets,
 )
-from .const import CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
+from .const import CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
 
 if TYPE_CHECKING:
@@ -47,9 +47,9 @@ def _stream_fields(
     """Map the original camera and additional lenses to their existing options."""
     return {
         "lens_1": (
-            CONF_FFMPEG_ARGUMENTS,
+            CONF_RTSP_STREAM_PATH,
             {
-                "substream": DEFAULT_FFMPEG_ARGUMENTS,
+                "substream": DEFAULT_RTSP_STREAM_PATH,
                 "main_stream": "/Streaming/Channels/101",
             },
         ),
@@ -67,8 +67,8 @@ def _saved_path(
     options: dict[str, Any], key: str, presets: dict[str, str]
 ) -> str | None:
     """Use the legacy primary path and keep secondary overrides independent."""
-    if key == CONF_FFMPEG_ARGUMENTS:
-        return options.get(key, DEFAULT_FFMPEG_ARGUMENTS)
+    if key == CONF_RTSP_STREAM_PATH:
+        return options.get(key, DEFAULT_RTSP_STREAM_PATH)
     return options.get(CONF_LENS_RTSP_PATHS, {}).get(key, presets.get("substream"))
 
 
@@ -166,7 +166,7 @@ async def async_edit_stream(
         else:
             return flow.async_abort(reason="no_camera_channels")
         if key == "lens_1":
-            patch[CONF_FFMPEG_ARGUMENTS] = path
+            patch[CONF_RTSP_STREAM_PATH] = path
         else:
             paths[option] = path
     if user_input is not None and not errors:

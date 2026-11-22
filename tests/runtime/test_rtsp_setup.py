@@ -81,7 +81,7 @@ async def test_lan_failure_preserves_choice_and_all_fields_without_rtsp_or_fallb
         assert defaults["rtsp_uses_verification_code"] is True
         assert defaults["username"] == CAMERA["username"]
         assert defaults["password"] == changes.get("password", CAMERA["password"])
-        assert defaults["enc_key"] == CAMERA["enc_key"] and "ffmpeg_arguments" not in defaults
+        assert defaults["enc_key"] == CAMERA["enc_key"] and "rtsp_stream_path" not in defaults
         assert entry.options == before
         probe.assert_not_called()
         api.get_detection_sensibility.assert_not_called()
@@ -139,7 +139,7 @@ async def test_unchecked_enable_still_tests_and_reports_failure_with_fields_pres
         defaults = result["data_schema"]({})
         assert defaults[AUTH] == "verification_code" and defaults["ephemeral_test_rtsp"] is True
         assert defaults["password"] == CAMERA["password"] and defaults["enc_key"] == CAMERA["enc_key"]
-        assert "ffmpeg_arguments" not in defaults and defaults["rtsp_uses_verification_code"] is True
+        assert "rtsp_stream_path" not in defaults and defaults["rtsp_uses_verification_code"] is True
         assert entry.options == before
         client.services_switch_set.assert_not_called()
     finally:

@@ -208,7 +208,7 @@ async def test_lens_stream_is_explicit_and_does_not_replace_primary(
     original = {
         "username": "user",
         "enc_key": "synthetic",
-        "ffmpeg_arguments": "/legacy",
+        "rtsp_stream_path": "/legacy",
     }
     hass.config_entries.async_update_entry(
         entry, options={"cameras": {"CAM001": original}}
@@ -810,7 +810,7 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
             "cameras": {
                 "CAM001": {
                     "enc_key": "keep",
-                    "ffmpeg_arguments": "/legacy",
+                    "rtsp_stream_path": "/legacy",
                     "unknown": 7,
                     CONF_LENS_RTSP_PATHS: {"Video:1": "/lens1", "Video_1:2": "/old"},
                 }
@@ -846,7 +846,7 @@ async def test_lens_options_use_native_reload_and_preserve_other_camera_options(
         await hass.async_block_till_done()
         options = entry.options["cameras"]["CAM001"]
         assert options["enc_key"] == "keep" and options["unknown"] == 7
-        assert options["ffmpeg_arguments"] == "/legacy"
+        assert options["rtsp_stream_path"] == "/legacy"
         assert options[CONF_LENS_RTSP_PATHS].get("Video_1:2", "") == path
         assert options[CONF_LENS_RTSP_PATHS]["Video:1"] == "/lens1"
         reload_entry.assert_awaited_once_with(entry.entry_id)
@@ -873,7 +873,7 @@ async def test_h9c_lens_substreams_default_and_can_be_overridden(
         entry,
         options={
             "cameras": {
-                "CAM001": {"enc_key": "synthetic", "ffmpeg_arguments": "/legacy"}
+                "CAM001": {"enc_key": "synthetic", "rtsp_stream_path": "/legacy"}
             }
         },
     )
@@ -896,7 +896,7 @@ async def test_h9c_lens_substreams_default_and_can_be_overridden(
             shared["flow_id"], {"next_step_id": "camera_edit"}
         )
         assert not any(
-            key.schema == "ffmpeg_arguments" for key in shared["data_schema"].schema
+            key.schema == "rtsp_stream_path" for key in shared["data_schema"].schema
         )
         manager.async_abort(shared["flow_id"])
 
@@ -946,7 +946,7 @@ async def test_camera_setup_reuses_original_for_first_lens(
         coordinator.data["CAM001"]["resourceInfos"].pop()
     entry = coordinator.config_entry
     hass.config_entries.async_update_entry(
-        entry, options={"cameras": {"CAM001": {"ffmpeg_arguments": "/keep-original"}}}
+        entry, options={"cameras": {"CAM001": {"rtsp_stream_path": "/keep-original"}}}
     )
     added: list[camera.EzvizCamera] = []
     try:
