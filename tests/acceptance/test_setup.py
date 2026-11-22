@@ -62,7 +62,7 @@ async def test_actual_config_flow_uses_credential_profile_and_full_token(hass, m
     assert staged["token"] is not token
     assert CONF_PASSWORD not in result["data"]
     await _pending_store(hass, result["data"]["auth_ref"]).async_remove()
-    api.enable_channel99.assert_called_once_with()
+    api.enable_channel99.assert_called_once_with(request_mfa=False)
     api.login.assert_not_called()
     api.close_session.assert_called_once_with()
 

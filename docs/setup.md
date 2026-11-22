@@ -51,8 +51,16 @@ files, a HACS download, and restarting HA are distinct from configuring an accou
    input must not contain a path, port, user information, query or fragment.
 3. Timeout defaults to **25 seconds**, accepts integers **1–300**, and bounds
    requests. It does not change the shared **30-second polling interval**.
-4. If prompted, complete account two-factor verification. The account password
-   and one-time MFA code are not persisted by the integration.
+4. If verification is required, choose a delivery method and submit to request
+   the first code, then enter it. You can also switch methods or request another
+   code. For a bound phone,
+   you can look up additional methods using your telephone country code. Lookup
+   alone does not send a code.
+   If EZVIZ requires image or account security verification, use the EZVIZ app and
+   restart the Home Assistant flow; Home Assistant does not display or solve that
+   challenge. The same flow applies to reauthentication. An incomplete challenge
+   does not replace saved credentials. The integration does not persist the
+   account password or one-time code.
 5. Once the initial account poll succeeds, HA loads the entities; push starts in
    the background. Optional push startup is not a reason to withhold all entities.
 

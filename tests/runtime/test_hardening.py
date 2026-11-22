@@ -531,7 +531,8 @@ async def test_cancelled_credential_flow_retains_client_cleanup_through_ha_stop(
     entered, release = Event(), Event()
     order = []
 
-    def login():
+    def login(*, request_mfa):
+        assert not request_mfa
         entered.set()
         assert release.wait(5)
         order.append("login")
