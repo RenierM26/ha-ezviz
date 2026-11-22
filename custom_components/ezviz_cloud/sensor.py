@@ -262,15 +262,16 @@ async def async_setup_entry(
     )
 
     sd_status = next(desc for desc in SENSORS if desc.key == "sd_card_status")
+
+    def camera_sd_status(
+        serial: str, data: dict[str, Any], existing: EzvizSensor | None
+    ) -> EzvizSensor | None:
+        if existing is None and _is_desc_supported(data, sd_status):
+            return EzvizSensor(coordinator, serial, sd_status)
+        return None
+
     async_add_camera_inventory_entities(
-        coordinator,
-        entry,
-        async_add_entities,
-        lambda serial, data: (
-            [EzvizSensor(coordinator, serial, sd_status)]
-            if _is_desc_supported(data, sd_status)
-            else []
-        ),
+        coordinator, entry, async_add_entities, camera_sd_status
     )
 
 

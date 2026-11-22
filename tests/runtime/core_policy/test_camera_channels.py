@@ -1828,6 +1828,38 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
         assert hass.states.get(sd_id).state == "normal"
         assert list(platforms["light"].entities) == [light_id]
         assert platforms["light"].entities[light_id] is light_entity
+        brightness_write = MagicMock(return_value=True)
+        monkeypatch.setattr(
+            coordinator.ezviz_client, "set_floodlight_brightness", brightness_write
+        )
+        for flag, mode in (
+            ("1", light.ColorMode.BRIGHTNESS),
+            ("0", light.ColorMode.ONOFF),
+        ):
+            row["supportExt"] = {**row["supportExt"], "113": flag}
+            current = replace(
+                current,
+                revision=current.revision + 1,
+                devices={serial: CameraState(serial, "camera", row)},
+            )
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            assert (
+                registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+                == light_id
+            )
+            assert platforms["light"].entities == {light_id: light_entity}
+            assert light_entity.supported_color_modes == {mode}
+            assert hass.states.get(light_id).attributes["supported_color_modes"] == [
+                mode
+            ]
+            await light_entity.async_turn_on(brightness=128)
+            if flag == "1":
+                brightness_write.assert_called_once_with(serial, 50)
+            else:
+                assert brightness_write.call_count == 1
+            assert sent[-1].url.endswith("/0/1/303/switchStatus")
+
     finally:
         for platform in platforms.values():
             await platform.async_reset()

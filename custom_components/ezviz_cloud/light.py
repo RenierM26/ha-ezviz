@@ -132,15 +132,21 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
-    def camera_lights(serial: str, data: dict[str, Any]) -> list[EzvizLight]:
+    def camera_light(
+        serial: str, data: dict[str, Any], existing: EzvizLight | None
+    ) -> EzvizLight | None:
         # Both descriptions represent the same lamp; prefer legacy brightness.
         for desc in LIGHTS:
             if _is_desc_supported(data, desc):
-                return [EzvizLight(coordinator, serial, desc)]
-        return []
+                if existing is None:
+                    return EzvizLight(coordinator, serial, desc)
+                if existing.entity_description is not desc:
+                    existing.set_description(desc)
+                break
+        return None
 
     async_add_camera_inventory_entities(
-        coordinator, entry, async_add_entities, camera_lights
+        coordinator, entry, async_add_entities, camera_light
     )
 
 
@@ -164,8 +170,12 @@ class EzvizLight(EzvizEntity, LightEntity):
     ) -> None:
         """Initialize the EZVIZ light entity and pre-populate state from snapshot."""
         super().__init__(coordinator, serial)
-        self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
+        self.set_description(description)
+
+    def set_description(self, description: EzvizLightEntityDescription) -> None:
+        """Apply the poll's capabilities before the entity writes its state."""
+        self.entity_description = description
         self._attr_color_mode = (
             ColorMode.BRIGHTNESS
             if description.set_brightness is not None

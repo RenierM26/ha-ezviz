@@ -43,23 +43,25 @@ def async_add_inventory_entities(
     )
 
 
-def async_add_camera_inventory_entities(
+def async_add_camera_inventory_entities[EntityT: Entity](
     coordinator: EzvizDataUpdateCoordinator,
     entry: EzvizConfigEntry,
     add: AddConfigEntryEntitiesCallback,
-    factory: Callable[[str, dict[str, Any]], Iterable[Entity]],
+    factory: Callable[[str, dict[str, Any], EntityT | None], EntityT | None],
 ) -> None:
-    """Discover camera entities from the accepted camera projection."""
-    _async_discover_entities(
-        coordinator,
-        entry,
-        add,
-        lambda: (
-            entity
-            for serial, data in (coordinator.data or {}).items()
-            for entity in factory(serial, data)
-        ),
-    )
+    """Discover or update one entity per camera on each accepted poll."""
+    known: dict[str, EntityT] = {}
+
+    @callback
+    def discover() -> Iterable[Entity]:
+        for serial, data in (coordinator.data or {}).items():
+            existing = known.get(serial)
+            entity = factory(serial, data, existing)
+            if existing is None and entity is not None:
+                known[serial] = entity
+                yield entity
+
+    _async_discover_entities(coordinator, entry, add, discover)
 
 
 def _async_discover_entities(
