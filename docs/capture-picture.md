@@ -52,7 +52,7 @@ phase. Normal unload retains cleanup after its foreground wait; late results
 cannot publish after shutdown begins. HA's forced-shutdown deadlines still apply;
 Python cannot terminate an arbitrary stuck OS thread.
 
-The manifest requires published `pyezvizapi>=2.6.0`. CI runtime jobs qualify the
+The manifest requires published `pyezvizapi>=2.7.0`. CI runtime jobs qualify the
 exact published version in [`requirements/sdk.txt`](../requirements/sdk.txt).
 The earlier bounded 1.x dependency from #237 is intentionally superseded here.
 HACS requires HA 2026.10.4 or newer, matching the tested baseline.

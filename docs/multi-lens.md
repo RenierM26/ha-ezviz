@@ -1,7 +1,7 @@
 # Multi-lens cameras
 
 This branch requires the **published SDK 2.6.0 channel API**. The integration
-installs the SDK from PyPI; the runtime test profile pins it to 2.6.0.
+installs the SDK from PyPI; the runtime test profile pins it to 2.7.0.
 
 ## Entities and compatibility
 

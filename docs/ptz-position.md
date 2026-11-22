@@ -1,6 +1,6 @@
 # Point-based PTZ action
 
-> This branch requires published SDK 2.6.0. See [multi-lens support](multi-lens.md).
+> This branch requires published SDK 2.7.0. See [multi-lens support](multi-lens.md).
 
 The new `ezviz_cloud.ptz_control_coordinates` action uses the existing SDK point
 function, corrected in [SDK #446](https://github.com/RenierM26/pyEzvizApi/pull/446).

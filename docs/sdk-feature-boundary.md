@@ -1,8 +1,8 @@
 # SDK feature boundary migration
 
 The [manifest](../custom_components/ezviz_cloud/manifest.json) currently requires
-`pyezvizapi>=2.6.0`, and CI and local check profiles use the exact published version
-in [`requirements/sdk.txt`](../requirements/sdk.txt) (`pyezvizapi==2.6.0`).
+`pyezvizapi>=2.7.0`, and CI and local check profiles use the exact published version
+in [`requirements/sdk.txt`](../requirements/sdk.txt) (`pyezvizapi==2.7.0`).
 See [Development and checks](development.md) for the current setup. No editable
 checkout, source override or direct-Git dependency is required.
 
@@ -67,7 +67,7 @@ the manifest and profile before running tests.
 
 Core's optional built-in EZVIZ integration still requests `pyezvizapi==1.0.5.0`.
 `tools/check_hassfest.py` permits only the exact custom-only
-`pyezvizapi>=2.6.0` conflict with that pin, with a visible warning. Other packages,
+`pyezvizapi>=2.7.0` conflict with that pin, with a visible warning. Other packages,
 changed versions, additional errors and Core integrations remain fatal; negative
 controls cover the old 2.2.0 and 2.3.0 requirements too. This is **not** stock hassfest
 success or proof the built-in and custom integrations can coexist. Do not enable
