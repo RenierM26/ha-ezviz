@@ -275,8 +275,8 @@ class EzvizCamera(EzvizEntity, Camera):
     def _arm_cloud_recorder_timeout(self, stream: Stream) -> None:
         """Watch for the first recording segment without starting its duration."""
         if (
-            stream is not None
-            and self.stream is stream
+            self.stream is stream
+            and stream is not None
             and (recorder := stream.outputs().get(RECORDER_PROVIDER)) is not None
             and recorder not in self._watched_recorders
         ):
