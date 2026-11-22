@@ -22,7 +22,7 @@ from homeassistant.components.media_source import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .channels import reported_lens_channels
+from .channels import registered_lens_serials, reported_lens_channels
 from .const import DOMAIN
 from .views import async_generate_image_proxy_url
 
@@ -250,6 +250,7 @@ class EzvizMediaSource(MediaSource):
 
             # Per-camera entries from coordinator data
             coordinator = data.coordinator
+            registered_serials = registered_lens_serials(coordinator, config_entry)
             for serial, cam in (coordinator.data or {}).items():
                 title = cam.get("name") or serial
                 # Use proxied thumbnail to support decryption like camera views
@@ -276,7 +277,12 @@ class EzvizMediaSource(MediaSource):
                         can_expand=True,
                     )
                 )
-                channels = reported_lens_channels(coordinator, config_entry, serial)
+                channels = reported_lens_channels(
+                    coordinator,
+                    config_entry,
+                    serial,
+                    registered_serials=registered_serials,
+                )
                 if channels:
                     children.extend(
                         BrowseMediaSource(

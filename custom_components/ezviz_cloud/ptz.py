@@ -3,6 +3,7 @@
 from typing import Any
 
 import probatio
+from pyezvizapi.devices.capabilities import SupportExtView
 from pyezvizapi.devices.channels import CameraChannelError, point_ptz_route
 
 from homeassistant.exceptions import ServiceValidationError
@@ -22,9 +23,23 @@ def coordinate(value: object) -> float:
 
 
 def point_route(
-    data: dict[str, Any], lens: str = "auto", *, channel_key: str | None = None
+    data: dict[str, Any],
+    lens: str = "auto",
+    *,
+    channel_key: str | None = None,
+    bind_primary: bool = False,
 ) -> tuple[str, str]:
     """Let the SDK select the protocol route; expose actionable HA errors."""
+    if bind_primary:
+        # Preserve the SDK's fixed direct 586 route, including numeric strings.
+        flag = SupportExtView.from_camera_data(data).get("586")
+        if isinstance(flag, str):
+            try:
+                flag = int(flag)
+            except ValueError:
+                flag = None
+        if type(flag) is not int or flag != 1:
+            lens = "1"
     try:
         return point_ptz_route(data, lens, channel_key=channel_key)
     except CameraChannelError as error:

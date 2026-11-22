@@ -39,6 +39,9 @@ from homeassistant import loader
 from homeassistant.components.camera import CameraEntityFeature
 from homeassistant.components.camera.prefs import DynamicStreamSettings
 from homeassistant.components.media_source import Unresolvable
+from homeassistant.components.stream import Stream
+from homeassistant.components.stream.const import ATTR_SETTINGS, ATTR_STREAMS
+from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -95,11 +98,14 @@ async def add(hass: HomeAssistant, entity: Entity, domain: str) -> EntityPlatfor
     return platform
 
 
-async def test_original_camera_auto_ptz_never_moves_surviving_sibling(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("direct", [None, " 01 "])
+async def test_original_camera_auto_ptz_preserves_direct_precedence(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, direct: str | None
 ) -> None:
-    """The original target uses Lens 1 automatically; explicit choices still work."""
+    """The original target preserves direct PTZ or uses the reported Lens 1."""
     coordinator, _, sent = dual(hass, monkeypatch)
+    if direct is not None:
+        coordinator.data["CAM001"]["supportExt"]["586"] = direct
     entry = coordinator.config_entry
     added: list[camera.EzvizCamera] = []
     platforms = []
@@ -110,11 +116,18 @@ async def test_original_camera_auto_ptz_never_moves_surviving_sibling(
             platforms.append(platform)
         primary = added[0]
         await primary.async_ptz_control_coordinates(0.25, 0.75)
+        resource = "Video" if direct is None else "Video_1"
+        assert sent[-1].url.endswith(f"/{resource}/1/PTZManualCtrl/CtrlPTZ3DPosition")
+        await primary.async_ptz_control_coordinates(0.25, 0.75, "1")
         assert sent[-1].url.endswith("/Video/1/PTZManualCtrl/CtrlPTZ3DPosition")
         coordinator.data["CAM001"]["resourceInfos"].pop(0)
-        with pytest.raises(ServiceValidationError):
+        if direct is None:
+            with pytest.raises(ServiceValidationError):
+                await primary.async_ptz_control_coordinates(0.25, 0.75)
+            assert len(sent) == 2
+        else:
             await primary.async_ptz_control_coordinates(0.25, 0.75)
-        assert len(sent) == 1
+            assert sent[-1].url.endswith("/Video_1/1/PTZManualCtrl/CtrlPTZ3DPosition")
         await primary.async_ptz_control_coordinates(0.25, 0.75, "2")
         assert sent[-1].url.endswith("/Video_1/2/PTZManualCtrl/CtrlPTZ3DPosition")
     finally:
@@ -217,6 +230,23 @@ async def test_capture_only_updates_the_target_lens_snapshot(
         assert len(sent) == 2 and sent[1].url.endswith("/CAM001/2/capture")
         assert primary_snapshot.image_url == result["picture_url"]
         assert secondary_snapshot.image_url == secondary_result["picture_url"]
+        body = jpeg("blue")
+
+        async def get(url: str, **_kwargs: object) -> httpx.Response:
+            return httpx.Response(200, content=body, request=httpx.Request("GET", url))
+
+        download = AsyncMock(side_effect=get)
+        monkeypatch.setattr(
+            image, "get_async_client", lambda _hass: SimpleNamespace(get=download)
+        )
+        assert await secondary_snapshot.async_image() == body
+        rows = coordinator.data["CAM001"]["resourceInfos"]
+        missing = rows.pop()
+        assert not secondary_snapshot.available
+        assert await secondary_snapshot.async_image() is None
+        rows.append(missing)
+        assert await secondary_snapshot.async_image() == body
+        download.assert_awaited_once()
         for entity in snapshots:
             assert "images.example.invalid" not in json.dumps(
                 hass.states.get(entity.entity_id).as_dict(), default=str
@@ -277,51 +307,69 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
     target = camera.EzvizChannelCamera(hass, coordinator, "CAM001", channel)
     platform = await add(hass, target, "camera")
 
-    created: list[MagicMock] = []
+    streams: list[Stream] = []
+    hass.config.components.add("stream")
+    hass.data["stream"] = {
+        ATTR_SETTINGS: STREAM_SETTINGS_NON_LL_HLS,
+        ATTR_STREAMS: streams,
+    }
+    requesting_prefs, release_prefs = asyncio.Event(), asyncio.Event()
+    prefs = DynamicStreamSettings(preload_stream=True)
 
-    def create_stream(_hass: HomeAssistant, source: str, **kwargs: object) -> MagicMock:
-        stream = MagicMock(
-            source=source,
-            dynamic_stream_settings=kwargs["dynamic_stream_settings"],
-            stop=AsyncMock(),
-        )
-        created.append(stream)
-        return stream
+    async def get_prefs(_hass: HomeAssistant, _entity_id: str) -> DynamicStreamSettings:
+        requesting_prefs.set()
+        await release_prefs.wait()
+        return prefs
+
+    def run_worker(stream: Stream) -> None:
+        stream._thread_quit.wait()
 
     camera_module = import_module(camera.Camera.__module__)
-    monkeypatch.setattr(camera_module, "create_stream", create_stream)
-    monkeypatch.setattr(
-        camera_module,
-        "get_dynamic_camera_stream_settings",
-        AsyncMock(return_value=DynamicStreamSettings()),
-    )
+    monkeypatch.setattr(camera_module, "get_dynamic_camera_stream_settings", get_prefs)
+    monkeypatch.setattr(Stream, "_run_worker", run_worker)
     try:
         async with target._stream_lifecycle_lock:
             request = asyncio.create_task(target.async_create_stream())
             await asyncio.sleep(0)
             coordinator.last_update_success = False
         assert await request is None
-        assert not created
+        assert not streams
 
         coordinator.last_update_success = True
-        original = await target.async_create_stream()
-        assert original is not None
-        rows = coordinator.data["CAM001"]["resourceInfos"]
-        sibling = rows.pop()
-        coordinator.async_update_listeners()
-        await hass.async_block_till_done()
-        created[0].update_source.assert_not_called()
-        created[0].stop.assert_awaited_once()
+        request = asyncio.create_task(target.async_create_stream())
+        async with asyncio.timeout(2):
+            await requesting_prefs.wait()
+        coordinator.last_update_success = False
+        release_prefs.set()
+        assert await request is None
+        assert len(streams) == 1
         assert target.stream is None
-        assert await target.async_create_stream() is None
 
-        rows.append(sibling)
-        coordinator.async_update_listeners()
-        recovered = await target.async_create_stream()
-        assert recovered is not None and recovered is not original
-        assert recovered.source == original.source
-        assert len(created) == 2
+        coordinator.last_update_success = True
+        original = streams[0]
+        rows = coordinator.data["CAM001"]["resourceInfos"]
+        for last_octet in (2, 3, 4):
+            assert await target.async_create_stream() is original
+            assert original.dynamic_stream_settings is prefs and prefs.preload_stream
+            await original.start()
+            worker = original._thread
+            assert worker is not None and worker.is_alive()
+
+            sibling = rows.pop()
+            coordinator.async_update_listeners()
+            await hass.async_block_till_done()
+            assert not worker.is_alive()
+            assert target.stream is None
+            assert await target.async_create_stream() is None
+
+            coordinator.data["CAM001"]["local_ip"] = f"192.0.2.{last_octet}"
+            rows.append(sibling)
+            coordinator.async_update_listeners()
+            assert await target.async_create_stream() is original
+            assert original.source.endswith(f"192.0.2.{last_octet}:554/second")
+            assert streams == [original]
     finally:
+        release_prefs.set()
         await platform.async_reset()
         await coordinator.async_close()
 
@@ -427,6 +475,55 @@ async def test_concurrent_lens_images_share_download_and_keep_identity(
     finally:
         release.set()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("response_kind", ["html", "truncated_jpeg", "ambiguous"])
+async def test_invalid_lens_batch_retries_the_same_source(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, response_kind: str
+) -> None:
+    """An HTTP 200 alone does not make a response a reusable lens batch."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    body = jpeg("blue")
+    if response_kind == "ambiguous":
+        invalid = body
+        valid = (
+            b"mutichhikpic\x81\xfe"
+            + pack(">HHII", 2, 0xCAFE, 4 + len(body), len(body))
+            + body
+        )
+    else:
+        invalid = (
+            b"<html>Temporary error</html>" if response_kind == "html" else body[:40]
+        )
+        valid = body
+    url = "https://images.example.invalid/retry"
+    get = AsyncMock(
+        side_effect=[
+            httpx.Response(200, content=content, request=httpx.Request("GET", url))
+            for content in (invalid, valid)
+        ]
+    )
+    monkeypatch.setattr(
+        image, "get_async_client", lambda _hass: SimpleNamespace(get=get)
+    )
+    try:
+        for expected in (None, body, body):
+            assert (
+                await image.async_channel_image(
+                    hass,
+                    coordinator,
+                    "CAM001",
+                    "Video_1:2",
+                    url,
+                    None,
+                    known_source=response_kind != "ambiguous",
+                    generation=1,
+                )
+                == expected
+            )
+        assert get.await_count == 2
+    finally:
         await coordinator.async_close()
 
 
@@ -933,6 +1030,40 @@ async def test_only_multi_lens_registry_evidence_restores_a_remaining_camera_len
         if known_camera_lens:
             assert added[0].unique_id == "CAM001_channel_Video_1:2"
             assert added[0].available
+    finally:
+        await coordinator.async_close()
+
+
+async def test_media_root_scans_lens_registry_once_per_entry(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the camera with registry evidence gets a surviving lens folder."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    entry = coordinator.config_entry
+    devices = coordinator.data
+    devices["CAM001"]["resourceInfos"].pop(0)
+    devices["CAM002"] = {**devices["CAM001"], "last_alarm_pic": None}
+    er.async_get(hass).async_get_or_create(
+        "camera", DOMAIN, "CAM001_channel_Video_1:2", config_entry=entry
+    )
+    monkeypatch.setattr(
+        hass.config_entries, "async_loaded_entries", lambda _domain: [entry]
+    )
+    scan = MagicMock(wraps=er.async_entries_for_config_entry)
+    monkeypatch.setattr(er, "async_entries_for_config_entry", scan)
+    try:
+        result = await media.EzvizMediaSource(hass).async_browse_media(
+            SimpleNamespace(identifier=None)
+        )
+        lens_folders = [
+            item.identifier
+            for item in result.children
+            if item.identifier.startswith("CLENS|")
+        ]
+        assert lens_folders == [
+            f"CLENS|{entry.entry_id}|CAM001|{media._b64e('Video_1:2')}|50"
+        ]
+        scan.assert_called_once_with(er.async_get(hass), entry.entry_id)
     finally:
         await coordinator.async_close()
 

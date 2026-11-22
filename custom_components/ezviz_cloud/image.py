@@ -3,11 +3,13 @@
 import asyncio
 from collections.abc import Mapping
 from functools import partial
+from io import BytesIO
 import logging
 from typing import Any, override
 
 # Supported HA image clients still use httpx, not httpx2.
 import httpx  # noqa: TID251
+from PIL import Image as PilImage
 from propcache.api import cached_property
 from pyezvizapi.constants import HIK_ENCRYPTION_HEADER
 from pyezvizapi.devices.channels import (
@@ -70,6 +72,29 @@ def _has_residual_encryption(content: bytes) -> bool:
         and infer_image_type(content) is None
         and HIK_ENCRYPTION_HEADER in content
     )
+
+
+def _decode_channel_image_batch(
+    content: bytes,
+    password: str | None,
+    channels: tuple[CameraChannel, ...],
+    source_channel: CameraChannel | None,
+) -> tuple[dict[str, bytes], bool]:
+    """Validate frames before caching; an incomplete decode must be retryable."""
+    decoded = process_channel_images(
+        content, password, channels, source_channel=source_channel
+    )
+    valid: dict[str, bytes] = {}
+    for key, body in decoded.items():
+        if not body.startswith(b"\xff\xd8\xff") and infer_image_type(body) is None:
+            continue
+        try:
+            with PilImage.open(BytesIO(body)) as frame:
+                frame.load()
+        except OSError, ValueError, SyntaxError, PilImage.DecompressionBombError:
+            continue
+        valid[key] = body
+    return valid, bool(valid) and len(valid) == len(decoded)
 
 
 async def async_setup_entry(
@@ -155,7 +180,7 @@ async def async_channel_image(
     source_key = channel_key if known_source else None
     key = (serial, "channel_images", url, password, channels, source_key, generation)
 
-    async def download() -> dict[str, bytes] | None:
+    async def download() -> tuple[dict[str, bytes], bool]:
         try:
             response = await get_async_client(hass).get(
                 url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
@@ -163,15 +188,15 @@ async def async_channel_image(
             response.raise_for_status()
             return await coordinator.async_execute(
                 partial(
-                    process_channel_images,
+                    _decode_channel_image_batch,
                     response.content,
                     password,
                     channels,
-                    source_channel=channel if known_source else None,
+                    channel if known_source else None,
                 )
             )
         except httpx.HTTPError, ValueError, PyEzvizError:
-            return None
+            return {}, False
 
     try:
         result = await coordinator.async_channel_image_batch(key, download)
@@ -179,12 +204,7 @@ async def async_channel_image(
         if coordinator.shutting_down:
             return None
         raise
-    body = result.get(channel_key) if result is not None else None
-    if coordinator.shutting_down or not isinstance(body, bytes):
-        return None
-    if not body.startswith(b"\xff\xd8\xff") and infer_image_type(body) is None:
-        return None
-    return body
+    return None if coordinator.shutting_down else result.get(channel_key)
 
 
 class EzvizLastMotion(EzvizEntity, ImageEntity):
@@ -452,6 +472,14 @@ class EzvizChannelSnapshot(EzvizSnapshot):
         return self._channel_key is not None and channel_available(
             self.coordinator, self._serial, self._channel_key
         )
+
+    @override
+    async def async_image(self) -> bytes | None:
+        """Do not serve even a cached capture when this lens is unavailable."""
+        if not self.available:
+            return None
+        body = await super().async_image()
+        return body if self.available else None
 
     @override
     async def _async_load_image_from_url(self, url: str) -> Image | None:

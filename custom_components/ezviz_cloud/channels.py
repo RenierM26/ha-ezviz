@@ -72,7 +72,7 @@ def channel_available(
     return True
 
 
-def _registered_lens_serials(
+def registered_lens_serials(
     coordinator: EzvizDataUpdateCoordinator, entry: EzvizConfigEntry
 ) -> set[str]:
     """Identify cameras with saved additional lens or snapshot entities."""
@@ -87,15 +87,19 @@ def _registered_lens_serials(
 
 
 def reported_lens_channels(
-    coordinator: EzvizDataUpdateCoordinator, entry: EzvizConfigEntry, serial: str
+    coordinator: EzvizDataUpdateCoordinator,
+    entry: EzvizConfigEntry,
+    serial: str,
+    *,
+    registered_serials: set[str] | None = None,
 ) -> tuple[CameraChannel, ...]:
     """Keep surviving lenses visible when the registry proves multi-lens support."""
     channels = camera_channels(coordinator.device_data(serial))
-    if len(channels) > 1 or (
-        channels and serial in _registered_lens_serials(coordinator, entry)
-    ):
+    if len(channels) != 1:
         return channels
-    return ()
+    if registered_serials is None:
+        registered_serials = registered_lens_serials(coordinator, entry)
+    return channels if serial in registered_serials else ()
 
 
 @callback
@@ -127,9 +131,7 @@ def async_add_channel_entities(
             if require_multiple and serial not in multi_channel:
                 if len(channels) == 1:
                     if registered_serials is None:
-                        registered_serials = _registered_lens_serials(
-                            coordinator, entry
-                        )
+                        registered_serials = registered_lens_serials(coordinator, entry)
                     if serial not in registered_serials:
                         continue
                 multi_channel.add(serial)

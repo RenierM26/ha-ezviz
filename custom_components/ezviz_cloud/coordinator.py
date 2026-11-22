@@ -279,16 +279,16 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     async def async_channel_image_batch(
         self,
         key: tuple[Any, ...],
-        operation: Callable[[], Coroutine[Any, Any, dict[str, bytes] | None]],
-    ) -> dict[str, bytes] | None:
-        """Retain successful decodes, including batches missing the requested lens."""
+        operation: Callable[[], Coroutine[Any, Any, tuple[dict[str, bytes], bool]]],
+    ) -> dict[str, bytes]:
+        """Retain verified batches, including those missing the requested lens."""
         if key in self._channel_image_batches:
             self._channel_image_batches.move_to_end(key)
             return self._channel_image_batches[key]
-        result = await self.async_image_download(key, operation)
+        result, cacheable = await self.async_image_download(key, operation)
         if (
             not self.shutting_down
-            and result is not None
+            and cacheable
             and sum(map(len, result.values())) <= 4 * 1024 * 1024
         ):
             self._channel_image_batches[key] = result

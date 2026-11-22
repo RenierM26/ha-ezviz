@@ -154,6 +154,7 @@ class EzvizCamera(EzvizEntity, Camera):
         super().__init__(coordinator, serial)
         Camera.__init__(self)
         self.stream: Stream | None = None
+        self._stopped_stream: Stream | None = None
 
         self.stream_options[CONF_USE_WALLCLOCK_AS_TIMESTAMPS] = True
 
@@ -245,15 +246,17 @@ class EzvizCamera(EzvizEntity, Camera):
         """Stop the worker without handing it an empty source."""
         async with self._stream_lifecycle_lock:
             if not self._removed and not self._build_rtsp():
-                await self._async_stop_stream()
+                await self._async_stop_stream(reuse=True)
 
-    async def _async_stop_stream(self) -> None:
+    async def _async_stop_stream(self, *, reuse: bool = False) -> None:
         if (stream := self.stream) is not None:
             self.stream = None
-            stream.dynamic_stream_settings = replace(
-                stream.dynamic_stream_settings, preload_stream=False
-            )
+            settings = stream.dynamic_stream_settings
+            stream.dynamic_stream_settings = replace(settings, preload_stream=False)
             await stream.stop()
+            if reuse:
+                stream.dynamic_stream_settings = settings
+                self._stopped_stream = stream
 
     @callback
     @override
@@ -268,6 +271,7 @@ class EzvizCamera(EzvizEntity, Camera):
         """Fence queued updates before stopping the owned stream."""
         self._removed = True
         async with self._stream_lifecycle_lock:
+            self._stopped_stream = None
             await self._async_stop_stream()
         await super().async_will_remove_from_hass()
 
@@ -283,18 +287,24 @@ class EzvizCamera(EzvizEntity, Camera):
                 self.coordinator, self._serial
             ):
                 return None
-            if not self._build_rtsp():
+            if not (source := self._build_rtsp()):
+                await self._async_stop_stream(reuse=True)
+                return None
+            if (stream := self._stopped_stream) is not None:
+                self._stopped_stream = None
+                # No worker to restart; update_source would arm a restart.
+                stream.source = source
+                self.stream = stream
+            else:
+                stream = await super().async_create_stream()
+            # Removal or lens health may have changed while HA awaited preferences.
+            if self._removed or self.coordinator.shutting_down:
                 await self._async_stop_stream()
                 return None
-            stream = await super().async_create_stream()
-            # Removal may have started while HA awaited stream settings.
-            if self._removed or self.coordinator.shutting_down:
-                return None
-            # Options may have changed during the same await.
             if stream is not None:
                 source = self._build_rtsp()
-                if not source:
-                    await self._async_stop_stream()
+                if not source or (self._channel_key is not None and not self.available):
+                    await self._async_stop_stream(reuse=True)
                     return None
                 if stream.source != source:
                     stream.update_source(source)
@@ -482,14 +492,15 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
-        if (
+        bind_primary = (
             lens == "auto"
             and self._channel_key is None
             and (entry := self.coordinator.config_entry) is not None
-            and reported_lens_channels(self.coordinator, entry, self._serial)
-        ):
-            lens = "1"
-        resource, index = point_route(self.data, lens, channel_key=self._channel_key)
+            and bool(reported_lens_channels(self.coordinator, entry, self._serial))
+        )
+        resource, index = point_route(
+            self.data, lens, channel_key=self._channel_key, bind_primary=bind_primary
+        )
         try:
             accepted = await self.coordinator.async_execute(
                 partial(
