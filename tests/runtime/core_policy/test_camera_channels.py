@@ -646,7 +646,7 @@ async def test_lens_options_conflict_preserves_concurrent_path_changes(
         await coordinator.async_close()
 
 
-async def test_lens_options_abort_when_no_reported_channels_remain(
+async def test_lens_options_keep_primary_when_no_reported_channels_remain(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A channel count alone does not invent a lens target."""
@@ -663,8 +663,7 @@ async def test_lens_options_abort_when_no_reported_channels_remain(
         result = await manager.async_configure(
             result["flow_id"], {"next_step_id": "lens_streams"}
         )
-        assert result["type"] is FlowResultType.ABORT
-        assert result["reason"] == "no_camera_channels"
+        assert result["data_schema"]({}) == {"lens_1": "substream"}
     finally:
         await coordinator.async_close()
 

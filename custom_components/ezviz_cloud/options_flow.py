@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 import probatio
-from pyezvizapi.devices.channels import camera_channels
 from pyezvizapi.exceptions import (
     AuthTestResultFailed,
     DeviceException,
@@ -38,11 +37,9 @@ from .const import (
     CONF_CAM_ENC_2FA_CODE,
     CONF_CAM_VERIFICATION_2FA_CODE,
     CONF_ENC_KEY,
-    CONF_FFMPEG_ARGUMENTS,
     CONF_RTSP_USES_VERIFICATION_CODE,
     DEFAULT_CAMERA_USERNAME,
     DEFAULT_FETCH_MY_KEY,
-    DEFAULT_FFMPEG_ARGUMENTS,
     DEFAULT_TIMEOUT,
     OPTIONS_KEY_CAMERAS,
 )
@@ -127,7 +124,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             except probatio.Invalid:
                 errors[CONF_TIMEOUT] = "invalid_timeout"
             else:
-                # No cloud-level CONF_FFMPEG_ARGUMENTS anymore (per-camera only)
                 return self.async_create_entry(title="", data=opts)
 
         schema = probatio.Schema(
@@ -164,9 +160,7 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             self._rtsp_pending = None
             self._cam_serial = user_input["serial"]
             self._camera_baseline = camera_options(self.config_entry, self._cam_serial)
-            if len(camera_channels(cameras[self._cam_serial])) > 1:
-                return await self.async_step_camera_menu()
-            return await self.async_step_camera_edit()
+            return await self.async_step_camera_menu()
 
         return self.async_show_form(
             step_id="camera_select",
@@ -228,13 +222,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                     ui.get(
                         CONF_RTSP_USES_VERIFICATION_CODE,
                         per_cam.get(CONF_RTSP_USES_VERIFICATION_CODE, False),
-                    ),
-                ),
-                CONF_FFMPEG_ARGUMENTS: src.get(
-                    CONF_FFMPEG_ARGUMENTS,
-                    ui.get(
-                        CONF_FFMPEG_ARGUMENTS,
-                        per_cam.get(CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS),
                     ),
                 ),
                 "ephemeral_test_rtsp": ui.get("ephemeral_test_rtsp", test_rtsp_default),
@@ -339,20 +326,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
                 probatio.Required(
                     "ephemeral_test_rtsp", default=pf["ephemeral_test_rtsp"]
                 ): bool,
-                **(
-                    {
-                        probatio.Optional(
-                            CONF_FFMPEG_ARGUMENTS,
-                            **(
-                                {"default": pf[CONF_FFMPEG_ARGUMENTS]}
-                                if pf[CONF_FFMPEG_ARGUMENTS] is not None
-                                else {}
-                            ),
-                        ): str
-                    }
-                    if len(camera_channels(cam_info)) < 2
-                    else {}
-                ),
             }
         )
         return self.async_show_form(
@@ -471,12 +444,6 @@ class EzvizOptionsFlowHandler(OptionsFlowWithReload):
             CONF_RTSP_USES_VERIFICATION_CODE: resolved[
                 CONF_RTSP_USES_VERIFICATION_CODE
             ],
-            CONF_FFMPEG_ARGUMENTS: resolved.get(
-                CONF_FFMPEG_ARGUMENTS,
-                self._camera_baseline.get(
-                    CONF_FFMPEG_ARGUMENTS, DEFAULT_FFMPEG_ARGUMENTS
-                ),
-            ),
         }
         auth = resolved.get(
             CONF_LOCAL_CONTROL_AUTH,

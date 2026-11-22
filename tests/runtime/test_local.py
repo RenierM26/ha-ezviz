@@ -18,7 +18,7 @@ from . import test_local_rtsp as rtsp_tests
 from .test_hardening import entities
 from .test_local_rtsp import state
 
-CAMERA = {"username": "admin", "password": "STICKER_SECRET", "enc_key": "ENCRYPTION_SECRET", "rtsp_uses_verification_code": False, "ephemeral_test_rtsp": False, "ffmpeg_arguments": "/Streaming/Channels/102"}
+CAMERA = {"username": "admin", "password": "STICKER_SECRET", "enc_key": "ENCRYPTION_SECRET", "rtsp_uses_verification_code": False, "ephemeral_test_rtsp": False}
 AUTH = local.CONF_LOCAL_CONTROL_AUTH
 sdk = rtsp_tests.sdk
 
@@ -113,7 +113,8 @@ async def edit(hass, entry):
     result = await manager.async_init(entry.entry_id)
     assert result["menu_options"] == ["cloud", "camera_select"]
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "camera_select"})
-    return await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+    result = await manager.async_configure(result["flow_id"], {"serial": "CAM001"})
+    return await manager.async_configure(result["flow_id"], {"next_step_id": "camera_edit"})
 
 
 @pytest.mark.parametrize("mode,expected", [("disabled", None), ("verification_code", CAMERA["password"]), ("encryption_key", CAMERA["enc_key"])])

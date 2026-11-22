@@ -55,11 +55,15 @@ async def test_options_save_with_attached_camera(
             result = await manager.async_configure(
                 result["flow_id"], {"serial": "CAM001"}
             )
-            payload = {
-                **original_camera,
-                "ffmpeg_arguments": "/new/path" if changed else "/old/path",
-                "ephemeral_test_rtsp": False,
-            }
+            result = await manager.async_configure(
+                result["flow_id"], {"next_step_id": "lens_streams"}
+            )
+            assert result["data_schema"]({}) == {"lens_1": "custom"}
+            result = await manager.async_configure(
+                result["flow_id"], {"lens_1": "custom"}
+            )
+            assert result["data_schema"]({}) == {"lens_1": "/old/path"}
+            payload = {"lens_1": "/new/path" if changed else "/old/path"}
         else:
             payload = {"timeout": 42 if changed else 41}
         result = await manager.async_configure(result["flow_id"], payload)

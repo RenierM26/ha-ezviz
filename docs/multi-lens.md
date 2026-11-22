@@ -32,8 +32,7 @@ do not establish separate RTSP feeds.
 
 Custom paths begin with `/`; the host, port and credentials are shared. Saving
 does not probe or move the camera, and does not change the original camera
-entity's identity or shared credentials. Single-lens cameras keep their existing
-stream setting in the camera form.
+entity's identity or shared credentials. Single-lens cameras use the same **Lens streams** menu and show only Lens 1.
 
 Without a path, a lens camera can show its channel-indexed alarm image
 or explicitly channel-tagged push image. A newer polled image can replace a

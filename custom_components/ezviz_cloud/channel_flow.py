@@ -79,9 +79,9 @@ async def async_select_stream(
     runtime = getattr(flow.config_entry, "runtime_data", None)
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
+    if serial not in flow.coordinator.data:
+        return flow.async_abort(reason="no_cameras")
     channels = _reported_lenses(flow, serial)
-    if not channels:
-        return flow.async_abort(reason="no_camera_channels")
     if user_input is None:
         flow.lens_baseline = camera_options(flow.config_entry, serial)
         flow.lens_modes = {}
@@ -129,15 +129,16 @@ async def async_edit_stream(
     if runtime is None or runtime.coordinator.shutting_down:
         return flow.async_abort(reason="integration_unavailable")
     channels = _reported_lenses(flow, serial)
-    data = flow.coordinator.data.get(serial, {})
+    if serial not in flow.coordinator.data:
+        return flow.async_abort(reason="no_cameras")
+    data = flow.coordinator.data[serial]
     streams = _stream_fields(data, channels)
-    if (
-        not channels
-        or {option for option, _ in streams.values()} != flow.lens_modes.keys()
-    ):
+    if {option for option, _ in streams.values()} != flow.lens_modes.keys():
         return flow.async_abort(reason="no_camera_channels")
     paths = dict(flow.lens_baseline.get(CONF_LENS_RTSP_PATHS, {}))
-    patch: dict[str, Any] = {CONF_LENS_RTSP_PATHS: paths}
+    patch: dict[str, Any] = {}
+    if channels:
+        patch[CONF_LENS_RTSP_PATHS] = paths
     fields = {}
     errors = {}
     for key, (option, presets) in streams.items():

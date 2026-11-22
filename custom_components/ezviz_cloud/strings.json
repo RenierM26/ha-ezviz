@@ -96,7 +96,6 @@
           "enc_key": "Encryption key (newer cams) or leave \u201cfetch_my_key\u201d",
           "rtsp_uses_verification_code": "RTSP playback credential",
           "ephemeral_test_rtsp": "Test RTSP connection",
-          "ffmpeg_arguments": "RTSP path (e.g. /Streaming/Channels/102)",
           "local_control_auth": "Local LAN control (HCNetSDK)"
         },
         "data_description": {
