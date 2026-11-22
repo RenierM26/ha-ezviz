@@ -37,7 +37,7 @@ from homeassistant.components.config.config_entries import (
     OptionManagerFlowResourceView,
 )
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.data_entry_flow import FlowResultType, InvalidData
+from homeassistant.data_entry_flow import FlowResultType, InvalidData, UnknownFlow
 
 TOKEN = {
     "session_id": "new-session",
@@ -832,6 +832,101 @@ async def test_overlapping_mfa_delivery_shares_send_and_allows_resend(hass, sdk)
 
     await manager.async_configure(flow_id, {"change_delivery": True})
     await manager.async_configure(flow_id, {"method": "email"})
+    assert client.send_mfa_code.call_count == 2
+
+
+async def test_late_mfa_delivery_submission_reuses_completed_send(hass, sdk, monkeypatch):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    flow_id = (await start_user(hass))["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(flow_id, USER)
+    completed, release = asyncio.Event(), asyncio.Event()
+    step_delivery = flow.EzvizConfigFlow.async_step_mfa_delivery
+
+    async def delay_first_transition(handler, user_input):
+        result = await step_delivery(handler, user_input)
+        if not completed.is_set():
+            completed.set()
+            await release.wait()
+        return result
+
+    monkeypatch.setattr(flow.EzvizConfigFlow, "async_step_mfa_delivery", delay_first_transition)
+    first = asyncio.create_task(manager.async_configure(flow_id, {"method": "email"}))
+    try:
+        await asyncio.wait_for(completed.wait(), 5)
+        second = await manager.async_configure(flow_id, {"method": "email"})
+        assert second["step_id"] == "user_mfa_confirm"
+    finally:
+        release.set()
+        await first
+    client.send_mfa_code.assert_called_once_with(mfa_channel=3)
+
+
+@pytest.mark.parametrize("reauth", [False, True])
+async def test_mfa_verification_completes_only_once(hass, sdk, monkeypatch, reauth):
+    entry = add_entry(hass) if reauth else None
+    manager = hass.config_entries.flow
+    form = (
+        await manager.async_init(
+            DOMAIN, context={"source": "reauth", "entry_id": entry.entry_id}, data=dict(entry.data)
+        )
+        if entry
+        else await start_user(hass)
+    )
+    flow_id = form["flow_id"]
+    client = sdk.return_value
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(
+        flow_id, {"username": entry.unique_id, "password": "new"} if entry else USER
+    )
+    await manager.async_configure(flow_id, {"method": "email"})
+    client.enable_channel99.side_effect = None
+    entered, release = asyncio.Event(), asyncio.Event()
+    finish_flow = manager.async_finish_flow
+
+    async def delay_finish(handler, result):
+        entered.set()
+        await release.wait()
+        return await finish_flow(handler, result)
+
+    finish = AsyncMock(side_effect=delay_finish)
+    monkeypatch.setattr(manager, "async_finish_flow", finish)
+    first = asyncio.create_task(manager.async_configure(flow_id, {"sms_code": "001234"}))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        with pytest.raises(UnknownFlow):
+            await asyncio.wait_for(manager.async_configure(flow_id, {"sms_code": "001234"}), 5)
+    finally:
+        release.set()
+        result = await first
+    assert result["type"] is (FlowResultType.ABORT if entry else FlowResultType.CREATE_ENTRY)
+    finish.assert_awaited_once()
+    assert client.enable_channel99.call_count == 2
+    client.enable_channel99.assert_called_with("001234", mfa_channel=3)
+    assert await TokenPersistence(hass, entry or result["result"]).async_load() == TOKEN
+
+
+@pytest.mark.parametrize(
+    ("code", "reason"), [(1011, "verification_incorrect"), (1012, "verification_expired")]
+)
+async def test_legacy_mfa_can_resend_after_code_rejection(hass, sdk, code, reason):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    flow_id = (await start_user(hass))["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(code=6002)
+    await manager.async_configure(flow_id, USER)
+    await manager.async_configure(flow_id, {"method": "email"})
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(code=code, reason=reason)
+
+    result = await manager.async_configure(flow_id, {"sms_code": "001234"})
+    assert result["step_id"] == "user_mfa_confirm"
+    assert result["errors"] == {"base": reason}
+
+    result = await manager.async_configure(flow_id, {"change_delivery": True})
+    assert result["step_id"] == "mfa_delivery"
+    result = await manager.async_configure(flow_id, {"method": "email"})
+    assert result["step_id"] == "user_mfa_confirm"
     assert client.send_mfa_code.call_count == 2
 
 

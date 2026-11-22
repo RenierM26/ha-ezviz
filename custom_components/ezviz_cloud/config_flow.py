@@ -1,7 +1,8 @@
 """Canonical HA account setup/reauth flow and options factory for EZVIZ Cloud."""
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Coroutine, Mapping
+from dataclasses import dataclass
 import logging
 from typing import Any, override
 
@@ -26,6 +27,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResultType, UnknownFlow
 from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig
 
 from .const import (
@@ -85,6 +87,13 @@ def _login_error(error: EzvizLoginError) -> str:
 VERSION = 5  # keep in sync with __init__.py TARGET_VERSION
 
 
+@dataclass
+class _MfaSubmission:
+    form: ConfigFlowResult | None
+    task: asyncio.Task[ConfigFlowResult]
+    completion_claimed: bool = False
+
+
 class EzvizConfigFlow(config_entries.ConfigFlow):
     """Handle the cloud account config flow for EZVIZ."""
 
@@ -101,7 +110,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     _pending_user_timeout: int = DEFAULT_TIMEOUT
 
     _verification_identity: str
-    _delivery_task: asyncio.Task[ConfigFlowResult] | None = None
+    _mfa_submission: _MfaSubmission | None = None
     _verification_client: EzvizClient
     _verification_step: str
     _verification_channels: tuple[int, ...] = ()
@@ -318,6 +327,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         self._verification_identity = identity
         self._verification_step = step
         self._verification_channel = None
+        self._verification_channels = ()
         self._update_delivery_options(error)
         if self._verification_channels and not error.code_sent:
             return self._show_delivery()
@@ -329,6 +339,12 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         )
 
     def _update_delivery_options(self, error: EzvizAuthVerificationCode) -> None:
+        if not error.available_channels and error.reason in (
+            "verification_incorrect",
+            "verification_expired",
+        ):
+            # A code rejection without contact metadata is not a new challenge.
+            return
         self._verification_channels = tuple(
             channel for channel in error.available_channels if channel in CHANNEL_NAMES
         )
@@ -360,6 +376,13 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     ) -> ConfigFlowResult:
         if user_input is None:
             return self._show_verification(step)
+        return await self._async_submit_mfa(
+            lambda: self._async_submit_verification(step, user_input)
+        )
+
+    async def _async_submit_verification(
+        self, step: str, user_input: dict[str, Any]
+    ) -> ConfigFlowResult:
         if user_input.get("change_delivery") and self._verification_channels:
             return self._show_delivery()
         code = user_input.get("sms_code", "").strip()
@@ -487,11 +510,34 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         """Choose a bound verification method or explicitly discover phone methods."""
         if user_input is None:
             return self._show_delivery()
-        if self._delivery_task is None or self._delivery_task.done():
-            self._delivery_task = self.hass.async_create_task(
-                self._async_submit_delivery(user_input), "EZVIZ MFA delivery"
+        return await self._async_submit_mfa(
+            lambda: self._async_submit_delivery(user_input)
+        )
+
+    async def _async_submit_mfa(
+        self, submit: Callable[[], Coroutine[Any, Any, ConfigFlowResult]]
+    ) -> ConfigFlowResult:
+        # HA commits a new form object after the step returns. Until then even
+        # a completed task belongs to the old form, not a deliberate retry.
+        form = self.cur_step
+        submission = self._mfa_submission
+        if submission is None or submission.form is not form:
+            submission = self._mfa_submission = _MfaSubmission(
+                form, self.hass.async_create_task(submit(), "EZVIZ MFA submission")
             )
-        return await asyncio.shield(self._delivery_task)
+
+        result = await asyncio.shield(submission.task)
+        if result["type"] is FlowResultType.FORM:
+            if self.cur_step is not form:
+                # Another waiter advanced the flow; don't restore an old form.
+                assert self.cur_step is not None
+                return self.cur_step
+        else:
+            # Only one waiter may hand a terminal result to HA for completion.
+            if submission.completion_claimed:
+                raise UnknownFlow
+            submission.completion_claimed = True
+        return result
 
     async def _async_submit_delivery(
         self, user_input: dict[str, Any]
