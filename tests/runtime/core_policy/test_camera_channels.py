@@ -1693,15 +1693,16 @@ async def test_lens_warning_light_discovery_and_write(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize("model", ["H9c", "CS-H9c-R100"])
 async def test_h9c_uses_one_shared_alarm_light(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, model: str
 ) -> None:
     """Scoped rows must not create independent H9c lamp controls."""
     coordinator, _, sent = dual(hass, monkeypatch)
     _record_switch_requests(monkeypatch, coordinator, sent)
     entry = coordinator.config_entry
     data = coordinator.data["CAM001"]
-    data["device_sub_category"] = "H9c"
+    data["device_sub_category"] = model
     data["SWITCH"] = [
         {"type": 303, "channelNo": 0, "enable": False},
         {"type": 303, "channelNo": 1, "enable": True},

@@ -27,7 +27,7 @@ from homeassistant.util.percentage import (
     ranged_value_to_percentage,
 )
 
-from .channels import async_add_channel_entities, channel_available
+from .channels import async_add_channel_entities, channel_available, is_h9c
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
@@ -109,11 +109,6 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 )
 
 
-def _has_shared_alarm_light(data: dict[str, Any]) -> bool:
-    """The H9c reports per-lens switch rows but operates both lamps together."""
-    return str(data.get("device_sub_category", "")).casefold() == "h9c"
-
-
 def _alarm_light_state(
     data: dict[str, Any], channel_no: int, *, require_scoped: bool = False
 ) -> bool | None:
@@ -173,7 +168,7 @@ async def async_setup_entry(
             )
             if not separator:
                 continue
-            if _has_shared_alarm_light(coordinator.device_data(serial)):
+            if is_h9c(coordinator.device_data(serial)):
                 registry.async_remove(registered.entity_id)
             else:
                 retire_legacy_alarm_light(serial)
@@ -198,7 +193,7 @@ async def async_setup_entry(
                 continue
             if (
                 desc.key == _ALARM_LIGHT_KEY
-                and _has_shared_alarm_light(camera_data)
+                and is_h9c(camera_data)
                 and _alarm_light_state(camera_data, 0) is not None
             ):
                 lights.append(EzvizLight(coordinator, serial, _SHARED_ALARM_LIGHT))
@@ -209,8 +204,8 @@ async def async_setup_entry(
 
 
 def _lens_alarm_light_supported(data: dict[str, Any]) -> bool:
-    """Do not offer independent controls on cameras known to link the lamps."""
-    return not _has_shared_alarm_light(data) and _is_desc_supported(data, LIGHTS[0])
+    """The H9c reports separate lens rows but switches both lamps together."""
+    return not is_h9c(data) and _is_desc_supported(data, LIGHTS[0])
 
 
 def _warning_light_entities(
