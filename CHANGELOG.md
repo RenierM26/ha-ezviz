@@ -1,6 +1,16 @@
 # Change history
 
-## Unreleased
+## 0.4.0
+
+**Minimum versions:** Home Assistant **2026.10.4**, Python **3.14.2**, and
+published `pyezvizapi` **2.7.0**. Built-in EZVIZ pins a conflicting SDK version;
+do not run both integrations together.
+
+Review the [upgrade guide](docs/upgrading.md) before installing, especially if
+your automations use camera light switches on shared devices.
+
+- Improve setup and reauthentication when EZVIZ requires a verification code,
+  including choosing or switching delivery methods when available.
 
 - Add experimental, per-camera EZVIZ cloud live view with Full HD and Standard
   quality via Home Assistant HLS. Local RTSP remains the default; saved paths,
