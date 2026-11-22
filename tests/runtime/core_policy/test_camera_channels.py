@@ -2002,3 +2002,60 @@ async def test_camera_light_switch_discovery(
         }
     finally:
         await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("key", "switch_id", "category", "model"),
+    [
+        ("LIGHT", 3, "IPC", "H9c"),
+        ("INFRARED_LIGHT", 10, "IPC", "H9c"),
+        ("LIGHT_FLICKER", 301, "IPC", "H9c"),
+        ("ALARM_LIGHT_RELEVANCE", 305, "IPC", "H9c"),
+        ("WIFI_LIGHT", 13, "IGateWay", "W3"),
+    ],
+)
+async def test_light_switch_command_matches_observed_channel(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    switch_id: int,
+    category: str,
+    model: str,
+) -> None:
+    """Prefer the primary row, preserve device-wide routes, and ignore siblings."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    data = coordinator.data["CAM001"]
+    legacy = {"type": switch_id, "channelNo": 0, "enable": False}
+    primary = {"type": switch_id, "channelNo": 1, "enable": True}
+    sibling = {"type": switch_id, "channelNo": 2, "enable": False}
+    data.update(
+        device_category=category,
+        device_sub_category=model,
+        supportExt={"48": "1", "96": "2", "297": "1"},
+        switches={switch_id: False},
+        SWITCH=[legacy, primary, sibling],
+    )
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == f"CAM001_{key}")
+        assert isinstance(entity, switch.EzvizSwitch)
+        assert entity.is_on is True
+        await entity.async_turn_off()
+        assert sent[-1].url.endswith(f"/1/0/{switch_id}/switchStatus")
+
+        data["SWITCH"] = [sibling]
+        assert entity.is_on is None
+        with pytest.raises(
+            HomeAssistantError, match="light switch route is unavailable"
+        ):
+            await entity.async_turn_on()
+        assert len(sent) == 1
+
+        data["SWITCH"] = [legacy, sibling]
+        assert entity.is_on is False
+        await entity.async_turn_on()
+        assert sent[-1].url.endswith(f"/0/1/{switch_id}/switchStatus")
+    finally:
+        await coordinator.async_close()

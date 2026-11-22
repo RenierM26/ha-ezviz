@@ -14,6 +14,8 @@ from pyezvizapi.devices.intercom import (
     label_light_value,
     set_label_light,
 )
+from pyezvizapi.devices.observation import power_state
+from pyezvizapi.devices.payload import switch_rows
 from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
@@ -47,6 +49,7 @@ from .inventory import async_add_inventory_entities, async_set_power
 from .local import CONF_LOCAL_CONTROL_AUTH, LocalControlAuth, local_controls_eligible
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
+from .setting_writes import SettingCommand
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
@@ -76,6 +79,23 @@ class EzvizSwitchEntityDescription(SwitchEntityDescription):
     supported_ext_value: list[str] | None = None
     is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
     required_device_categories: tuple[str, ...] | None = None
+    channel_switch: DeviceSwitchType | None = None
+
+
+def _light_switch_observation(
+    data: dict[str, Any], switch_type: DeviceSwitchType
+) -> tuple[int, bool | None] | None:
+    """Use the primary camera route, retaining legacy device-wide observations."""
+    if "SWITCH" not in data:
+        value = _switch_entry_value_fn(switch_type)(data)
+        return (0, power_state(value)) if value is not None else None
+
+    raw = data["SWITCH"]
+    primary = switch_rows(raw, channel_no=1).get(switch_type.value)
+    if primary is not None and "channelNo" in primary:
+        return 1, power_state(primary.get("enable"))
+    legacy = switch_rows(raw, channel_no=0).get(switch_type.value)
+    return (0, power_state(legacy.get("enable"))) if legacy is not None else None
 
 
 def _is_desc_supported(
@@ -88,6 +108,9 @@ def _is_desc_supported(
         supported_ext_values=desc.supported_ext_value,
         required_device_categories=desc.required_device_categories,
         predicate=desc.is_supported_fn,
+    ) and (
+        desc.channel_switch is None
+        or _light_switch_observation(camera_data, desc.channel_switch) is not None
     )
 
 
@@ -161,11 +184,11 @@ def _supports_status_light(data: dict[str, Any]) -> bool:
         "doorbell 2 pro",
         "ep3x",
         "epd7",
-    } and not support_ext_has(
-        data, str(SupportExt.SupportDoorbellIndicatorLight.value), ["1"]
-    ):
-        return False
-    return _has_switch_entry(DeviceSwitchType.LIGHT)(data)
+    }:
+        return support_ext_has(
+            data, str(SupportExt.SupportDoorbellIndicatorLight.value), ["1"]
+        )
+    return True
 
 
 def _supports_active_defense_light(data: dict[str, Any]) -> bool:
@@ -175,19 +198,18 @@ def _supports_active_defense_light(data: dict[str, Any]) -> bool:
         isinstance(row, Mapping) and str(row.get("shareType")) == "2"
         for row in resources
     )
-    return not shared and _has_switch_entry(DeviceSwitchType.LIGHT_FLICKER)(data)
+    return not shared
 
 
 def _supports_wifi_status_light(data: dict[str, Any]) -> bool:
     """Recognize the app's W1/W3 family, including the W3C alias."""
     info = data.get("deviceInfos")
     model = info.get("deviceType") if isinstance(info, Mapping) else None
-    matches = (
+    return (
         model.startswith(("CS-W1-", "CS-W3-", "CS-W3C-"))
         if isinstance(model, str) and model
         else str(data.get("device_sub_category")).casefold() in {"w1", "w3", "w3c"}
     )
-    return matches and _has_switch_entry(DeviceSwitchType.WIFI_LIGHT)(data)
 
 
 def _supplement_light_method(client: EzvizClient, serial: str, enable: int) -> Any:
@@ -214,6 +236,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT),
         method=_switch_entry_method(DeviceSwitchType.LIGHT),
         is_supported_fn=_supports_status_light,
+        channel_switch=DeviceSwitchType.LIGHT,
     ),
     EzvizSwitchEntityDescription(
         key="PRIVACY",
@@ -232,7 +255,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         supported_ext_value=["1"],
         value_fn=_switch_entry_value_fn(DeviceSwitchType.INFRARED_LIGHT),
         method=_switch_entry_method(DeviceSwitchType.INFRARED_LIGHT),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.INFRARED_LIGHT),
+        channel_switch=DeviceSwitchType.INFRARED_LIGHT,
     ),
     EzvizSwitchEntityDescription(
         key="SLEEP",
@@ -317,6 +340,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT_FLICKER),
         method=_switch_entry_method(DeviceSwitchType.LIGHT_FLICKER),
         is_supported_fn=_supports_active_defense_light,
+        channel_switch=DeviceSwitchType.LIGHT_FLICKER,
     ),
     EzvizSwitchEntityDescription(
         key="ALARM_LIGHT_RELEVANCE",
@@ -326,7 +350,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         supported_ext_value=["1"],
         value_fn=_switch_entry_value_fn(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
         method=_switch_entry_method(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
+        channel_switch=DeviceSwitchType.ALARM_LIGHT_RELEVANCE,
     ),
     EzvizSwitchEntityDescription(
         key="TAMPER_ALARM",
@@ -374,6 +398,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         value_fn=_switch_entry_value_fn(DeviceSwitchType.WIFI_LIGHT),
         method=_switch_entry_method(DeviceSwitchType.WIFI_LIGHT),
         is_supported_fn=_supports_wifi_status_light,
+        channel_switch=DeviceSwitchType.WIFI_LIGHT,
     ),
     EzvizSwitchEntityDescription(
         key="OUTLET_RECOVER",
@@ -634,18 +659,38 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
 
     @property
     @override
-    def is_on(self) -> bool:
-        """Return the SDK-observed switch state."""
+    def is_on(self) -> bool | None:
+        """Return the observation for the same channel used by the command."""
+        if (switch_type := self.entity_description.channel_switch) is not None:
+            observation = _light_switch_observation(self.data, switch_type)
+            return observation[1] if observation is not None else None
         return bool(self.entity_description.value_fn(self.data))
+
+    def _prepare_channel_switch(
+        self, switch_type: DeviceSwitchType, on: bool
+    ) -> SettingCommand:
+        data = self.data
+        observation = _light_switch_observation(data, switch_type)
+        if observation is None or not _is_desc_supported(data, self.entity_description):
+            raise HomeAssistantError("EZVIZ light switch route is unavailable")
+        return SettingCommand(
+            self.coordinator.ezviz_client.switch_status,
+            (self._serial, switch_type.value, int(on), observation[0]),
+        )
 
     async def _async_set_switch(self, on: bool) -> None:
         try:
-            await self.async_write_setting(
-                self.entity_description.method,
-                self.coordinator.ezviz_client,
-                self._serial,
-                int(on),
-            )
+            if (switch_type := self.entity_description.channel_switch) is not None:
+                await self.async_write_setting(
+                    prepare=lambda: self._prepare_channel_switch(switch_type, on)
+                )
+            else:
+                await self.async_write_setting(
+                    self.entity_description.method,
+                    self.coordinator.ezviz_client,
+                    self._serial,
+                    int(on),
+                )
         except (HTTPError, PyEzvizError, InvalidHost, OSError, TimeoutError) as err:
             raise request_error("Set switch", err) from err
 
