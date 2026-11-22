@@ -63,9 +63,8 @@ of the shared 30-second cloud poll; this is not a local-only integration.
   Detector contact/water booleans remain unknown without qualified SDK semantics;
   raw diagnostic readings are not converted to alarm truthiness.
 - Cameras with device-wide alarm-light support expose one **Alarm light**.
-  An explicit device-wide switch state can enable on/off control without the
-  older capability flag. Separate lens rows do not establish independent lamp
-  control. **Flicker light on movement** remains a separate setting.
+  The alarm-light capability flag is required; switch rows alone do not prove
+  support for device-wide or independent lens control. **Flicker light on movement** remains a separate setting.
 - The SD card status diagnostic uses reported disk telemetry from the account
   poll, distinguishing a reported empty slot from unavailable telemetry.
   Capacity remains a separate sensor. This does not add card formatting or

@@ -1650,17 +1650,15 @@ def _record_switch_requests(
     monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
 
 
-@pytest.mark.parametrize("legacy_flag", [False, True])
 async def test_device_wide_alarm_light(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, legacy_flag: bool
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Device-wide switch evidence works without model matching or lens controls."""
     coordinator, _, sent = dual(hass, monkeypatch)
     _record_switch_requests(monkeypatch, coordinator, sent)
     entry = coordinator.config_entry
     data = coordinator.data["CAM001"]
-    if legacy_flag:
-        data["supportExt"]["113"] = "1"
+    data["supportExt"]["113"] = "1"
     data["SWITCH"] = [
         {"type": 303, "channelNo": 0, "enable": False},
         {"type": 303, "channelNo": 1, "enable": True},
@@ -1675,10 +1673,7 @@ async def test_device_wide_alarm_light(
         await light.async_setup_entry(hass, entry, added.extend)
         (shared,) = added
         assert shared.unique_id == old.unique_id
-        expected_mode = (
-            light.ColorMode.BRIGHTNESS if legacy_flag else light.ColorMode.ONOFF
-        )
-        assert shared.supported_color_modes == {expected_mode}
+        assert shared.supported_color_modes == {light.ColorMode.BRIGHTNESS}
         assert shared.is_on is False
         assert registry.async_get(old.entity_id) is old
         await shared.async_turn_on()
@@ -1687,21 +1682,18 @@ async def test_device_wide_alarm_light(
             "0/1/303/switchStatus",
             "0/0/303/switchStatus",
         ]
-        data["SWITCH"].pop(0)
-        if not legacy_flag:
-            assert shared.is_on is None
-            assert not shared.available
     finally:
         await coordinator.async_close()
 
 
-async def test_scoped_alarm_light_rows_alone_do_not_create_controls(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("channel_no", [0, 1])
+async def test_alarm_light_rows_alone_do_not_create_controls(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, channel_no: int
 ) -> None:
-    """Reported lens rows do not prove independent or device-wide control."""
+    """Switch telemetry does not prove that a device supports control."""
     coordinator, _, _ = dual(hass, monkeypatch)
     coordinator.data["CAM001"]["SWITCH"] = [
-        {"type": 303, "channelNo": 1, "enable": False},
+        {"type": 303, "channelNo": channel_no, "enable": False},
         {"type": 303, "channelNo": 2, "enable": True},
     ]
     added: list[light.EzvizLight] = []

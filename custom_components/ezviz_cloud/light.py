@@ -1,8 +1,8 @@
 """Support for EZVIZ light entity."""
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
-from typing import Any, override
+from dataclasses import dataclass
+from typing import Any, ClassVar, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
@@ -32,8 +32,6 @@ from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
-
-_ALARM_LIGHT_KEY = "Light"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -95,7 +93,7 @@ def _legacy_alarm_light_state(data: dict[str, Any]) -> bool | None:
 
 LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
     EzvizLightEntityDescription(
-        key=_ALARM_LIGHT_KEY,
+        key="Light",
         translation_key="light",
         is_on_value=_legacy_alarm_light_state,
         brightness_value=lambda d: d.get("alarm_light_luminance"),
@@ -115,14 +113,6 @@ LIGHTS: tuple[EzvizLightEntityDescription, ...] = (
 )
 
 
-_SHARED_ALARM_LIGHT = replace(
-    LIGHTS[0],
-    is_on_value=_alarm_light_state,
-    brightness_value=lambda _: None,
-    set_brightness=None,
-)
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EzvizConfigEntry,
@@ -135,14 +125,12 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
-    lights: list[EzvizLight] = []
-    for serial, data in coordinator.data.items():
-        for desc in LIGHTS:
-            if _is_desc_supported(data, desc):
-                lights.append(EzvizLight(coordinator, serial, desc))
-            elif desc.key == _ALARM_LIGHT_KEY and _alarm_light_state(data) is not None:
-                lights.append(EzvizLight(coordinator, serial, _SHARED_ALARM_LIGHT))
-    async_add_entities(lights)
+    async_add_entities(
+        EzvizLight(coordinator, serial, desc)
+        for serial, camera_data in coordinator.data.items()
+        for desc in LIGHTS
+        if _is_desc_supported(camera_data, desc)
+    )
 
 
 class EzvizLight(EzvizEntity, LightEntity):
@@ -154,7 +142,9 @@ class EzvizLight(EzvizEntity, LightEntity):
     - actions routed through description callables (on/off/brightness)
     """
 
+    _attr_color_mode = ColorMode.BRIGHTNESS
     _attr_has_entity_name = True
+    _SUPPORTED_COLOR_MODES: ClassVar[set[ColorMode]] = {ColorMode.BRIGHTNESS}
     entity_description: EzvizLightEntityDescription
 
     def __init__(
@@ -167,27 +157,13 @@ class EzvizLight(EzvizEntity, LightEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
-        self._attr_color_mode = (
-            ColorMode.ONOFF
-            if description is _SHARED_ALARM_LIGHT
-            else ColorMode.BRIGHTNESS
-        )
-        self._attr_supported_color_modes = {self._attr_color_mode}
+        self._attr_supported_color_modes = self._SUPPORTED_COLOR_MODES
 
     @property
     @override
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool:
         """Return the SDK-observed light power."""
-        value = self.entity_description.is_on_value(self.data)
-        return value if self.entity_description is _SHARED_ALARM_LIGHT else bool(value)
-
-    @property
-    @override
-    def available(self) -> bool:
-        """A shared lamp requires current device-wide switch telemetry."""
-        return super().available and (
-            self.entity_description is not _SHARED_ALARM_LIGHT or self.is_on is not None
-        )
+        return bool(self.entity_description.is_on_value(self.data))
 
     @property
     @override

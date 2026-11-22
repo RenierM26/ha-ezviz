@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Expose one device-wide **Alarm light** when the camera reports device-wide
-  switch state, even without the legacy capability flag. Existing Alarm light
-  identities and brightness support remain unchanged.
+- Read device-wide **Alarm light** state without using sibling lens switch rows.
+  Only cameras advertising alarm-light support expose the control. Existing
+  light identities and brightness support remain unchanged.
 - Add a read-only SD card status sensor that distinguishes an empty slot from
   unavailable telemetry.
 
