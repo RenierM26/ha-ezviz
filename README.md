@@ -62,6 +62,14 @@ of the shared 30-second cloud poll; this is not a local-only integration.
 - Bulbs/plugs expose observed on/off controls, not inferred energy/color features.
   Detector contact/water booleans remain unknown without qualified SDK semantics;
   raw diagnostic readings are not converted to alarm truthiness.
+- Multi-lens cameras with explicit warning-light switch state expose separate
+  on/off controls per reported lens. The original device-wide Alarm light and
+  brightness control are unchanged. An unavailable lens is never substituted
+  with another one. Per-lens write behavior depends on camera firmware.
+- The SD card status diagnostic uses reported disk telemetry from the account
+  poll, distinguishing a reported empty slot from unavailable telemetry.
+  Capacity remains a separate sensor. This does not add card formatting or
+  local recording playback.
 - Camera options select local RTSP credentials and path. This work adds no new
   streaming protocol or universal battery-camera RTSP support.
 - Opt-in [local RTSP service control](docs/local-rtsp.md) reads and changes the

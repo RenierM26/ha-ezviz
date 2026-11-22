@@ -6,6 +6,9 @@ from typing import Any, ClassVar, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
+from pyezvizapi.devices.channels import CameraChannel
+from pyezvizapi.devices.observation import power_state
+from pyezvizapi.devices.payload import switch_rows
 from pyezvizapi.devices.snapshot import DeviceState, LightState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
@@ -16,17 +19,20 @@ from homeassistant.components.light import (
     LightEntityDescription,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     percentage_to_ranged_value,
     ranged_value_to_percentage,
 )
 
+from .channels import async_add_channel_entities, channel_available
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
 from .inventory import async_add_inventory_entities, async_set_power
 from .runtime import EzvizConfigEntry
+from .setting_writes import SettingCommand
 from .utility import passes_description_gates
 
 PARALLEL_UPDATES = 1
@@ -116,6 +122,95 @@ async def async_setup_entry(
         for desc in LIGHTS
         if _is_desc_supported(camera_data, desc)
     )
+
+    async_add_channel_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, channel: _warning_light_entities(coordinator, serial, channel),
+    )
+
+
+def _warning_light_state(data: dict[str, Any], channel: CameraChannel) -> bool | None:
+    """Apply the SDK warning-light read-back rules to the accepted inventory."""
+    rows = switch_rows(data.get("SWITCH"), channel_no=channel.channel_no)
+    row = rows.get(DeviceSwitchType.ALARM_LIGHT.value)
+    if row is None or "channelNo" not in row:
+        return None
+    return power_state(row.get("enable"))
+
+
+def _warning_light_entities(
+    coordinator: EzvizDataUpdateCoordinator, serial: str, channel: CameraChannel
+) -> list[EzvizWarningLight]:
+    data = coordinator.device_data(serial)
+    if (
+        channel.channel_no > 0
+        and _is_desc_supported(data, LIGHTS[0])
+        and _warning_light_state(data, channel) is not None
+    ):
+        return [EzvizWarningLight(coordinator, serial, channel)]
+    return []
+
+
+class EzvizWarningLight(EzvizEntity, LightEntity):
+    """On/off warning light for one explicitly reported lens."""
+
+    _attr_color_mode = ColorMode.ONOFF
+    _attr_translation_key = "lens_warning_light"
+
+    def __init__(
+        self,
+        coordinator: EzvizDataUpdateCoordinator,
+        serial: str,
+        channel: CameraChannel,
+    ) -> None:
+        """Bind the entity to the stable video route, not its inventory position."""
+        super().__init__(coordinator, serial)
+        self._channel = channel
+        self._attr_unique_id = f"{serial}_warning_light_channel_{channel.key}"
+        self._attr_translation_placeholders = {"channel": channel.local_index}
+        self._attr_supported_color_modes = {ColorMode.ONOFF}
+
+    @property
+    @override
+    def is_on(self) -> bool | None:
+        """Return the actual state of this channel only."""
+        return _warning_light_state(self.data, self._channel)
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Require current lens metadata and explicit switch state."""
+        return (
+            channel_available(self.coordinator, self.serial, self._channel.key)
+            and _is_desc_supported(self.data, LIGHTS[0])
+            and self.is_on is not None
+        )
+
+    async def _async_set_power(self, on: bool) -> None:
+        def prepare() -> SettingCommand:
+            if not self.available:
+                raise ServiceValidationError("EZVIZ lens warning light is unavailable")
+            return SettingCommand(
+                self.coordinator.ezviz_client.switch_light_status,
+                (self.serial, int(on), self._channel.channel_no),
+            )
+
+        try:
+            await self.async_write_setting(prepare=prepare)
+        except (PyEzvizError, OSError) as err:
+            raise request_error("Set lens warning light", err) from err
+
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on this lens warning light."""
+        await self._async_set_power(True)
+
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off this lens warning light."""
+        await self._async_set_power(False)
 
 
 class EzvizLight(EzvizEntity, LightEntity):

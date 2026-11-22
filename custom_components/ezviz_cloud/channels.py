@@ -138,8 +138,10 @@ def async_add_channel_entities(
             for channel in channels:
                 key = (serial, channel.key)
                 if key not in seen:
-                    seen.add(key)
-                    entities.extend(factory(serial, channel))
+                    created = list(factory(serial, channel))
+                    if created:
+                        seen.add(key)
+                        entities.extend(created)
         if entities:
             add(entities)
 

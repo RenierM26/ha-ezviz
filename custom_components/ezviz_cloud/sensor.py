@@ -61,6 +61,23 @@ def _is_desc_supported(
     )
 
 
+def _sd_card_status(data: dict[str, Any]) -> str | None:
+    """Distinguish a reported empty slot from missing or inconsistent telemetry."""
+    status = data.get("STATUS")
+    if not isinstance(status, dict):
+        return None
+    count = status.get("diskNum")
+    state = status.get("diskState")
+    if type(count) is not int or not isinstance(state, str) or not state:
+        return None
+    if count == 0 and set(state) == {"-"}:
+        return "no_card"
+    active = state.replace("-", "")
+    if count > 0 and len(active) == count and active.isascii() and active.isdigit():
+        return "normal" if set(active) == {"0"} else "other"
+    return None
+
+
 SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
     EzvizSensorEntityDescription(
         key="battery_level",
@@ -100,6 +117,18 @@ SENSORS: tuple[EzvizSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         value_fn=sd_card_capacity_gb,
         is_supported_fn=lambda d: sd_card_capacity_gb(d) is not None,
+    ),
+    EzvizSensorEntityDescription(
+        key="sd_card_status",
+        translation_key="sd_card_status",
+        device_class=SensorDeviceClass.ENUM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        options=["no_card", "normal", "other"],
+        value_fn=_sd_card_status,
+        is_supported_fn=lambda d: (
+            str(SupportExt.SupportDisk.value) in (d.get("supportExt") or {})
+            or sd_card_capacity_gb(d) is not None
+        ),
     ),
     # Battery charge state derived from optionals.powerStatus
     EzvizSensorEntityDescription(
@@ -247,6 +276,15 @@ class EzvizSensor(EzvizEntity, SensorEntity):
         super().__init__(coordinator, serial)
         self.entity_description = description
         self._attr_unique_id = f"{serial}_{description.key}"
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Keep missing SD telemetry distinct from a reported empty slot."""
+        return super().available and (
+            self.entity_description.key != "sd_card_status"
+            or self.native_value is not None
+        )
 
     @property
     @override

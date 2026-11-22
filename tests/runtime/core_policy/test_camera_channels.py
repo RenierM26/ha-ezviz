@@ -20,7 +20,9 @@ from custom_components.ezviz_cloud import (
     config_flow,
     event,
     image,
+    light,
     media_source as media,
+    sensor,
     views,
 )
 from custom_components.ezviz_cloud.channels import (
@@ -1629,3 +1631,80 @@ async def test_camera_setup_reuses_original_for_first_lens(
         assert (await added[0].stream_source()).endswith("/keep-original")
     finally:
         await coordinator.async_close()
+
+
+async def test_lens_warning_light_discovery_and_write(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use the actual SDK serializer, never the sibling or the flat switch."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        sent.append(request)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b'{"meta":{"code":200}}'
+        return response
+
+    monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
+    data = coordinator.data["CAM001"]
+    data["supportExt"]["113"] = "1"
+    # Lens 2 is not supported by the first observation; an unscoped row
+    # must not create an entity or stand in for its state.
+    data["SWITCH"] = [
+        {"type": 303, "enable": 1},
+        {"type": 303, "channelNo": 1, "enable": 0},
+    ]
+    added = []
+    await light.async_setup_entry(hass, coordinator.config_entry, added.extend)
+    legacy, first = added
+    assert legacy.unique_id == "CAM001_Light"
+    assert first.is_on is False
+    data["SWITCH"].append({"type": 303, "channelNo": 2, "enable": 1})
+    coordinator.inventory_snapshot = replace(coordinator.inventory_snapshot, revision=2)
+    coordinator.async_set_updated_data(coordinator.data)
+    second = added[2]
+    assert second.is_on is True
+    assert second.unique_id == "CAM001_warning_light_channel_Video_1:2"
+    try:
+        await first.async_turn_on()
+        await second.async_turn_off()
+        for request, channel, enable in zip(sent, (1, 2), (1, 0), strict=True):
+            assert request.method == "PUT"
+            assert request.url.endswith(f"/CAM001/{channel}/{enable}/303/switchStatus")
+        assert first.is_on is False
+        assert second.is_on is True
+        data["SWITCH"].pop()
+        assert not second.available
+        with pytest.raises(ServiceValidationError):
+            await second.async_turn_on()
+        assert len(sent) == 2
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ({"diskNum": 0, "diskState": "----------------"}, "no_card"),
+        ({"diskNum": 1, "diskState": "0---------------"}, "normal"),
+        ({"diskNum": 1, "diskState": "2---------------"}, "other"),
+        ({"diskNum": 0, "diskState": "0---------------"}, None),
+        ({}, None),
+    ],
+)
+async def test_sd_card_status(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    status: dict[str, int | str],
+    expected: str | None,
+) -> None:
+    """Read only the current device observation, including a known empty slot."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    coordinator.data["CAM001"].update(supportExt={"4": "1"}, STATUS=status)
+    desc = next(item for item in sensor.SENSORS if item.key == "sd_card_status")
+    assert sensor._is_desc_supported(coordinator.data["CAM001"], desc)
+    entity = sensor.EzvizSensor(coordinator, "CAM001", desc)
+    assert entity.native_value == expected
+    assert entity.available is (expected is not None)
+    await coordinator.async_close()
