@@ -8,11 +8,7 @@ import re
 from typing import Any, override
 from urllib.parse import urlsplit
 
-from pyezvizapi.devices.channels import (
-    alarm_camera_channel,
-    camera_channels,
-    resolve_camera_channel,
-)
+from pyezvizapi.devices.channels import alarm_camera_channel, resolve_camera_channel
 from pyezvizapi.exceptions import PyEzvizError
 
 from homeassistant.components.media_player import MediaClass, MediaType
@@ -26,6 +22,7 @@ from homeassistant.components.media_source import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from .channels import reported_lens_channels
 from .const import DOMAIN
 from .views import async_generate_image_proxy_url
 
@@ -279,8 +276,8 @@ class EzvizMediaSource(MediaSource):
                         can_expand=True,
                     )
                 )
-                channels = camera_channels(cam)
-                if len(channels) > 1:
+                channels = reported_lens_channels(coordinator, config_entry, serial)
+                if channels:
                     children.extend(
                         BrowseMediaSource(
                             domain=DOMAIN,
@@ -363,7 +360,11 @@ class EzvizMediaSource(MediaSource):
             identifier=identifier,
             media_class=MediaClass.DIRECTORY,
             media_content_type=MediaType.PLAYLIST,
-            title=f"{cam_name} - last {limit} alarms",
+            title=(
+                f"{cam_name} - matches within the last {limit} device alarms"
+                if channel_key is not None
+                else f"{cam_name} - last {limit} alarms"
+            ),
             can_play=False,
             can_expand=True,
             children=children,

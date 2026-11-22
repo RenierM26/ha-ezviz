@@ -93,6 +93,34 @@ async def add(hass: HomeAssistant, entity: Entity, domain: str) -> EntityPlatfor
     return platform
 
 
+async def test_original_camera_auto_ptz_never_moves_surviving_sibling(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The original target uses Lens 1 automatically; explicit choices still work."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    entry = coordinator.config_entry
+    added: list[camera.EzvizCamera] = []
+    platforms = []
+    try:
+        await camera.async_setup_entry(hass, entry, added.extend)
+        for entity in tuple(added):
+            platform = await add(hass, entity, "camera")
+            platforms.append(platform)
+        primary = added[0]
+        await primary.async_ptz_control_coordinates(0.25, 0.75)
+        assert sent[-1].url.endswith("/Video/1/PTZManualCtrl/CtrlPTZ3DPosition")
+        coordinator.data["CAM001"]["resourceInfos"].pop(0)
+        with pytest.raises(ServiceValidationError):
+            await primary.async_ptz_control_coordinates(0.25, 0.75)
+        assert len(sent) == 1
+        await primary.async_ptz_control_coordinates(0.25, 0.75, "2")
+        assert sent[-1].url.endswith("/Video_1/2/PTZManualCtrl/CtrlPTZ3DPosition")
+    finally:
+        for platform in platforms:
+            await platform.async_reset()
+        await coordinator.async_close()
+
+
 @pytest.mark.parametrize("lens", ["1", "2"])
 async def test_channel_target_binds_ptz_and_keeps_legacy_identity(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, lens: str

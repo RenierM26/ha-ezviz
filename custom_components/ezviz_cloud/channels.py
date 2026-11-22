@@ -13,6 +13,7 @@ from pyezvizapi.devices.channels import (
 
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .availability import device_available
@@ -71,31 +72,35 @@ def channel_available(
     return True
 
 
+def reported_lens_channels(
+    coordinator: EzvizDataUpdateCoordinator, entry: EzvizConfigEntry, serial: str
+) -> tuple[CameraChannel, ...]:
+    """Keep surviving lenses visible when the registry proves multi-lens support."""
+    channels = camera_channels(coordinator.device_data(serial))
+    if len(channels) > 1 or any(
+        entity.platform == DOMAIN
+        and entity.domain in ("camera", "image")
+        and entity.unique_id.startswith(f"{serial}_channel_")
+        for entity in er.async_entries_for_config_entry(
+            er.async_get(coordinator.hass), entry.entry_id
+        )
+    ):
+        return channels
+    return ()
+
+
 @callback
 def async_add_channel_entities(
     coordinator: EzvizDataUpdateCoordinator,
     entry: EzvizConfigEntry,
     add: AddConfigEntryEntitiesCallback,
-    factory: Callable[[str, CameraChannel], Iterable[Any]],
+    factory: Callable[[str, CameraChannel], Iterable[Entity]],
     *,
     require_multiple: bool = True,
 ) -> None:
     """Add stable entities for reported channels as inventory becomes available."""
-    seen: set[str] = set()
-    registry_entries = er.async_entries_for_config_entry(
-        er.async_get(coordinator.hass), entry.entry_id
-    )
-    # A notification entity can belong to a single-lens camera.
-    multi_channel: set[str] = {
-        serial
-        for serial in coordinator.data
-        if any(
-            e.platform == DOMAIN
-            and e.domain in ("camera", "image")
-            and e.unique_id.startswith(f"{serial}_channel_")
-            for e in registry_entries
-        )
-    }
+    seen: set[tuple[str, str]] = set()
+    multi_channel: set[str] = set()
     accepted_snapshot = None
 
     @callback
@@ -104,18 +109,22 @@ def async_add_channel_entities(
         if coordinator.inventory_snapshot is accepted_snapshot:
             return
         accepted_snapshot = coordinator.inventory_snapshot
-        entities = []
+        entities: list[Entity] = []
         for serial, data in coordinator.data.items():
             channels = camera_channels(data)
-            if len(channels) > 1:
+            if (
+                require_multiple
+                and serial not in multi_channel
+                and reported_lens_channels(coordinator, entry, serial)
+            ):
                 multi_channel.add(serial)
             if require_multiple and serial not in multi_channel:
                 continue
             for channel in channels:
-                for entity in factory(serial, channel):
-                    if entity.unique_id not in seen:
-                        seen.add(entity.unique_id)
-                        entities.append(entity)
+                key = (serial, channel.key)
+                if key not in seen:
+                    seen.add(key)
+                    entities.extend(factory(serial, channel))
         if entities:
             add(entities)
 

@@ -155,7 +155,7 @@ async def async_channel_image(
     source_key = channel_key if known_source else None
     key = (serial, "channel_images", url, password, channels, source_key, generation)
 
-    async def download() -> dict[str, bytes]:
+    async def download() -> dict[str, bytes] | None:
         try:
             response = await get_async_client(hass).get(
                 url, timeout=GET_IMAGE_TIMEOUT, follow_redirects=True
@@ -171,15 +171,15 @@ async def async_channel_image(
                 )
             )
         except httpx.HTTPError, ValueError, PyEzvizError:
-            return {}
+            return None
 
     try:
-        result = await coordinator.async_image_download(key, download)
+        result = await coordinator.async_channel_image_batch(key, download)
     except HomeAssistantError:
         if coordinator.shutting_down:
             return None
         raise
-    body = result.get(channel_key)
+    body = result.get(channel_key) if result is not None else None
     if coordinator.shutting_down or not isinstance(body, bytes):
         return None
     if not body.startswith(b"\xff\xd8\xff") and infer_image_type(body) is None:

@@ -113,6 +113,9 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.inventory_snapshot: DeviceSnapshot | None = None
         self.inventory_data: dict[str, dict[str, Any]] = {}
         self._closing = False
+        self._channel_image_batches: OrderedDict[tuple[Any, ...], dict[str, bytes]] = (
+            OrderedDict()
+        )
         self._image_downloads: dict[tuple[Any, ...], asyncio.Task] = {}
         self.image_records: OrderedDict[str, tuple[str, str] | tuple[str, str, str]] = (
             OrderedDict()
@@ -272,6 +275,26 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         task.add_done_callback(self._action_futures.discard)
         task.add_done_callback(_retrieve_worker_error)
         return await asyncio.shield(task)
+
+    async def async_channel_image_batch(
+        self,
+        key: tuple[Any, ...],
+        operation: Callable[[], Coroutine[Any, Any, dict[str, bytes] | None]],
+    ) -> dict[str, bytes] | None:
+        """Retain successful decodes, including batches missing the requested lens."""
+        if key in self._channel_image_batches:
+            self._channel_image_batches.move_to_end(key)
+            return self._channel_image_batches[key]
+        result = await self.async_image_download(key, operation)
+        if (
+            not self.shutting_down
+            and result is not None
+            and sum(map(len, result.values())) <= 4 * 1024 * 1024
+        ):
+            self._channel_image_batches[key] = result
+            if len(self._channel_image_batches) > 8:
+                self._channel_image_batches.popitem(last=False)
+        return result
 
     async def async_image_download(
         self, key: tuple[Any, ...], operation: Callable[[], Coroutine[Any, Any, Any]]

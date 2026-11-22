@@ -3,11 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 import probatio
-from pyezvizapi.devices.channels import (
-    CameraChannel,
-    camera_channels,
-    validate_channel_rtsp_path,
-)
+from pyezvizapi.devices.channels import CameraChannel, validate_channel_rtsp_path
 from pyezvizapi.exceptions import PyEzvizError
 
 from homeassistant.config_entries import ConfigFlowResult
@@ -17,6 +13,7 @@ from .channels import (
     CONF_LENS_RTSP_PATHS,
     is_additional_camera_lens,
     lens_stream_presets,
+    reported_lens_channels,
 )
 from .const import CONF_RTSP_STREAM_PATH, DEFAULT_RTSP_STREAM_PATH
 from .credentials import CameraOptionsConflict, build_camera_options, camera_options
@@ -35,9 +32,7 @@ _LABELS = {
 def _reported_lenses(
     flow: EzvizOptionsFlowHandler, serial: str
 ) -> tuple[CameraChannel, ...]:
-    channels = camera_channels(flow.coordinator.data.get(serial, {}))
-    if len(channels) < 2:
-        return ()
+    channels = reported_lens_channels(flow.coordinator, flow.config_entry, serial)
     return tuple(channel for channel in channels if is_additional_camera_lens(channel))
 
 

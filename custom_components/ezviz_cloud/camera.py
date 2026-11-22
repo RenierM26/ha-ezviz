@@ -13,10 +13,12 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import replace
 from functools import partial
+from io import BytesIO
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
 
+from PIL import Image
 from pyezvizapi.devices.channels import (
     CameraChannel,
     camera_channels,
@@ -28,7 +30,6 @@ from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
-from homeassistant.components.image import infer_image_type
 from homeassistant.components.stream import CONF_USE_WALLCLOCK_AS_TIMESTAMPS, Stream
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
@@ -42,6 +43,7 @@ from .channels import (
     channel_available,
     is_additional_camera_lens,
     lens_stream_path,
+    reported_lens_channels,
 )
 from .const import (
     CONF_ENC_KEY,
@@ -60,6 +62,16 @@ from .ptz import point_route
 from .runtime import EzvizConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _preview_jpeg(body: bytes) -> bytes | None:
+    """Encode non-JPEG cloud previews for HA's multipart still stream."""
+    try:
+        with Image.open(BytesIO(body)) as image, BytesIO() as output:
+            image.convert("RGB").save(output, format="JPEG")
+            return output.getvalue()
+    except OSError, Image.DecompressionBombError:
+        return None
 
 
 async def async_setup_entry(
@@ -220,7 +232,27 @@ class EzvizCamera(EzvizEntity, Camera):
         if source != self._rtsp_stream:
             self._rtsp_stream = source
             if self.stream is not None:
-                self.stream.update_source(source)
+                if source:
+                    self.stream.update_source(source)
+                else:
+                    self.hass.async_create_task(
+                        self._async_stop_missing_stream(),
+                        "Stop unavailable EZVIZ stream",
+                    )
+
+    async def _async_stop_missing_stream(self) -> None:
+        """Stop the worker without handing it an empty source."""
+        async with self._stream_lifecycle_lock:
+            if not self._removed and not self._build_rtsp():
+                await self._async_stop_stream()
+
+    async def _async_stop_stream(self) -> None:
+        if (stream := self.stream) is not None:
+            self.stream = None
+            stream.dynamic_stream_settings = replace(
+                stream.dynamic_stream_settings, preload_stream=False
+            )
+            await stream.stop()
 
     @callback
     @override
@@ -235,14 +267,7 @@ class EzvizCamera(EzvizEntity, Camera):
         """Fence queued updates before stopping the owned stream."""
         self._removed = True
         async with self._stream_lifecycle_lock:
-            if self.stream is not None:
-                self.stream.dynamic_stream_settings = replace(
-                    self.stream.dynamic_stream_settings, preload_stream=False
-                )
-                await self.stream.stop()
-                # HA 2026.10 re-adds this object on registry rename. Recreate
-                # the stream with current preferences and the new state callback.
-                self.stream = None
+            await self._async_stop_stream()
         await super().async_will_remove_from_hass()
 
     @override
@@ -251,6 +276,9 @@ class EzvizCamera(EzvizEntity, Camera):
         async with self._stream_lifecycle_lock:
             if self._removed or self.coordinator.shutting_down:
                 return None
+            if not self._build_rtsp():
+                await self._async_stop_stream()
+                return None
             stream = await super().async_create_stream()
             # Removal may have started while HA awaited stream settings.
             if self._removed or self.coordinator.shutting_down:
@@ -258,6 +286,9 @@ class EzvizCamera(EzvizEntity, Camera):
             # Options may have changed during the same await.
             if stream is not None:
                 source = self._build_rtsp()
+                if not source:
+                    await self._async_stop_stream()
+                    return None
                 if stream.source != source:
                     stream.update_source(source)
                 self._rtsp_stream = source
@@ -349,6 +380,8 @@ class EzvizCamera(EzvizEntity, Camera):
                 known_source=known_source,
                 generation=generation,
             )
+            if result is not None and not result.startswith(b"\xff\xd8\xff"):
+                result = await self.hass.async_add_executor_job(_preview_jpeg, result)
             if (
                 self._removed
                 or not self.available
@@ -358,7 +391,6 @@ class EzvizCamera(EzvizEntity, Camera):
             ):
                 return None
             if result is not None:
-                self.content_type = infer_image_type(result) or "image/jpeg"
                 self._channel_image_key = image_key
                 self._channel_image = result
                 return result
@@ -443,6 +475,13 @@ class EzvizCamera(EzvizEntity, Camera):
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="ptz_point_unavailable"
             )
+        if (
+            lens == "auto"
+            and self._channel_key is None
+            and (entry := self.coordinator.config_entry) is not None
+            and reported_lens_channels(self.coordinator, entry, self._serial)
+        ):
+            lens = "1"
         resource, index = point_route(self.data, lens, channel_key=self._channel_key)
         try:
             accepted = await self.coordinator.async_execute(

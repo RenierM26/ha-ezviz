@@ -5,8 +5,8 @@
 - Add SDK-discovered per-lens camera, capture snapshot, notification and alarm-media
   targets under the existing device. Preserve original IDs/streams and configure
   explicit lens RTSP paths using native options. Protocol routing and batch image
-  selection stay in the SDK. Requires planned SDK 2.6.0; publication/PyPI-only
-  qualification remain a draft gate. See [multi-lens support](docs/multi-lens.md).
+  selection stay in the SDK. Requires published SDK 2.6.0. On H9c, Lens 2 defaults
+  to /Streaming/Channels/202. See [multi-lens support](docs/multi-lens.md).
 
 - Add the `ezviz_cloud.ptz_control_coordinates` camera action for normalized
   image-plane points, with app-backed capability checks and a translated
