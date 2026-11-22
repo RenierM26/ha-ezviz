@@ -375,23 +375,17 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 identity = await async_login_identity(
                     self.hass, self._pending_user_username
                 )
-            if identity != self._verification_identity:
-                result = (
-                    await self.async_step_reauth_confirm()
-                    if step == "reauth_mfa"
-                    else await self.async_step_user()
+            token = None
+            if identity == self._verification_identity:
+                token = await asyncio.shield(
+                    create_executor_task(
+                        self.hass,
+                        credential_login,
+                        self._verification_client,
+                        code,
+                        self._verification_channel,
+                    )
                 )
-                result["errors"] = {"base": "verification_identity_changed"}
-                return result
-            token = await asyncio.shield(
-                create_executor_task(
-                    self.hass,
-                    credential_login,
-                    self._verification_client,
-                    code,
-                    self._verification_channel,
-                )
-            )
         except OSError:
             return await self._async_storage_error(step)
         except EzvizAuthVerificationCode as error:
@@ -420,6 +414,14 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             _LOGGER.exception("Unexpected error during EZVIZ verification")
             return self._show_verification(step, "unknown")
 
+        if token is None:
+            result = (
+                await self.async_step_reauth_confirm()
+                if step == "reauth_mfa"
+                else await self.async_step_user()
+            )
+            result["errors"] = {"base": "verification_identity_changed"}
+            return result
         if step == "reauth_mfa":
             return await self._async_finish_reauth(token, step)
         return await self._async_create_cloud_entry(
