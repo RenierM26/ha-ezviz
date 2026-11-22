@@ -63,7 +63,9 @@ of the shared 30-second cloud poll; this is not a local-only integration.
   Detector contact/water booleans remain unknown without qualified SDK semantics;
   raw diagnostic readings are not converted to alarm truthiness.
 - Multi-lens cameras with explicit warning-light switch state expose separate
-  on/off controls per reported lens. The original device-wide Alarm light and
+  on/off controls named **Lens 1 alarm light**, **Lens 2 alarm light**, and so on.
+  These turn the lamp on or off directly; **Flicker light on movement** still
+  configures automatic flashing on motion. The original device-wide Alarm light and
   brightness control are unchanged. An unavailable lens is never substituted
   with another one. Per-lens write behavior depends on camera firmware.
 - The SD card status diagnostic uses reported disk telemetry from the account

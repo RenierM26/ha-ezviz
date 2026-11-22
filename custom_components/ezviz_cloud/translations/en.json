@@ -103,7 +103,7 @@
         },
         "light": {
             "lens_warning_light": {
-                "name": "Lens {channel} warning light"
+                "name": "Lens {channel} alarm light"
             },
             "light": {
                 "name": "Light"
