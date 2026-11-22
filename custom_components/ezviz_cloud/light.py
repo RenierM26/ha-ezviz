@@ -7,8 +7,6 @@ from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceSwitchType, SupportExt
-from pyezvizapi.devices.observation import power_state
-from pyezvizapi.devices.payload import switch_rows
 from pyezvizapi.devices.snapshot import DeviceState, LightState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
@@ -25,10 +23,14 @@ from homeassistant.util.percentage import (
     ranged_value_to_percentage,
 )
 
-from .coordinator import EzvizDataUpdateCoordinator
+from .coordinator import EzvizDataUpdateCoordinator, camera_alarm_light_state
 from .entity import EzvizEntity, EzvizInventoryEntity
 from .errors import request_error
-from .inventory import async_add_inventory_entities, async_set_power
+from .inventory import (
+    async_add_camera_inventory_entities,
+    async_add_inventory_entities,
+    async_set_power,
+)
 from .runtime import EzvizConfigEntry
 from .utility import passes_description_gates, support_ext_dict
 
@@ -40,7 +42,7 @@ class EzvizLightEntityDescription(LightEntityDescription):
     """EZVIZ light with gating + state/brightness getters + action callables."""
 
     # Getters from coordinator data:
-    # - is_on_value: return a truthy/falsey value indicating on/off (or None if unknown)
+    # - is_on_value: return on/off, or None if unknown
     # - brightness_value: return an int percent (0-100) or None if not available
     is_on_value: Callable[[dict[str, Any]], Any]
     brightness_value: Callable[[dict[str, Any]], int | None]
@@ -78,21 +80,6 @@ def _is_desc_supported(
     )
 
 
-def _alarm_light_state(data: dict[str, Any]) -> bool | None:
-    """Read switch 303 on channel zero, or from an older unscoped row."""
-    row = switch_rows(data.get("SWITCH"), channel_no=0).get(
-        DeviceSwitchType.ALARM_LIGHT.value
-    )
-    return power_state(row.get("enable")) if row is not None else None
-
-
-def _legacy_alarm_light_state(data: dict[str, Any]) -> bool | None:
-    """Keep legacy snapshots working without using a sibling's scoped state."""
-    if "SWITCH" in data:
-        return _alarm_light_state(data)
-    return (data.get("switches") or {}).get(DeviceSwitchType.ALARM_LIGHT.value)
-
-
 def _supports_combined_view(data: dict[str, Any]) -> bool:
     """Check the app's advertised list of channels in a combined view."""
     channels = support_ext_dict(data).get(str(SupportExt.SupportMultiChannelType.value))
@@ -106,7 +93,7 @@ def _supports_combined_view(data: dict[str, Any]) -> bool:
 _ALARM_LIGHT = EzvizLightEntityDescription(
     key="Light",
     translation_key="light",
-    is_on_value=_legacy_alarm_light_state,
+    is_on_value=camera_alarm_light_state,
     brightness_value=lambda d: d.get("alarm_light_luminance"),
     brightness_range=(1, 255),
     supported_ext_key=str(SupportExt.SupportAlarmLight.value),
@@ -145,14 +132,16 @@ async def async_setup_entry(
         coordinator, entry, async_add_entities, "light", light_entities
     )
 
-    camera_lights = []
-    for serial, camera_data in coordinator.data.items():
+    def camera_lights(serial: str, data: dict[str, Any]) -> list[EzvizLight]:
         # Both descriptions represent the same lamp; prefer legacy brightness.
         for desc in LIGHTS:
-            if _is_desc_supported(camera_data, desc):
-                camera_lights.append(EzvizLight(coordinator, serial, desc))
-                break
-    async_add_entities(camera_lights)
+            if _is_desc_supported(data, desc):
+                return [EzvizLight(coordinator, serial, desc)]
+        return []
+
+    async_add_camera_inventory_entities(
+        coordinator, entry, async_add_entities, camera_lights
+    )
 
 
 class EzvizLight(EzvizEntity, LightEntity):
@@ -186,9 +175,15 @@ class EzvizLight(EzvizEntity, LightEntity):
 
     @property
     @override
-    def is_on(self) -> bool:
-        """Return the SDK-observed light power."""
-        return bool(self.entity_description.is_on_value(self.data))
+    def is_on(self) -> bool | None:
+        """Return the observed power, or unknown without a shared observation."""
+        if (
+            self.entity_description.is_on_value is camera_alarm_light_state
+            and self.serial in self.coordinator.camera_alarm_lights
+        ):
+            return self.coordinator.camera_alarm_lights[self.serial]
+        value = self.entity_description.is_on_value(self.data)
+        return None if value is None else bool(value)
 
     @property
     @override

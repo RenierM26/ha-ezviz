@@ -1738,12 +1738,109 @@ async def test_alarm_light_requires_supported_control(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize("initial_camera", [False, True])
+async def test_inventory_poll_discovers_alarm_light_and_sd_status(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, initial_camera: bool
+) -> None:
+    """Late capabilities add stable native entities; scoped state stays unknown."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    entry = coordinator.config_entry
+    serial = "CAM001"
+    row = dict(coordinator.data[serial])
+    snapshot = coordinator.inventory_snapshot
+    assert snapshot is not None
+    current = replace(snapshot, devices=snapshot.devices if initial_camera else {})
+    monkeypatch.setattr(coordinator, "_poll_sync", lambda: current)
+    platforms = {}
+    registry = er.async_get(hass)
+
+    try:
+        await coordinator.async_refresh()
+        for domain, component in (("light", light), ("sensor", sensor)):
+            platform = EntityPlatform(
+                hass=hass,
+                logger=logging.getLogger(__name__),
+                domain=domain,
+                platform_name=DOMAIN,
+                platform=None,
+                scan_interval=timedelta(seconds=30),
+                entity_namespace=None,
+            )
+            platform.config_entry = entry
+            await platform.platform_data.async_load_translations()
+            platforms[domain] = platform
+            await component.async_setup_entry(
+                hass, entry, platform._async_schedule_add_entities_for_entry
+            )
+        await hass.async_block_till_done()
+        assert registry.async_get_entity_id("light", DOMAIN, "CAM001_Light") is None
+        assert (
+            registry.async_get_entity_id("sensor", DOMAIN, "CAM001_sd_card_status")
+            is None
+        )
+
+        row.update(
+            supportExt={"496": "1", "719": "1-2", "4": "1"},
+            SWITCH=[{"type": 303, "channelNo": 1, "enable": True}],
+            STATUS={"diskNum": 1, "diskState": "-1"},
+        )
+        current = replace(
+            snapshot,
+            revision=snapshot.revision + 1,
+            devices={serial: CameraState(serial, "camera", row)},
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+        light_id = registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+        sd_id = registry.async_get_entity_id("sensor", DOMAIN, "CAM001_sd_card_status")
+        assert light_id is not None
+        assert sd_id is not None
+        light_entity = platforms["light"].entities[light_id]
+        assert isinstance(light_entity, light.EzvizLight)
+        assert hass.states.get(light_id).state == "unknown"
+        assert hass.states.get(sd_id).state == "unavailable"
+        assert coordinator.camera_alarm_lights[serial] is None
+
+        await light_entity.async_turn_on()
+        await light_entity.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/1/303/switchStatus",
+            "0/0/303/switchStatus",
+        ]
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert hass.states.get(light_id).state == "unknown"
+
+        row.update(
+            SWITCH=[{"type": 303, "channelNo": 0, "enable": True}],
+            STATUS={"diskNum": 1, "diskState": "0---------------"},
+        )
+        current = replace(
+            current,
+            revision=current.revision + 1,
+            devices={serial: CameraState(serial, "camera", row)},
+        )
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        assert hass.states.get(light_id).state == "on"
+        assert hass.states.get(sd_id).state == "normal"
+        assert list(platforms["light"].entities) == [light_id]
+        assert platforms["light"].entities[light_id] is light_entity
+    finally:
+        for platform in platforms.values():
+            await platform.async_reset()
+        await coordinator.async_close()
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
         ({"diskNum": 0, "diskState": "----------------"}, "no_card"),
         ({"diskNum": 1, "diskState": "0---------------"}, "normal"),
         ({"diskNum": 1, "diskState": "2---------------"}, "other"),
+        ({"diskNum": 1, "diskState": "-1"}, None),
         ({"diskNum": 0, "diskState": "0---------------"}, None),
         ({}, None),
     ],

@@ -21,7 +21,7 @@ from homeassistant.helpers.typing import StateType
 from .const import DOMAIN
 from .coordinator import EzvizDataUpdateCoordinator
 from .entity import EzvizEntity, EzvizInventoryEntity
-from .inventory import async_add_inventory_entities
+from .inventory import async_add_camera_inventory_entities, async_add_inventory_entities
 from .migration import migrate_unique_ids_with_coordinator
 from .runtime import EzvizConfigEntry
 from .utility import (
@@ -69,6 +69,8 @@ def _sd_card_status(data: dict[str, Any]) -> str | None:
     count = status.get("diskNum")
     state = status.get("diskState")
     if type(count) is not int or not isinstance(state, str) or not state:
+        return None
+    if state.strip() == "-1":
         return None
     if count == 0 and set(state) == {"-"}:
         return "no_card"
@@ -256,7 +258,19 @@ async def async_setup_entry(
         EzvizSensor(coordinator, serial, desc)
         for serial, camera_data in coordinator.data.items()
         for desc in SENSORS
-        if _is_desc_supported(camera_data, desc)
+        if desc.key != "sd_card_status" and _is_desc_supported(camera_data, desc)
+    )
+
+    sd_status = next(desc for desc in SENSORS if desc.key == "sd_card_status")
+    async_add_camera_inventory_entities(
+        coordinator,
+        entry,
+        async_add_entities,
+        lambda serial, data: (
+            [EzvizSensor(coordinator, serial, sd_status)]
+            if _is_desc_supported(data, sd_status)
+            else []
+        ),
     )
 
 

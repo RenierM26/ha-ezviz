@@ -8,7 +8,9 @@ from pyezvizapi.constants import DeviceSwitchType
 from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import HTTPError, PyEzvizError
 
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import EzvizDataUpdateCoordinator
@@ -29,23 +31,57 @@ def async_add_inventory_entities(
     ],
 ) -> None:
     """Discover additions/observed properties without another network refresh."""
+    _async_discover_entities(
+        coordinator,
+        entry,
+        add,
+        lambda: (
+            entity
+            for serial, state in coordinator.devices_of_kind(kind).items()
+            for entity in factory(coordinator, serial, state)
+        ),
+    )
+
+
+def async_add_camera_inventory_entities(
+    coordinator: EzvizDataUpdateCoordinator,
+    entry: EzvizConfigEntry,
+    add: AddConfigEntryEntitiesCallback,
+    factory: Callable[[str, dict[str, Any]], Iterable[Entity]],
+) -> None:
+    """Discover camera entities from the accepted camera projection."""
+    _async_discover_entities(
+        coordinator,
+        entry,
+        add,
+        lambda: (
+            entity
+            for serial, data in (coordinator.data or {}).items()
+            for entity in factory(serial, data)
+        ),
+    )
+
+
+def _async_discover_entities(
+    coordinator: EzvizDataUpdateCoordinator,
+    entry: EzvizConfigEntry,
+    add: AddConfigEntryEntitiesCallback,
+    factory: Callable[[], Iterable[Entity]],
+) -> None:
     seen: set[str] = set()
+    accepted_snapshot: object = object()
 
-    accepted_snapshot = None
-
+    @callback
     def discover() -> None:
         nonlocal accepted_snapshot
         if coordinator.inventory_snapshot is accepted_snapshot:
             return
         accepted_snapshot = coordinator.inventory_snapshot
         entities = []
-        for serial, state in coordinator.devices_of_kind(kind).items():
-            for entity in factory(coordinator, serial, state):
-                if (
-                    unique_id := entity.unique_id
-                ) is not None and unique_id not in seen:
-                    seen.add(unique_id)
-                    entities.append(entity)
+        for entity in factory():
+            if (unique_id := entity.unique_id) is not None and unique_id not in seen:
+                seen.add(unique_id)
+                entities.append(entity)
         if entities:
             add(entities)
 
