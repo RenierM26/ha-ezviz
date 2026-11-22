@@ -1860,6 +1860,45 @@ async def test_inventory_poll_discovers_alarm_light_and_sd_status(
                 assert brightness_write.call_count == 1
             assert sent[-1].url.endswith("/0/1/303/switchStatus")
 
+        sent.clear()
+        brightness_write.reset_mock()
+        for flags, expected_state in (
+            ({"113": "0"}, "on"),
+            ({"113": "0", "496": "0"}, "unavailable"),
+            ({}, "unavailable"),
+            ({"113": "0", "496": "1"}, "on"),
+        ):
+            row["supportExt"] = {"719": "1-2", **flags}
+            current = replace(
+                current,
+                revision=current.revision + 1,
+                devices={serial: CameraState(serial, "camera", row)},
+            )
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+            assert (
+                registry.async_get_entity_id("light", DOMAIN, "CAM001_Light")
+                == light_id
+            )
+            assert platforms["light"].entities == {light_id: light_entity}
+            assert hass.states.get(light_id).state == expected_state
+            if expected_state == "unavailable":
+                with pytest.raises(
+                    HomeAssistantError, match="Alarm light is unavailable"
+                ):
+                    await light_entity.async_turn_on(brightness=128)
+                with pytest.raises(
+                    HomeAssistantError, match="Alarm light is unavailable"
+                ):
+                    await light_entity.async_turn_off()
+                assert not sent
+
+        await light_entity.async_turn_off()
+        assert [request.url.rsplit("/CAM001/", 1)[1] for request in sent] == [
+            "0/0/303/switchStatus",
+        ]
+        brightness_write.assert_not_called()
+
     finally:
         for platform in platforms.values():
             await platform.async_reset()
