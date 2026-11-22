@@ -37,10 +37,10 @@ from homeassistant.components.camera import (
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.stream import (
     CONF_USE_WALLCLOCK_AS_TIMESTAMPS,
+    HLS_PROVIDER,
     Stream,
     create_stream,
 )
-from homeassistant.components.stream.const import HLS_PROVIDER
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, ServiceResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
