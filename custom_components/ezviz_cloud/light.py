@@ -180,13 +180,19 @@ def _warning_light_state(data: dict[str, Any], channel: CameraChannel) -> bool |
     return power_state(row.get("enable"))
 
 
+def _lens_alarm_light_supported(data: dict[str, Any]) -> bool:
+    """Allow the H9c's scoped switch rows even without the legacy global flag."""
+    model = str(data.get("device_sub_category", "")).casefold()
+    return model == "h9c" or _is_desc_supported(data, LIGHTS[0])
+
+
 def _warning_light_entities(
     coordinator: EzvizDataUpdateCoordinator, serial: str, channel: CameraChannel
 ) -> list[EzvizWarningLight]:
     data = coordinator.device_data(serial)
     if (
         channel.channel_no > 0
-        and _is_desc_supported(data, LIGHTS[0])
+        and _lens_alarm_light_supported(data)
         and _warning_light_state(data, channel) is not None
     ):
         return [EzvizWarningLight(coordinator, serial, channel)]
@@ -224,7 +230,7 @@ class EzvizWarningLight(EzvizEntity, LightEntity):
         """Require current lens metadata and explicit switch state."""
         return (
             channel_available(self.coordinator, self.serial, self._channel.key)
-            and _is_desc_supported(self.data, LIGHTS[0])
+            and _lens_alarm_light_supported(self.data)
             and self.is_on is not None
         )
 

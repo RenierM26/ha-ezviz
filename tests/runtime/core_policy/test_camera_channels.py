@@ -1633,8 +1633,9 @@ async def test_camera_setup_reuses_original_for_first_lens(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize("legacy_flag", [False, True])
 async def test_lens_warning_light_discovery_and_write(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, legacy_flag: bool
 ) -> None:
     """Use the actual SDK serializer, never the sibling or the flat switch."""
     coordinator, _, sent = dual(hass, monkeypatch)
@@ -1648,7 +1649,11 @@ async def test_lens_warning_light_discovery_and_write(
 
     monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
     data = coordinator.data["CAM001"]
-    data["supportExt"]["113"] = "1"
+    if legacy_flag:
+        data["supportExt"]["113"] = "1"
+    else:
+        # The live H9c lists scoped 303 rows without the legacy capability flag.
+        data["device_sub_category"] = "H9c"
     # Lens 2 is not supported by the first observation; an unscoped row
     # must not create an entity or stand in for its state.
     data["SWITCH"] = [
