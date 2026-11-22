@@ -39,6 +39,7 @@ from homeassistant.components.stream.core import STREAM_SETTINGS_NON_LL_HLS
 from homeassistant.components.stream.hls import HlsMasterPlaylistView, HlsSegmentView
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
 
 from tests.runtime.core_policy import test_camera_channels
 from tests.runtime.core_policy.test_camera_channels import add, dual
@@ -281,8 +282,37 @@ async def test_cloud_primary_channel_zero_is_provisional(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize("seen_at_setup", [False, True])
+async def test_cloud_primary_remembers_inventory_before_playback(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, seen_at_setup: bool
+) -> None:
+    """Channel 0 must not take over a previously observed primary."""
+    coordinator, _, _ = dual(hass, monkeypatch)
+    hass.config_entries.async_update_entry(
+        coordinator.config_entry,
+        options={OPTIONS_KEY_CAMERAS: {"CAM001": {CONF_STREAM_SOURCE: "cloud_main"}}},
+    )
+    device = coordinator.data["CAM001"]
+    zero = {"resourceIdentifier": "Video", "localIndex": 0}
+    one = {"resourceIdentifier": "Video", "localIndex": 1}
+    device["resourceInfos"] = [zero, one] if seen_at_setup else [zero]
+    primary = camera.EzvizCamera(hass, coordinator, "CAM001", "", "", None)
+    platform = await add(hass, primary, "camera")
+    try:
+        if not seen_at_setup:
+            device["resourceInfos"] = [zero, one]
+            coordinator.async_update_listeners()
+        device["resourceInfos"] = [zero]
+        coordinator.async_update_listeners()
+        assert await primary.async_create_stream() is None
+    finally:
+        await platform.async_reset()
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize("preload", [False, True])
 async def test_cold_cloud_recording_expires_and_can_retry(
-    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, preload: bool
 ) -> None:
     """A cold recorder releases its provider without arming its duration timer."""
     coordinator, _, _ = dual(hass, monkeypatch)
@@ -304,14 +334,22 @@ async def test_cold_cloud_recording_expires_and_can_retry(
     monkeypatch.setattr(Stream, "_run_worker", run_worker)
     platform = await add(hass, target, "camera")
     try:
+        stream = await target.async_create_stream()
+        assert stream is not None
+        expected = {}
+        if preload:
+            stream.dynamic_stream_settings = DynamicStreamSettings(preload_stream=True)
+            expected[HLS_PROVIDER] = stream.add_provider(HLS_PROVIDER)
+            await stream.start()
         for _ in range(2):
-            stream = await target.async_create_stream()
-            assert stream is not None
             async with asyncio.timeout(2):
-                await stream.async_record(str(tmp_path / "cold.mp4"), duration=60)
-                await hass.async_block_till_done(wait_background_tasks=True)
-            assert not stream.outputs()
-            assert stream._thread is None
+                with pytest.raises(HomeAssistantError, match="recording did not start"):
+                    await stream.async_record(str(tmp_path / "cold.mp4"), duration=60)
+            assert stream.outputs() == expected
+            if preload:
+                assert stream._thread is not None and stream._thread.is_alive()
+            else:
+                assert stream._thread is None
     finally:
         await platform.async_reset()
         await coordinator.async_close()

@@ -17,7 +17,6 @@ from io import BytesIO
 import logging
 from typing import Any, override
 from urllib.parse import quote, urlsplit
-from weakref import WeakSet
 
 from PIL import Image
 from pyezvizapi.devices.channels import (
@@ -204,8 +203,11 @@ class EzvizCamera(EzvizEntity, Camera):
         self._cloud_stream_index = CLOUD_STREAM_INDEXES.get(
             options.get(CONF_STREAM_SOURCE, "")
         )
-        self._cloud_primary_seen = False
-        self._watched_recorders: WeakSet[object] = WeakSet()
+        self._cloud_primary_seen = (
+            self._cloud_stream_index is not None
+            and self._channel_key is None
+            and 1 in reported_video_channel_numbers(self.data)
+        )
         self._cloud_relay = (
             CloudStreamRelay(
                 hass,
@@ -269,35 +271,59 @@ class EzvizCamera(EzvizEntity, Camera):
             and (output := stream.outputs().get(HLS_PROVIDER)) is not None
         ):
             output.idle_timer.start()
-        self._arm_cloud_recorder_timeout(stream)
 
-    @callback
-    def _arm_cloud_recorder_timeout(self, stream: Stream) -> None:
-        """Watch for the first recording segment without starting its duration."""
-        if self.stream is not stream or stream is None:
-            return
-        recorder = stream.outputs().get(RECORDER_OUTPUT)
-        if recorder is None or recorder in self._watched_recorders:
-            return
-        self._watched_recorders.add(recorder)
-        if recorder.last_segment is not None:
-            return
+    def _wrap_cloud_recording(self, stream: Stream) -> None:
+        """Bound only record startup, including Core's separate HLS lookback wait."""
+        record = stream.async_record
 
-        async def bound_startup() -> None:
+        async def bounded_record(
+            video_path: str, duration: int = 30, lookback: int = 5
+        ) -> None:
+            if RECORDER_OUTPUT in stream.outputs():
+                # Preserve Core's already_recording error and the existing owner.
+                await record(video_path, duration, lookback)
+                return
+
+            hls = stream.outputs().get(HLS_PROVIDER)
+            # Eager start captures the provider this call owns: Core installs
+            # it before its first await, and raises synchronously on invalid paths.
+            recording = asyncio.create_task(
+                record(video_path, duration, lookback), eager_start=True
+            )
+            recorder = stream.outputs().get(RECORDER_OUTPUT)
+            if recorder is None:
+                await recording
+                return
+
+            deadline = asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT)
+
+            async def wait_for_startup() -> None:
+                if hls is not None:
+                    await hls.recv()
+                if recorder.last_segment is None:
+                    await recorder.recv()
+                deadline.reschedule(None)
+
             try:
-                async with asyncio.timeout(CLOUD_RECORDING_STARTUP_TIMEOUT):
-                    if recorder.last_segment is None:
-                        await recorder.recv()
-            except TimeoutError:
-                if (
-                    stream.outputs().get(RECORDER_OUTPUT) is recorder
-                    and recorder.last_segment is None
-                ):
+                async with deadline:
+                    startup = self.hass.async_create_background_task(
+                        wait_for_startup(), "EZVIZ cloud recording startup"
+                    )
+                    try:
+                        await recording
+                    finally:
+                        startup.cancel()
+            except (TimeoutError, asyncio.CancelledError) as err:
+                if stream.outputs().get(RECORDER_OUTPUT) is recorder:
                     await stream.remove_provider(recorder)
+                if isinstance(err, TimeoutError) and deadline.expired():
+                    raise HomeAssistantError(
+                        "EZVIZ cloud recording did not start"
+                    ) from err
+                raise
 
-        self.hass.async_create_background_task(
-            bound_startup(), "EZVIZ cloud recording startup"
-        )
+        # Core creates and registers the Stream; decorate only this cloud instance.
+        stream.async_record = bounded_record  # type: ignore[method-assign, unused-ignore]
 
     async def _async_create_cloud_stream(
         self, relay: CloudStreamRelay
@@ -320,9 +346,7 @@ class EzvizCamera(EzvizEntity, Camera):
                 stream_label=self.entity_id,
             )
             self.stream.set_update_callback(self.async_write_ha_state)
-        # Core's record service adds its output immediately after obtaining the
-        # stream, including when it joins an already-open relay connection.
-        self.hass.loop.call_soon(self._arm_cloud_recorder_timeout, self.stream)
+            self._wrap_cloud_recording(self.stream)
         return self.stream
 
     def _build_rtsp(self) -> str:
@@ -390,6 +414,10 @@ class EzvizCamera(EzvizEntity, Camera):
         if self._removed or self.coordinator.shutting_down:
             return
         if self._cloud_relay is not None:
+            if self._channel_key is None and not self._cloud_primary_seen:
+                self._cloud_primary_seen = 1 in reported_video_channel_numbers(
+                    self.data
+                )
             self._cloud_relay.async_invalidate()
             return
         source = self._build_rtsp()
