@@ -100,6 +100,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     _pending_user_url: str
     _pending_user_timeout: int = DEFAULT_TIMEOUT
 
+    _verification_identity: str
+    _delivery_task: asyncio.Task[ConfigFlowResult] | None = None
     _verification_client: EzvizClient
     _verification_step: str
     _verification_channels: tuple[int, ...] = ()
@@ -148,12 +150,13 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 
             if not errors:
                 try:
+                    identity = await async_login_identity(self.hass, username)
                     client = EzvizClient(
                         account=username,
                         password=password,
                         url=api_url,
                         timeout=timeout,
-                        feature_code=await async_login_identity(self.hass, username),
+                        feature_code=identity,
                     )
                     # First attempt without SMS -> returns a token dict on success
                     token = await asyncio.shield(
@@ -167,7 +170,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     self._pending_user_username = username
                     self._pending_user_url = api_url
                     self._pending_user_timeout = timeout
-                    return self._start_verification(client, "user_mfa_confirm", error)
+                    return self._start_verification(
+                        client, identity, "user_mfa_confirm", error
+                    )
 
                 except EzvizLoginError as error:
                     errors["base"] = _login_error(error)
@@ -238,14 +243,15 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 self._reauth_timeout = DEFAULT_TIMEOUT
 
             try:
+                identity = await TokenPersistence(
+                    self.hass, self._reauth_entry
+                ).async_identity()
                 client = EzvizClient(
                     account=self._reauth_username,
                     password=user_input[CONF_PASSWORD],
                     url=self._reauth_url,
                     timeout=self._reauth_timeout,
-                    feature_code=await TokenPersistence(
-                        self.hass, self._reauth_entry
-                    ).async_identity(),
+                    feature_code=identity,
                 )
                 token = await asyncio.shield(
                     create_executor_task(self.hass, credential_login, client)
@@ -255,7 +261,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                 return await self._async_storage_error("reauth_confirm")
 
             except EzvizAuthVerificationCode as error:
-                return self._start_verification(client, "reauth_mfa", error)
+                return self._start_verification(client, identity, "reauth_mfa", error)
 
             except EzvizLoginError as error:
                 errors["base"] = _login_error(error)
@@ -300,12 +306,29 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         return await self._async_verify("reauth_mfa", user_input)
 
     def _start_verification(
-        self, client: EzvizClient, step: str, error: EzvizAuthVerificationCode
+        self,
+        client: EzvizClient,
+        identity: str,
+        step: str,
+        error: EzvizAuthVerificationCode,
     ) -> ConfigFlowResult:
         # Keep the same SDK client: it owns bound contacts, regional policy and
         # the selected method. credential_login already closed its transport.
         self._verification_client = client
+        self._verification_identity = identity
         self._verification_step = step
+        self._verification_channel = None
+        self._update_delivery_options(error)
+        if self._verification_channels and not error.code_sent:
+            return self._show_delivery()
+        return self._show_verification(
+            step,
+            "verification_in_app"
+            if error.reason in _APP_VERIFICATION_REASONS
+            else None,
+        )
+
+    def _update_delivery_options(self, error: EzvizAuthVerificationCode) -> None:
         self._verification_channels = tuple(
             channel for channel in error.available_channels if channel in CHANNEL_NAMES
         )
@@ -317,15 +340,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
             # The SDK supports legacy email challenges without contact metadata
             # and validates the destination before sending.
             self._verification_channels = (3,)
-        self._verification_channel = None
-        if self._verification_channels and not error.code_sent:
-            return self._show_delivery()
-        return self._show_verification(
-            step,
-            "verification_in_app"
-            if error.reason in _APP_VERIFICATION_REASONS
-            else None,
-        )
+        if self._verification_channel not in self._verification_channels:
+            self._verification_channel = None
 
     def _show_verification(
         self, step: str, error: str | None = None
@@ -344,7 +360,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     ) -> ConfigFlowResult:
         if user_input is None:
             return self._show_verification(step)
-        if user_input.get("change_delivery"):
+        if user_input.get("change_delivery") and self._verification_channels:
             return self._show_delivery()
         code = user_input.get("sms_code", "").strip()
         if not code or not code.isascii() or not code.isdigit():
@@ -352,9 +368,21 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
 
         try:
             if step == "reauth_mfa":
-                await TokenPersistence(self.hass, self._reauth_entry).async_identity()
+                identity = await TokenPersistence(
+                    self.hass, self._reauth_entry
+                ).async_identity()
             else:
-                await async_login_identity(self.hass, self._pending_user_username)
+                identity = await async_login_identity(
+                    self.hass, self._pending_user_username
+                )
+            if identity != self._verification_identity:
+                result = (
+                    await self.async_step_reauth_confirm()
+                    if step == "reauth_mfa"
+                    else await self.async_step_user()
+                )
+                result["errors"] = {"base": "verification_identity_changed"}
+                return result
             token = await asyncio.shield(
                 create_executor_task(
                     self.hass,
@@ -367,14 +395,23 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         except OSError:
             return await self._async_storage_error(step)
         except EzvizAuthVerificationCode as error:
-            # The SDK reports the selected destination and previously accepted
-            # delivery again even if the supplied code was incorrect.
-            return self._show_verification(
-                step,
+            previous_channels = self._verification_channels
+            previous_channel = self._verification_channel
+            self._update_delivery_options(error)
+            message = (
                 "verification_required"
                 if error.reason == "verification_required"
-                else _login_error(error),
+                else _login_error(error)
             )
+            if self._verification_channels and (
+                self._verification_channel is None
+                and (
+                    previous_channel is not None
+                    or previous_channels != self._verification_channels
+                )
+            ):
+                return self._show_delivery(message)
+            return self._show_verification(step, message)
         except EzvizLoginError as error:
             return self._show_verification(step, _login_error(error))
         except InvalidURL, HTTPError, PyEzvizError:
@@ -448,6 +485,15 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         """Choose a bound verification method or explicitly discover phone methods."""
         if user_input is None:
             return self._show_delivery()
+        if self._delivery_task is None or self._delivery_task.done():
+            self._delivery_task = self.hass.async_create_task(
+                self._async_submit_delivery(user_input), "EZVIZ MFA delivery"
+            )
+        return await asyncio.shield(self._delivery_task)
+
+    async def _async_submit_delivery(
+        self, user_input: dict[str, Any]
+    ) -> ConfigFlowResult:
         channel = next(
             item
             for item in self._verification_channels
@@ -472,6 +518,11 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
                     self.hass, self._manage_delivery, channel, country_code
                 )
             )
+        except EzvizAuthVerificationCode as error:
+            self._update_delivery_options(error)
+            if self._verification_channels:
+                return self._show_delivery(_login_error(error))
+            return self._show_verification(self._verification_step, _login_error(error))
         except (PyEzvizError, OSError) as error:
             if country_code:
                 self._verification_channels = tuple(

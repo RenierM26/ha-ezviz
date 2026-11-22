@@ -1,7 +1,9 @@
 """Config/options behavior through real HA flow managers; only SDK IO is fake."""
 
+import asyncio
 from copy import deepcopy
 import json
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -801,3 +803,87 @@ async def test_legacy_email_challenge_waits_for_explicit_send(hass, sdk):
     result = await manager.async_configure(flow_id, {"method": "email"})
     assert result["step_id"] == "user_mfa_confirm"
     client.send_mfa_code.assert_called_once_with(mfa_channel=3)
+
+
+async def test_overlapping_mfa_delivery_shares_send_and_allows_resend(hass, sdk):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    form = await start_user(hass)
+    flow_id = form["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(flow_id, USER)
+    entered, release = Event(), Event()
+
+    def send(**kwargs):
+        entered.set()
+        assert release.wait(5)
+
+    client.send_mfa_code.side_effect = send
+    first = asyncio.create_task(manager.async_configure(flow_id, {"method": "email"}))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        second = asyncio.create_task(manager.async_configure(flow_id, {"method": "email"}))
+        await asyncio.sleep(0)
+    finally:
+        release.set()
+    results = await asyncio.gather(first, second)
+    assert [result["step_id"] for result in results] == ["user_mfa_confirm"] * 2
+    client.send_mfa_code.assert_called_once_with(mfa_channel=3)
+
+    await manager.async_configure(flow_id, {"change_delivery": True})
+    await manager.async_configure(flow_id, {"method": "email"})
+    assert client.send_mfa_code.call_count == 2
+
+
+@pytest.mark.parametrize("during_send", [False, True])
+async def test_mfa_replaces_stale_delivery_options(hass, sdk, during_send):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    flow_id = (await start_user(hass))["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(flow_id, USER)
+    changed = EzvizAuthVerificationCode(available_channels=(1,))
+    if during_send:
+        client.send_mfa_code.side_effect = changed
+        result = await manager.async_configure(flow_id, {"method": "email"})
+        client.send_mfa_code.side_effect = None
+    else:
+        await manager.async_configure(flow_id, {"method": "email"})
+        client.enable_channel99.side_effect = changed
+        result = await manager.async_configure(flow_id, {"sms_code": "001234"})
+    assert result["step_id"] == "mfa_delivery"
+    with pytest.raises(InvalidData):
+        await manager.async_configure(flow_id, {"method": "email"})
+    await manager.async_configure(flow_id, {"method": "sms"})
+    client.send_mfa_code.assert_called_with(mfa_channel=1)
+
+
+async def test_mfa_identity_change_returns_to_credentials(hass, sdk, monkeypatch):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    flow_id = (await start_user(hass))["flow_id"]
+    identity = AsyncMock(side_effect=["old", "replacement"])
+    monkeypatch.setattr(flow, "async_login_identity", identity)
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(flow_id, USER)
+    await manager.async_configure(flow_id, {"method": "email"})
+    result = await manager.async_configure(flow_id, {"sms_code": "001234"})
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "verification_identity_changed"}
+    client.enable_channel99.assert_called_once_with(request_mfa=False)
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_mfa_send_challenge_without_methods_shows_app_recovery(hass, sdk):
+    manager = hass.config_entries.flow
+    client = sdk.return_value
+    flow_id = (await start_user(hass))["flow_id"]
+    client.enable_channel99.side_effect = EzvizAuthVerificationCode(available_channels=(3,))
+    await manager.async_configure(flow_id, USER)
+    client.send_mfa_code.side_effect = EzvizAuthVerificationCode(
+        reason="security_verification_required"
+    )
+    result = await manager.async_configure(flow_id, {"method": "email"})
+    assert result["step_id"] == "user_mfa_confirm"
+    assert result["errors"] == {"base": "verification_in_app"}
+    assert "change_delivery" not in result["data_schema"].schema

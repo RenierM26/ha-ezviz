@@ -50,6 +50,7 @@
     "error": {
       "verification_in_app": "EZVIZ requires verification in its app. Complete the account security or image check there, then restart this Home Assistant flow. If you already received a verification code, you can try it here.",
       "verification_incorrect": "The verification code was incorrect.",
+      "verification_identity_changed": "The saved EZVIZ installation identity changed. Enter your credentials again to restart verification.",
       "verification_expired": "The verification code expired. Request a new code or restart the flow.",
       "verification_rate_limited": "EZVIZ limited verification attempts. Wait before requesting or submitting another code.",
       "account_locked": "EZVIZ temporarily locked this account. Wait before retrying.",
