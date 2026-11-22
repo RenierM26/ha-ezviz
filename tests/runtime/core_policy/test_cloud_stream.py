@@ -4,7 +4,7 @@ import asyncio
 from io import BytesIO
 import socket
 from threading import Event
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from aiohttp import ClientPayloadError, ClientSession
 from aiohttp.test_utils import make_mocked_request
@@ -207,6 +207,9 @@ async def test_cloud_stream_lifecycle(
         assert stream is not None
         assert await target.async_create_stream() is stream
         assert not readers
+        output = stream.add_provider(HLS_PROVIDER)
+        start = Mock(wraps=output.idle_timer.start)
+        monkeypatch.setattr(output.idle_timer, "start", start)
         source = URL(stream.source)
         assert source.host == "127.0.0.1"
 
@@ -230,6 +233,7 @@ async def test_cloud_stream_lifecycle(
                 async with session.get(source) as duplicate:
                     assert duplicate.status == 409
                 assert len(readers) == 1
+                start.assert_called()
                 if lens_index == 2:
                     coordinator.data["CAM001"]["resourceInfos"] = [
                         {"resourceIdentifier": "Video", "localIndex": 1}
