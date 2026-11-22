@@ -755,7 +755,7 @@
             },
             "lens_streams": {
                 "title": "Lens streams",
-                "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only disables live video for the selected lens.",
+                "description": "Choose a stream for each lens. Lens 1 is the original camera. Stills only turns off live video and shows the last alarm image for that lens when available.",
                 "data": {
                     "lens_1": "Lens 1 (original camera)",
                     "lens_2": "Lens 2"

@@ -35,8 +35,10 @@ Custom paths begin with `/`; the host, port and credentials are shared. Saving
 does not probe or move the camera, and does not change the original camera
 entity's identity or shared credentials. Single-lens cameras use the same **Lens streams** menu and show only Lens 1.
 
-Without a path, a lens camera can show its channel-indexed alarm image
-or explicitly channel-tagged push image. A newer polled image can replace a
+Without a path, every lens camera (including the original) can show its latest
+verified alarm image. If none is available, there is no preview. Viewing a
+still does not open RTSP or take a fresh picture; use **Capture picture** to
+update the separate Snapshot entity. A newer polled image can replace a
 pushed still only if it contains the target lens. Unindexed multi-lens pictures are not
 assigned by guessing. Original positional/stacked last-motion entities remain
 for compatibility. Missing image channels never display another lens.

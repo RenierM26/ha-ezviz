@@ -238,6 +238,63 @@ def jpeg(color: str) -> bytes:
         return output.getvalue()
 
 
+@pytest.mark.parametrize("multi_lens", [False, True])
+async def test_stills_only_shows_alarm_images_on_original_camera(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch, multi_lens: bool
+) -> None:
+    """The original camera serves only verified stills without starting RTSP."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    if not multi_lens:
+        coordinator.data["CAM001"]["resourceInfos"].pop()
+    coordinator.inventory_data["CAM001"].pop("last_alarm_pic", None)
+    entry = coordinator.config_entry
+    hass.config_entries.async_update_entry(
+        entry, options={"cameras": {"CAM001": {"rtsp_stream_path": None}}}
+    )
+    ffmpeg_image = AsyncMock()
+    monkeypatch.setattr(camera.ffmpeg, "async_get_image", ffmpeg_image)
+    first, second = jpeg("red"), jpeg("blue")
+
+    async def get(url: str, **_kwargs: object) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        body = first if request.url.path == "/first" else second
+        return httpx.Response(200, content=body, request=request)
+
+    monkeypatch.setattr(
+        image, "get_async_client", lambda _hass: SimpleNamespace(get=get)
+    )
+
+    def push(channel: int, path: str | None = None) -> None:
+        ext = {"channel_type": 1, "channel_no": channel, "msgId": f"{channel}-{path}"}
+        if path is not None:
+            ext["image"] = f"https://images.example.invalid/{path}"
+        coordinator.merge_mqtt_update("CAM001", {"ext": ext})
+
+    added: list[camera.EzvizCamera] = []
+    try:
+        await camera.async_setup_entry(hass, entry, added.extend)
+        primary = added[0]
+        assert primary.unique_id == "CAM001"
+        assert not primary.supported_features
+        assert not await primary.stream_source()
+        assert await primary.async_create_stream() is None
+        assert await primary.async_camera_image() is None
+
+        if multi_lens:
+            push(2, "second")
+            assert await primary.async_camera_image() is None
+            assert await added[1].async_camera_image() == second
+
+        push(1, "first")
+        assert await primary.async_camera_image() == first
+        push(1)
+        assert await primary.async_camera_image() == first
+        ffmpeg_image.assert_not_awaited()
+        assert not sent  # Loading the preview never calls Capture picture.
+    finally:
+        await coordinator.async_close()
+
+
 async def test_concurrent_lens_images_share_download_and_keep_identity(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1020,7 +1077,6 @@ async def test_h9c_lens_substreams_default_and_can_be_overridden(
         else:
             assert not await legacy.stream_source()
             assert not legacy.supported_features & CameraEntityFeature.STREAM
-            assert await legacy.async_camera_image() is None
     finally:
         await coordinator.async_close()
 

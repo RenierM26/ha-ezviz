@@ -19,6 +19,7 @@ from urllib.parse import quote, urlsplit
 
 from pyezvizapi.devices.channels import (
     CameraChannel,
+    camera_channels,
     capture_channel_number,
     resolve_camera_channel,
 )
@@ -149,6 +150,8 @@ class EzvizCamera(EzvizEntity, Camera):
         self._ffmpeg = get_ffmpeg_manager(hass)
         self._attr_unique_id = serial
         self._channel_key = channel.key if channel is not None else None
+        self._channel_image_key: tuple[Any, ...] | None = None
+        self._channel_image: bytes | None = None
         if channel is None:
             self._attr_name = None
         self._stream_lifecycle_lock = asyncio.Lock()
@@ -310,12 +313,56 @@ class EzvizCamera(EzvizEntity, Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Return a single frame from the camera stream via ffmpeg."""
-        if not (source := self._build_rtsp()):
+        """Return an RTSP frame or a verified cloud still for this lens."""
+        if self._channel_key is not None and not self.available:
             return None
-        return await ffmpeg.async_get_image(
-            self.hass, source, width=width, height=height
+        if source := self._build_rtsp():
+            frame = await ffmpeg.async_get_image(
+                self.hass, source, width=width, height=height
+            )
+            # Keep the original camera's RTSP preview behavior when configured.
+            if frame or self._channel_key is None:
+                return frame
+
+        if self._removed or not self.available:
+            return None
+        channels = camera_channels(self.data)
+        key = self._channel_key or next(
+            (channel.key for channel in channels if channel.channel_no == 1), None
         )
+        if key is None:
+            return None
+        sources = self.coordinator.channel_image_sources(self._serial, key)
+        password = self.coordinator.credentials.key(self._serial)
+        for source in sources:
+            url, known_source, generation = source
+            image_key = (key, channels, source, password)
+            if image_key == self._channel_image_key:
+                return self._channel_image
+            result = await async_channel_image(
+                self.hass,
+                self.coordinator,
+                self._serial,
+                key,
+                url,
+                password,
+                known_source=known_source,
+                generation=generation,
+            )
+            if (
+                self._removed
+                or not self.available
+                or channels != camera_channels(self.data)
+                or password != self.coordinator.credentials.key(self._serial)
+                or sources != self.coordinator.channel_image_sources(self._serial, key)
+            ):
+                return None
+            if result is not None:
+                self.content_type = infer_image_type(result) or "image/jpeg"
+                self._channel_image_key = image_key
+                self._channel_image = result
+                return result
+        return None
 
     @override
     async def stream_source(self) -> str:
@@ -431,8 +478,6 @@ class EzvizChannelCamera(EzvizCamera):
         self._attr_unique_id = f"{serial}_channel_{channel.key}"
         self._attr_translation_key = "camera_channel"
         self._attr_translation_placeholders = {"channel": channel.local_index}
-        self._channel_image_key: tuple[Any, ...] | None = None
-        self._channel_image: bytes | None = None
 
     @property
     @override
@@ -474,46 +519,3 @@ class EzvizChannelCamera(EzvizCamera):
         if not self.available or not self._build_rtsp():
             return None
         return await super().async_create_stream()
-
-    @override
-    async def async_camera_image(
-        self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
-        """Use this lens's configured stream, or its channel-indexed cloud image."""
-        if not self.available:
-            return None
-        if self._build_rtsp():
-            if frame := await super().async_camera_image(width, height):
-                return frame
-        key = self._channel_key
-        if key is None:
-            return None
-        sources = self.coordinator.channel_image_sources(self._serial, key)
-        password = self.coordinator.credentials.key(self._serial)
-        for source in sources:
-            url, known_source, generation = source
-            image_key = (source, password)
-            if image_key == self._channel_image_key:
-                return self._channel_image
-            result = await async_channel_image(
-                self.hass,
-                self.coordinator,
-                self._serial,
-                key,
-                url,
-                password,
-                known_source=known_source,
-                generation=generation,
-            )
-            if (
-                not self.available
-                or password != self.coordinator.credentials.key(self._serial)
-                or sources != self.coordinator.channel_image_sources(self._serial, key)
-            ):
-                return None
-            if result is not None:
-                self.content_type = infer_image_type(result) or "image/jpeg"
-                self._channel_image_key = image_key
-                self._channel_image = result
-                return result
-        return None
