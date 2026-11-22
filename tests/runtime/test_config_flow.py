@@ -38,6 +38,7 @@ from homeassistant.components.config.config_entries import (
 )
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType, InvalidData, UnknownFlow
+from homeassistant.helpers.data_entry_flow import FlowManagerResourceView
 
 TOKEN = {
     "session_id": "new-session",
@@ -756,6 +757,8 @@ async def test_mfa_existing_code_and_delivery_errors(hass, sdk):
     client.send_mfa_code.side_effect = EzvizLoginError("synthetic", reason="verification_rate_limited")
     result = await manager.async_configure(flow_id, {"method": "email"})
     assert result["errors"] == {"base": "verification_rate_limited"}
+    status = await FlowManagerResourceView(manager).get(None, flow_id)
+    assert json.loads(status.body)["errors"] == {"base": "verification_rate_limited"}
     result = await manager.async_configure(flow_id, {"method": "email", "use_existing_code": True})
     assert result["step_id"] == "user_mfa_confirm"
     client.send_mfa_code.assert_called_once()
@@ -822,6 +825,9 @@ async def test_overlapping_mfa_delivery_shares_send_and_allows_resend(hass, sdk)
     first = asyncio.create_task(manager.async_configure(flow_id, {"method": "email"}))
     try:
         assert await asyncio.to_thread(entered.wait, 5)
+        status = await FlowManagerResourceView(manager).get(None, flow_id)
+        assert json.loads(status.body)["step_id"] == "mfa_delivery"
+        client.send_mfa_code.assert_called_once()
         second = asyncio.create_task(manager.async_configure(flow_id, {"method": "email"}))
         await asyncio.sleep(0)
     finally:
@@ -895,6 +901,10 @@ async def test_mfa_verification_completes_only_once(hass, sdk, monkeypatch, reau
     first = asyncio.create_task(manager.async_configure(flow_id, {"sms_code": "001234"}))
     try:
         await asyncio.wait_for(entered.wait(), 5)
+        status = await FlowManagerResourceView(manager).get(None, flow_id)
+        assert json.loads(status.body)["step_id"] == (
+            "reauth_mfa" if entry else "user_mfa_confirm"
+        )
         with pytest.raises(UnknownFlow):
             await asyncio.wait_for(manager.async_configure(flow_id, {"sms_code": "001234"}), 5)
     finally:

@@ -375,7 +375,9 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         self, step: str, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:
         if user_input is None:
-            return self._show_verification(step)
+            # A status read must not replace the form used to identify submissions.
+            assert self.cur_step is not None
+            return self.cur_step
         return await self._async_submit_mfa(
             lambda: self._async_submit_verification(step, user_input)
         )
@@ -509,7 +511,8 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
     ) -> ConfigFlowResult:
         """Choose a bound verification method or explicitly discover phone methods."""
         if user_input is None:
-            return self._show_delivery()
+            assert self.cur_step is not None
+            return self.cur_step
         return await self._async_submit_mfa(
             lambda: self._async_submit_delivery(user_input)
         )
@@ -588,7 +591,7 @@ class EzvizConfigFlow(config_entries.ConfigFlow):
         return self._show_verification(self._verification_step)
 
     async def _async_storage_error(self, step: str) -> ConfigFlowResult:
-        result = await getattr(self, f"async_step_{step}")()
+        result = (await getattr(self, f"async_step_{step}")()).copy()
         result["errors"] = {"base": "cannot_save_credentials"}
         return result
 
