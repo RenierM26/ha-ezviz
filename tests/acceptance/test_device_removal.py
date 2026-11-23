@@ -4,6 +4,7 @@ from itertools import count
 from unittest.mock import Mock
 
 from pyezvizapi import EzvizClient
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ezviz_cloud.const import ATTR_TYPE_CLOUD, DOMAIN
@@ -19,7 +20,49 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 
 
-async def test_delete_device_through_ha(hass, hass_ws_client, monkeypatch):
+@pytest.mark.parametrize(
+    "invalid_inventory",
+    [
+        pytest.param([OSError("EZVIZ unavailable")], id="unavailable"),
+        pytest.param(
+            [{"meta": {"code": 200}, "page": {"hasNext": False}}],
+            id="missing-inventory-section",
+        ),
+        pytest.param(
+            [
+                {
+                    "meta": {"code": 200},
+                    "page": {"hasNext": True},
+                    "deviceInfos": {"deviceSerial": "STALE"},
+                },
+                {
+                    "meta": {"code": 200},
+                    "page": {"hasNext": False},
+                    "deviceInfos": [],
+                },
+            ],
+            id="non-list-page-before-empty-final-page",
+        ),
+        pytest.param(
+            [
+                {
+                    "meta": {"code": 200},
+                    "page": {},
+                    "deviceInfos": [{"deviceSerial": "OTHER"}],
+                },
+                {
+                    "meta": {"code": 200},
+                    "page": {"hasNext": False},
+                    "deviceInfos": [{"deviceSerial": "STALE"}],
+                },
+            ],
+            id="missing-has-next-before-camera-page",
+        ),
+    ],
+)
+async def test_delete_device_through_ha(
+    hass, hass_ws_client, monkeypatch, invalid_inventory
+):
     """Protect present cameras and the account alarm, and remove stale entities."""
     api = EzvizClient(
         token={
@@ -78,12 +121,11 @@ async def test_delete_device_through_ha(hass, hass_ws_client, monkeypatch):
         assert not (await remove(alarm))["success"]
         request.assert_not_called()
 
-        # Neither a failed request nor a missing inventory section is an empty account.
-        request.side_effect = [OSError("EZVIZ unavailable"), {"meta": {"code": 200}}]
-        for _ in range(2):
-            assert not (await remove(stale))["success"]
-            assert registry.async_get(stale.id) is not None
-            assert entities.async_get(stale_entity.entity_id) is not None
+        request.side_effect = invalid_inventory
+        assert not (await remove(stale))["success"]
+        await hass.async_block_till_done()
+        assert registry.async_get(stale.id) is not None
+        assert entities.async_get(stale_entity.entity_id) is not None
 
         # Preserve an offline camera on the second page, even while absent from
         # the coordinator's rendered data.

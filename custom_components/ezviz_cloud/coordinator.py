@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING, Any, override
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.cloud.deadline import request_deadline
+from pyezvizapi.cloud.endpoints import API_ENDPOINT_PAGELIST
+from pyezvizapi.cloud.pagination import collect_pagelist
+from pyezvizapi.cloud.responses import meta_code
 from pyezvizapi.constants import DeviceSwitchType
 from pyezvizapi.devices.channels import (
     camera_channel_notification,
@@ -219,17 +222,46 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             return False
 
     def _devices_are_absent(self, serials: set[str], deadline: float) -> bool:
-        """Check the SDK's paginated device list before per-device rendering."""
+        """Require a complete, well-formed SDK inventory before removing devices."""
+        limit = 30
+
+        def fetch_page(offset: int) -> dict[str, Any]:
+            # SDK 2.7.0 has no public single-page method. Keep its authenticated
+            # transport, but validate the raw response before the SDK merges it.
+            payload = self.ezviz_client._request_json(  # noqa: SLF001
+                "GET",
+                API_ENDPOINT_PAGELIST,
+                params={
+                    "groupId": -1,
+                    "limit": limit,
+                    "offset": offset,
+                    "filter": "CLOUD",
+                },
+            )
+            page = payload.get("page")
+            devices = payload.get("deviceInfos")
+            if (
+                meta_code(payload) != 200
+                or not isinstance(page, dict)
+                or not isinstance(has_next := page.get("hasNext"), (bool, int))
+                or has_next not in (False, True)
+                or not isinstance(devices, list)
+                or not all(
+                    isinstance(device, dict)
+                    and isinstance(serial := device.get("deviceSerial"), str)
+                    and bool(serial)
+                    and serial == serial.strip()
+                    for device in devices
+                )
+            ):
+                raise PyEzvizError("Invalid EZVIZ device inventory page")
+            return payload
+
         with request_deadline(deadline):
-            devices = self.ezviz_client.get_device()
-        # A missing or malformed device list must not be treated as empty.
-        return isinstance(devices, list) and all(
-            isinstance(device, dict)
-            and isinstance(serial := device.get("deviceSerial"), str)
-            and bool(serial)
-            and serial not in serials
-            for device in devices
-        )
+            devices = collect_pagelist(
+                fetch_page, json_key="deviceInfos", limit=limit, offset=0
+            )
+        return all(device["deviceSerial"] not in serials for device in devices)
 
     def register_image(
         self, serial: str, url: str, channel_key: str | None = None
