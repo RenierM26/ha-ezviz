@@ -8,10 +8,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 import logging
 from secrets import token_urlsafe
+from time import monotonic
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.cloud.deadline import request_deadline
 from pyezvizapi.constants import DeviceSwitchType
 from pyezvizapi.devices.channels import (
     camera_channel_notification,
@@ -202,6 +204,31 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         """Require the new SDK's single deadline-bound mixed-family poll."""
         return self.ezviz_client.poll_devices(
             DevicePollOptions(timeout=self._api_timeout, include_intercom_events=True)
+        )
+
+    async def async_devices_are_absent(self, serials: set[str]) -> bool:
+        """Check account membership without using the cached device state."""
+        deadline = monotonic() + self._api_timeout
+        try:
+            async with asyncio.timeout(self._api_timeout), self._update_lock:
+                return await self.async_execute(
+                    self._devices_are_absent, serials, deadline
+                )
+        except HomeAssistantError, InvalidURL, HTTPError, PyEzvizError, OSError:
+            # An unavailable account is not evidence that a device was removed.
+            return False
+
+    def _devices_are_absent(self, serials: set[str], deadline: float) -> bool:
+        """Check the SDK's paginated device list before per-device rendering."""
+        with request_deadline(deadline):
+            devices = self.ezviz_client.get_device()
+        # A missing or malformed device list must not be treated as empty.
+        return isinstance(devices, list) and all(
+            isinstance(device, dict)
+            and isinstance(serial := device.get("deviceSerial"), str)
+            and bool(serial)
+            and serial not in serials
+            for device in devices
         )
 
     def register_image(
