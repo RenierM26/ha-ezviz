@@ -55,7 +55,7 @@ from .views import ImageProxyView
 from .workers import create_critical_task
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.device_registry import DeviceEntry
+    from homeassistant.helpers.device_registry import AnyDeviceEntry
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -254,7 +254,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bo
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant, entry: EzvizConfigEntry, device_entry: DeviceEntry
+    hass: HomeAssistant, entry: EzvizConfigEntry, device_entry: AnyDeviceEntry
 ) -> bool:
     """Let Home Assistant delete a device no longer on this EZVIZ account."""
     if (
