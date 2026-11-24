@@ -11,11 +11,14 @@ from pathlib import Path
 import sys
 from typing import Any
 
-EXPECTED_REQUIREMENT = "pyezvizapi>=2.7.0"
+EXPECTED_REQUIREMENT = "pyezvizapi>=2.8.0"
 EXPECTED_ERROR = (
-    "Requirement pyezvizapi>=2.7.0 is incompatible with pyezvizapi==1.0.5.0, "
+    "Requirement pyezvizapi>=2.8.0 is incompatible with pyezvizapi==1.0.5.0, "
     "which Home Assistant depends on."
 )
+
+
+EXPECTED_CORE_DEV_ERROR = EXPECTED_ERROR.replace("==1.0.5.0", "==2.6.0")
 
 
 def validate_with_exception(
@@ -36,7 +39,7 @@ def validate_with_exception(
     allowed = [
         error
         for error in added
-        if error.plugin == "requirements" and error.error == EXPECTED_ERROR
+        if error.plugin == "requirements" and error.error in (EXPECTED_ERROR, EXPECTED_CORE_DEV_ERROR)
     ]
     if len(allowed) != 1:
         return valid
@@ -45,7 +48,7 @@ def validate_with_exception(
     integration.errors[start:] = [error for error in added if error is not allowed[0]]
     print(
         "\n::warning title=Known custom-only EZVIZ dependency exception::"
-        f"{EXPECTED_ERROR} Custom-only SDK acceptance is qualified separately; simultaneous use "
+        f"{allowed[0].error} Custom-only SDK acceptance is qualified separately; simultaneous use "
         "with built-in EZVIZ is not qualified. All other hassfest errors remain fatal."
     )
     return len(integration.errors) == start

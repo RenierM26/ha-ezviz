@@ -17,7 +17,7 @@ SPEC.loader.exec_module(CHECK)
 def integration(**overrides):
     return SimpleNamespace(**({
         "core": False, "domain": "ezviz_cloud",
-        "requirements": ["pyezvizapi>=2.7.0"], "errors": [],
+        "requirements": ["pyezvizapi>=2.8.0"], "errors": [],
     } | overrides))
 
 
@@ -32,11 +32,12 @@ def validator(*errors):
     return validate
 
 
-def test_expected_conflict_warns_and_keeps_prior_plugin_errors(capsys):
+@pytest.mark.parametrize("message", [CHECK.EXPECTED_ERROR, CHECK.EXPECTED_CORE_DEV_ERROR])
+def test_expected_conflict_warns_and_keeps_prior_plugin_errors(capsys, message):
     prior = error("Invalid manifest", "manifest")
     component = integration(errors=[prior])
     print("Validating requirements...", end="")
-    assert CHECK.validate_with_exception(validator(error()), component, None)
+    assert CHECK.validate_with_exception(validator(error(message)), component, None)
     assert component.errors == [prior]
     assert "\n::warning" in capsys.readouterr().out
 
@@ -57,8 +58,8 @@ def test_expected_conflict_does_not_hide_an_additional_failure():
     ({"requirements": ["pyezvizapi>=2.3.0"]}, error()),
     ({"requirements": ["pyezvizapi>=2.5.0"]}, error()),
     ({"requirements": ["pyezvizapi>=2.5.1"]}, error()),
-    ({}, error(CHECK.EXPECTED_ERROR.replace(">=2.7.0", ">=2.1.0"))),
-    ({"requirements": ["pyezvizapi>=2.7.0", "other>=1"]}, error()),
+    ({}, error(CHECK.EXPECTED_ERROR.replace(">=2.8.0", ">=2.1.0"))),
+    ({"requirements": ["pyezvizapi>=2.8.0", "other>=1"]}, error()),
     ({}, error(CHECK.EXPECTED_ERROR.replace("==1.0.5.0", "==1.0.5.1"))),
     ({}, error(plugin="manifest")),
 ])

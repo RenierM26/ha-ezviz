@@ -3,17 +3,20 @@
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 import logging
 from typing import Any, override
 
 from pyezvizapi import EzvizClient
 from pyezvizapi.constants import DeviceCatagories, DeviceSwitchType, SupportExt
+from pyezvizapi.devices.channels import reported_video_channel_numbers
 from pyezvizapi.devices.intercom import (
     ChimeField,
     chime_value,
     label_light_value,
     set_label_light,
 )
+from pyezvizapi.devices.observation import camera_switch_states
 from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
@@ -33,11 +36,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import (
-    EzvizDataUpdateCoordinator,
-    LocalRtspCoordinator,
-    camera_switch_states,
-)
+from .coordinator import EzvizDataUpdateCoordinator, LocalRtspCoordinator
 from .credentials import camera_options
 from .entity import (
     EzvizEntity,
@@ -55,7 +54,6 @@ from .setting_writes import SettingCommand
 from .utility import (
     PortSecurityToggle,
     intelligent_app_available,
-    intelligent_app_method,
     intelligent_app_value_fn,
     passes_description_gates,
     support_ext_has,
@@ -75,8 +73,10 @@ PORT_SECURITY_LINK = PortSecurityToggle.single(50161)
 class EzvizSwitchEntityDescription(SwitchEntityDescription):
     """EZVIZ switch with capability & device-category gating."""
 
-    value_fn: Callable[[dict[str, Any]], Any]
-    method: Callable[[EzvizClient, str, int], Any]
+    value_fn: Callable[[dict[str, Any]], Any] | None = None
+    method: Callable[[EzvizClient, str, int], Any] | None = None
+    intelligent_app: str | None = None
+    snapshot_osd: bool = False
     supported_ext_key: str | None = None
     supported_ext_value: list[str] | None = None
     is_supported_fn: Callable[[dict[str, Any]], bool] | None = None
@@ -89,14 +89,114 @@ def _is_desc_supported(
     desc: EzvizSwitchEntityDescription,
     switch_states: Mapping[int, bool | None],
 ) -> bool:
-    """Require both capability and a device-wide observation for light switches."""
+    """Require capability and an observation on the configured switch route."""
     return passes_description_gates(
         camera_data,
         supported_ext_keys=desc.supported_ext_key,
         supported_ext_values=desc.supported_ext_value,
         required_device_categories=desc.required_device_categories,
         predicate=desc.is_supported_fn,
-    ) and (desc.channel_switch is None or desc.channel_switch.value in switch_states)
+    ) and (
+        desc.channel_switch is None
+        or desc.channel_switch.value
+        in _channel_switch_states(camera_data, desc.channel_switch, switch_states)
+    )
+
+
+_SELECTED_CAMERA_SWITCHES = frozenset(
+    {
+        DeviceSwitchType.LIGHT,
+        DeviceSwitchType.INFRARED_LIGHT,
+        DeviceSwitchType.SOUND,
+        DeviceSwitchType.SLEEP,
+        DeviceSwitchType.AUTO_SLEEP,
+        DeviceSwitchType.TAMPER_ALARM,
+        DeviceSwitchType.CHANNELOFFLINE,
+        DeviceSwitchType.WIFI_LIGHT,
+        DeviceSwitchType.OUTLET_RECOVER,
+        DeviceSwitchType.OUTDOOR_RINGING_SOUND,
+        DeviceSwitchType.INTELLIGENT_PQ_SWITCH,
+        DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION,
+    }
+)
+
+
+_DEVICE_STATE_CAMERA_WRITE_SWITCHES = frozenset(
+    {DeviceSwitchType.ALL_DAY_VIDEO, DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION}
+)
+
+
+def _switch_channel_no(
+    camera_data: dict[str, Any], switch_type: DeviceSwitchType
+) -> int | None:
+    """Choose an app route, preserving a reported legacy device-wide route."""
+    if switch_type in (DeviceSwitchType.LIGHT_FLICKER, DeviceSwitchType.ALL_DAY_VIDEO):
+        return 1
+    if (
+        switch_type in _SELECTED_CAMERA_SWITCHES
+        or switch_type is DeviceSwitchType.PRIVACY
+    ):
+        channels = reported_video_channel_numbers(camera_data)
+        if 1 in channels:
+            channel = 1
+        elif len(channels) > 1:
+            return None
+        else:
+            default = 0 if switch_type is DeviceSwitchType.PRIVACY else 1
+            channel = channels[0] if channels else default
+        if (
+            switch_type is DeviceSwitchType.PRIVACY
+            or switch_type in _DEVICE_STATE_CAMERA_WRITE_SWITCHES
+        ):
+            return channel
+    elif switch_type is DeviceSwitchType.ALARM_LIGHT_RELEVANCE:
+        channel = 1
+    else:
+        return 0
+
+    if (
+        channel != 0
+        and "SWITCH" in camera_data
+        and switch_type.value
+        not in camera_switch_states(camera_data, channel_no=channel)
+        and switch_type.value in camera_switch_states(camera_data)
+    ):
+        return 0
+    return channel
+
+
+def _channel_switch_states(
+    camera_data: dict[str, Any],
+    switch_type: DeviceSwitchType,
+    device_states: Mapping[int, bool | None],
+) -> Mapping[int, bool | None]:
+    """Read only the target channel or the SDK's legacy unscoped observation."""
+    channel = _switch_channel_no(camera_data, switch_type)
+    if channel is None:
+        return {}
+    if channel == 0 or (
+        switch_type in _DEVICE_STATE_CAMERA_WRITE_SWITCHES
+        and switch_type.value in device_states
+    ):
+        return device_states
+    return camera_switch_states(camera_data, channel_no=channel)
+
+
+def _intelligent_app_resource_id(camera_data: dict[str, Any]) -> str | None:
+    """Find the resource in the snapshot rather than the SDK's legacy cache."""
+    resources = camera_data.get("resourceInfos")
+    if isinstance(resources, (list, tuple)):
+        for row in resources:
+            if (
+                isinstance(row, Mapping)
+                and isinstance(resource_id := row.get("resourceId"), str)
+                and resource_id.strip()
+            ):
+                return resource_id
+    for key in ("resouceid", "resource_id"):
+        if isinstance(resource_id := camera_data.get(key), str) and resource_id.strip():
+            return resource_id
+    return None
 
 
 def _has_switch_entry(
@@ -218,8 +318,6 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         key="LIGHT",
         translation_key="status_light",
         device_class=SwitchDeviceClass.SWITCH,
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT),
-        method=_switch_entry_method(DeviceSwitchType.LIGHT),
         is_supported_fn=_supports_status_light,
         channel_switch=DeviceSwitchType.LIGHT,
     ),
@@ -228,9 +326,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="privacy",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportPtzPrivacy.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.PRIVACY),
-        method=_switch_entry_method(DeviceSwitchType.PRIVACY),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.PRIVACY),
+        channel_switch=DeviceSwitchType.PRIVACY,
     ),
     EzvizSwitchEntityDescription(
         key="INFRARED_LIGHT",
@@ -238,8 +334,6 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportCloseInfraredLight.value),
         supported_ext_value=["1"],
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.INFRARED_LIGHT),
-        method=_switch_entry_method(DeviceSwitchType.INFRARED_LIGHT),
         channel_switch=DeviceSwitchType.INFRARED_LIGHT,
     ),
     EzvizSwitchEntityDescription(
@@ -247,18 +341,14 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="sleep",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportSleep.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.SLEEP),
-        method=_switch_entry_method(DeviceSwitchType.SLEEP),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.SLEEP),
+        channel_switch=DeviceSwitchType.SLEEP,
     ),
     EzvizSwitchEntityDescription(
         key="SOUND",
         translation_key="audio",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAudioOnoff.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.SOUND),
-        method=_switch_entry_method(DeviceSwitchType.SOUND),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.SOUND),
+        channel_switch=DeviceSwitchType.SOUND,
     ),
     EzvizSwitchEntityDescription(
         key="MOBILE_TRACKING",
@@ -275,10 +365,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportOsd.value),
         value_fn=has_osd_overlay,
-        method=lambda client, serial, enable: client.set_camera_osd(
-            serial,
-            enabled=bool(enable),
-        ),
+        snapshot_osd=True,
     ),
     EzvizSwitchEntityDescription(
         key="WDR",
@@ -303,18 +390,14 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="all_day_video_recording",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportFullDayRecord.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.ALL_DAY_VIDEO),
-        method=_switch_entry_method(DeviceSwitchType.ALL_DAY_VIDEO),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.ALL_DAY_VIDEO),
+        channel_switch=DeviceSwitchType.ALL_DAY_VIDEO,
     ),
     EzvizSwitchEntityDescription(
         key="AUTO_SLEEP",
         translation_key="auto_sleep",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportAutoSleep.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.AUTO_SLEEP),
-        method=_switch_entry_method(DeviceSwitchType.AUTO_SLEEP),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.AUTO_SLEEP),
+        channel_switch=DeviceSwitchType.AUTO_SLEEP,
     ),
     EzvizSwitchEntityDescription(
         key="LIGHT_FLICKER",
@@ -322,8 +405,6 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportActiveDefense.value),
         supported_ext_value=["2"],
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.LIGHT_FLICKER),
-        method=_switch_entry_method(DeviceSwitchType.LIGHT_FLICKER),
         is_supported_fn=_supports_active_defense_light,
         channel_switch=DeviceSwitchType.LIGHT_FLICKER,
     ),
@@ -333,8 +414,6 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportLightRelate.value),
         supported_ext_value=["1"],
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
-        method=_switch_entry_method(DeviceSwitchType.ALARM_LIGHT_RELEVANCE),
         channel_switch=DeviceSwitchType.ALARM_LIGHT_RELEVANCE,
     ),
     EzvizSwitchEntityDescription(
@@ -342,9 +421,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="tamper_alarm",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportTamperAlarm.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.TAMPER_ALARM),
-        method=_switch_entry_method(DeviceSwitchType.TAMPER_ALARM),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.TAMPER_ALARM),
+        channel_switch=DeviceSwitchType.TAMPER_ALARM,
     ),
     EzvizSwitchEntityDescription(
         key="TRACKING",
@@ -369,9 +446,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="channel_offline_notify",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportChannelOffline.value),  # 70
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.CHANNELOFFLINE),
-        method=_switch_entry_method(DeviceSwitchType.CHANNELOFFLINE),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.CHANNELOFFLINE),
+        channel_switch=DeviceSwitchType.CHANNELOFFLINE,
     ),
     EzvizSwitchEntityDescription(
         key="WIFI_LIGHT",
@@ -380,8 +455,6 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         required_device_categories=(
             DeviceCatagories.W2H_BASE_STATION_DEVICE_CATEGORY.value,
         ),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.WIFI_LIGHT),
-        method=_switch_entry_method(DeviceSwitchType.WIFI_LIGHT),
         is_supported_fn=_supports_wifi_status_light,
         channel_switch=DeviceSwitchType.WIFI_LIGHT,
     ),
@@ -390,27 +463,21 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="outlet_power_recover",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportPoweroffRecovery.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.OUTLET_RECOVER),
-        method=_switch_entry_method(DeviceSwitchType.OUTLET_RECOVER),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.OUTLET_RECOVER),
+        channel_switch=DeviceSwitchType.OUTLET_RECOVER,
     ),
     EzvizSwitchEntityDescription(
         key="OUTDOOR_RINGING_SOUND",
         translation_key="outdoor_ringing_sound",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportBellSet.value),
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.OUTDOOR_RINGING_SOUND),
-        method=_switch_entry_method(DeviceSwitchType.OUTDOOR_RINGING_SOUND),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.OUTDOOR_RINGING_SOUND),
+        channel_switch=DeviceSwitchType.OUTDOOR_RINGING_SOUND,
     ),
     EzvizSwitchEntityDescription(
         key="INTELLIGENT_PQ_SWITCH",
         translation_key="intelligent_picture_quality",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportIntelligentPQSwitch.value),  # 366
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
-        method=_switch_entry_method(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.INTELLIGENT_PQ_SWITCH),
+        channel_switch=DeviceSwitchType.INTELLIGENT_PQ_SWITCH,
     ),
     EzvizSwitchEntityDescription(
         key="AUTO_ZOOM_TRACKING",
@@ -436,9 +503,7 @@ _STATIC_SWITCHES: tuple[EzvizSwitchEntityDescription, ...] = (
         translation_key="people_detection",
         device_class=SwitchDeviceClass.SWITCH,
         supported_ext_key=str(SupportExt.SupportSmartBodyDetect.value),  # 244
-        value_fn=_switch_entry_value_fn(DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION),
-        method=_switch_entry_method(DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION),
-        is_supported_fn=_has_switch_entry(DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION),
+        channel_switch=DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION,
     ),
     EzvizSwitchEntityDescription(
         key="DEFENCE_PLAN",
@@ -541,7 +606,7 @@ INTELLIGENT_APP_DESCRIPTIONS: tuple[EzvizSwitchEntityDescription, ...] = tuple(
         translation_key=translation_key,
         device_class=SwitchDeviceClass.SWITCH,
         value_fn=intelligent_app_value_fn(app_name),
-        method=intelligent_app_method(app_name),
+        intelligent_app=app_name,
         supported_ext_key=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[0],
         supported_ext_value=INTELLIGENT_APP_SUPPORT_EXT.get(app_name, (None, None))[1],
         is_supported_fn=_combine_predicates(
@@ -653,7 +718,7 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     @property
     @override
     def available(self) -> bool:
-        """Keep light switches unavailable when their fixed route cannot be used."""
+        """Keep routed switches unavailable without matching observations."""
         return super().available and (
             self.entity_description.channel_switch is None
             or _is_desc_supported(
@@ -664,21 +729,54 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        """Read the device-wide observation used by the legacy command."""
+        """Read the observation for the command's channel, when applicable."""
         if (switch_type := self.entity_description.channel_switch) is not None:
-            return self._switch_states().get(switch_type.value)
-        return bool(self.entity_description.value_fn(self.data))
+            states = _channel_switch_states(
+                self.data, switch_type, self._switch_states()
+            )
+            return states.get(switch_type.value)
+        if (value_fn := self.entity_description.value_fn) is not None:
+            return bool(value_fn(self.data))
+        return None
 
     def _prepare_channel_switch(
         self, switch_type: DeviceSwitchType, on: bool
     ) -> SettingCommand:
-        if not self.available:
-            raise HomeAssistantError("EZVIZ light switch route is unavailable")
-        # These existing entities use the legacy device-wide write route.
-        # Scoped telemetry alone does not establish another write target.
+        channel = _switch_channel_no(self.data, switch_type)
+        if channel is None or not self.available:
+            raise HomeAssistantError("EZVIZ switch route is unavailable")
+        client = self.coordinator.ezviz_client
+        if switch_type is DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION:
+            return SettingCommand(
+                partial(client.set_people_detection, channel_no=channel),
+                (self._serial, on),
+            )
+        if switch_type is DeviceSwitchType.ALL_DAY_VIDEO:
+            return SettingCommand(
+                partial(client.set_camera_switch, channel_no=channel),
+                (self._serial, switch_type, on),
+            )
         return SettingCommand(
-            self.coordinator.ezviz_client.switch_status,
-            (self._serial, switch_type.value, int(on), 0),
+            client.switch_status, (self._serial, switch_type.value, int(on), channel)
+        )
+
+    def _prepare_osd(self, on: bool) -> SettingCommand:
+        return SettingCommand(
+            partial(
+                self.coordinator.ezviz_client.set_camera_osd,
+                enabled=on,
+                camera_data=dict(self.data),
+            ),
+            (self._serial,),
+        )
+
+    def _prepare_intelligent_app(self, app_name: str, on: bool) -> SettingCommand:
+        resource_id = _intelligent_app_resource_id(self.data)
+        if resource_id is None:
+            raise HomeAssistantError("EZVIZ intelligent app resource is unavailable")
+        return SettingCommand(
+            self.coordinator.ezviz_client.set_intelligent_app_state,
+            (self._serial, app_name, on, resource_id),
         )
 
     async def _async_set_switch(self, on: bool) -> None:
@@ -687,9 +785,17 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
                 await self.async_write_setting(
                     prepare=lambda: self._prepare_channel_switch(switch_type, on)
                 )
-            else:
+            elif (app_name := self.entity_description.intelligent_app) is not None:
                 await self.async_write_setting(
-                    self.entity_description.method,
+                    prepare=lambda: self._prepare_intelligent_app(app_name, on)
+                )
+            elif self.entity_description.snapshot_osd:
+                await self.async_write_setting(prepare=lambda: self._prepare_osd(on))
+            else:
+                method = self.entity_description.method
+                assert method is not None
+                await self.async_write_setting(
+                    method,
                     self.coordinator.ezviz_client,
                     self._serial,
                     int(on),

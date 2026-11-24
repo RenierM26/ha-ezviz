@@ -92,9 +92,9 @@ image URL, raw vendor payload, serial-keyed dictionaries or local credentials.
 ## Published SDK requirement and release history
 
 The [manifest](../custom_components/ezviz_cloud/manifest.json) declares the
-minimum supported SDK (`pyezvizapi>=2.7.0`); CI and local check profiles install
+minimum supported SDK (`pyezvizapi>=2.8.0`); CI and local check profiles install
 the exact published version in [`requirements/sdk.txt`](../requirements/sdk.txt)
-(`pyezvizapi==2.7.0`). See [Development and checks](development.md) for the current
+(`pyezvizapi==2.8.0`). See [Development and checks](development.md) for the current
 environment setup. No editable SDK checkout, direct-Git manifest requirement or
 unpublished dependency is required.
 
@@ -175,7 +175,7 @@ and simultaneous operation is not qualified.
 
 The hassfest workflow runs the current stock container and all its validators
 through `tools/check_hassfest.py`. It converts only this exact requirements error
-for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.7.0`, into a
+for custom `ezviz_cloud`, with the sole requirement `pyezvizapi>=2.8.0`, into a
 visible GitHub warning. All other errors remain fatal, including malformed
 manifests/requirements, other packages and changed core/SDK version conflicts.
 There is no blanket `continue-on-error`, skipped requirements plugin, altered

@@ -338,12 +338,23 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         await release_prefs.wait()
         return prefs
 
-    def run_worker(stream: Stream) -> None:
-        stream._thread_quit.wait()
+    def transport(
+        _source: str,
+        _options: object,
+        _settings: object,
+        _state: object,
+        _converter: object,
+        interrupt: Event,
+    ) -> None:
+        interrupt.wait()
 
     camera_module = import_module(camera.Camera.__module__)
     monkeypatch.setattr(camera_module, "get_dynamic_camera_stream_settings", get_prefs)
-    monkeypatch.setattr(Stream, "_run_worker", run_worker)
+    monkeypatch.setattr(
+        import_module("homeassistant.components.stream.worker"),
+        "stream_worker",
+        transport,
+    )
     monkeypatch.setattr(stream_core, "async_call_later", schedule_idle)
     try:
         async with target._stream_lifecycle_lock:
@@ -420,6 +431,10 @@ async def test_lost_route_stops_core_worker_during_source_restart(
         STREAM_SETTINGS_NON_LL_HLS,
         DynamicStreamSettings(preload_stream=True),
     )
+    if not hasattr(stream, "_thread_quit"):
+        await platform.async_reset()
+        await coordinator.async_close()
+        pytest.skip("Core no longer clears a shared quit signal during source restart")
     target.stream = stream
     output = stream.add_provider(HLS_PROVIDER)
     output.idle_timer.start()
@@ -2018,37 +2033,40 @@ async def test_camera_light_switch_discovery(
 
 
 @pytest.mark.parametrize(
-    ("key", "switch_id", "category", "model"),
+    ("key", "switch_id", "channel", "category", "model"),
     [
-        ("LIGHT", 3, "IPC", "H9c"),
-        ("INFRARED_LIGHT", 10, "IPC", "H9c"),
-        ("LIGHT_FLICKER", 301, "IPC", "H9c"),
-        ("ALARM_LIGHT_RELEVANCE", 305, "IPC", "H9c"),
-        ("WIFI_LIGHT", 13, "IGateWay", "W3"),
+        ("LIGHT", 3, 1, "IPC", "H9c"),
+        ("INFRARED_LIGHT", 10, 1, "IPC", "H9c"),
+        ("LIGHT_FLICKER", 301, 1, "IPC", "H9c"),
+        ("PRIVACY", 7, 1, "IPC", "H9c"),
+        ("ALARM_LIGHT_RELEVANCE", 305, 1, "IPC", "H9c"),
+        ("WIFI_LIGHT", 13, 1, "IGateWay", "W3"),
     ],
 )
-async def test_light_switch_keeps_device_wide_route(
+async def test_camera_switch_observes_its_write_channel(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
     key: str,
     switch_id: int,
+    channel: int,
     category: str,
     model: str,
 ) -> None:
-    """Keep a fixed channel-zero write and track its availability across polls."""
+    """Keep read and write channels aligned without using sibling observations."""
     coordinator, _, sent = dual(hass, monkeypatch)
     _record_switch_requests(monkeypatch, coordinator, sent)
     data = coordinator.data["CAM001"]
-    legacy = {"type": switch_id, "channelNo": 0, "enable": False}
-    primary = {"type": switch_id, "channelNo": 1, "enable": True}
-    sibling = {"type": switch_id, "channelNo": 2, "enable": False}
+    target = {"type": switch_id, "channelNo": channel, "enable": False}
+    other = {"type": switch_id, "channelNo": 1 - channel, "enable": True}
+    sibling = {"type": switch_id, "channelNo": 2, "enable": True}
     data.update(
         device_category=category,
         device_sub_category=model,
-        supportExt={"48": "1", "96": "2", "297": "1"},
-        switches={switch_id: False},
-        SWITCH=[legacy, primary, sibling],
+        supportExt={"40": "1", "48": "1", "96": "2", "297": "1"},
+        switches={switch_id: True},
+        SWITCH=[target, other, sibling],
     )
+    data["resourceInfos"].reverse()
     current = coordinator.inventory_snapshot
     assert current is not None
     monkeypatch.setattr(coordinator, "_poll_sync", lambda: current)
@@ -2073,19 +2091,17 @@ async def test_light_switch_keeps_device_wide_route(
         platform = await add(hass, entity, "switch")
         assert hass.states.get(entity.entity_id).state == "off"
         await entity.async_turn_on()
-        assert sent[-1].url.endswith(f"/0/1/{switch_id}/switchStatus")
+        assert sent[-1].url.endswith(f"/{channel}/1/{switch_id}/switchStatus")
 
-        data["SWITCH"] = [primary, sibling]
+        data["SWITCH"] = [sibling]
         await poll()
         assert entity.is_on is None
         assert hass.states.get(entity.entity_id).state == "unavailable"
-        with pytest.raises(
-            HomeAssistantError, match="light switch route is unavailable"
-        ):
+        with pytest.raises(HomeAssistantError, match="switch route is unavailable"):
             await entity.async_turn_off()
         assert len(sent) == 1
 
-        data["SWITCH"] = [{**legacy, "enable": True}]
+        data["SWITCH"] = [{**target, "enable": True}]
         await poll()
         assert hass.states.get(entity.entity_id).state == "on"
 
@@ -2093,9 +2109,7 @@ async def test_light_switch_keeps_device_wide_route(
             data["supportExt"] = {**data["supportExt"], "48": "0"}
             await poll()
             assert hass.states.get(entity.entity_id).state == "unavailable"
-            with pytest.raises(
-                HomeAssistantError, match="light switch route is unavailable"
-            ):
+            with pytest.raises(HomeAssistantError, match="switch route is unavailable"):
                 await entity.async_turn_off()
             assert len(sent) == 1
             data["supportExt"] = {**data["supportExt"], "48": "1"}
@@ -2104,8 +2118,204 @@ async def test_light_switch_keeps_device_wide_route(
 
         assert platform.entities[entity.entity_id] is entity
         await entity.async_turn_off()
-        assert sent[-1].url.endswith(f"/0/0/{switch_id}/switchStatus")
+        assert sent[-1].url.endswith(f"/{channel}/0/{switch_id}/switchStatus")
     finally:
         if platform is not None:
             await platform.async_reset()
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("resources", "channel"),
+    [
+        ([], 0),
+        ([{"resourceType": 50, "localIndex": "3"}], 3),
+    ],
+)
+async def test_privacy_switch_uses_reported_or_legacy_channel(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    resources: list[dict[str, int | str]],
+    channel: int,
+) -> None:
+    """A single reported channel or the legacy default survives a v3 rejection."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    data = coordinator.data["CAM001"]
+    data.update(
+        resourceInfos=resources,
+        supportExt={"40": "1"},
+        SWITCH=[{"type": 7, "enable": True}],
+    )
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        sent.append(request)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (
+            b'{"meta":{"code":200}}'
+            if request.method == "POST"
+            else b'{"meta":{"code":404}}'
+        )
+        return response
+
+    monkeypatch.setattr(coordinator.ezviz_client._session, "send", send)
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == "CAM001_PRIVACY")
+        assert isinstance(entity, switch.EzvizSwitch)
+        assert entity.is_on is True
+        await entity.async_turn_off()
+
+        modern, legacy = sent
+        assert modern.method == "PUT"
+        assert modern.url.endswith(f"/CAM001/{channel}/0/7/switchStatus")
+        assert legacy.method == "POST"
+        assert legacy.url.endswith("/api/device/switchStatus")
+        assert legacy.body == f"serial=CAM001&enable=0&type=7&channel={channel}"
+        assert entity.is_on is True  # ACK is not an observation.
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("resource_data", "resource_id"),
+    [
+        ({"resourceInfos": [{"resourceId": "snapshot-id"}]}, "snapshot-id"),
+        ({"resourceInfos": [], "resouceid": "projected-id"}, "projected-id"),
+        ({"resourceInfos": [], "resource_id": "legacy-id"}, "legacy-id"),
+        ({"resourceInfos": [{"resourceId": " "}]}, None),
+    ],
+)
+async def test_ai_switch_uses_snapshot_without_legacy_camera_cache(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    resource_data: dict[str, object],
+    resource_id: str | None,
+) -> None:
+    """Send both app commands through the published SDK with no cache hydration."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(
+        resource_data,
+        supportExt={"508": "2"},
+        FEATURE_INFO={
+            "1": {
+                "Video": {
+                    "IntelligentAPP": {
+                        "DownloadedAPP": {
+                            "APP": [{"APPID": "app_human_detect", "enabled": False}]
+                        }
+                    }
+                }
+            }
+        },
+    )
+    added: list[Entity] = []
+    try:
+        assert not coordinator.ezviz_client._cameras
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(
+            item
+            for item in added
+            if item.unique_id == "CAM001_intelligent_app_app_human_detect"
+        )
+        assert isinstance(entity, switch.EzvizSwitch)
+        if resource_id is None:
+            with pytest.raises(HomeAssistantError, match="app resource is unavailable"):
+                await entity.async_turn_on()
+            assert not sent
+        else:
+            await entity.async_turn_on()
+            await entity.async_turn_off()
+            assert [request.method for request in sent] == ["PUT", "DELETE"]
+            assert all(
+                request.url.endswith(
+                    f"/v3/intelligent-app/load/CAM001/{resource_id}/app_human_detect"
+                )
+                for request in sent
+            )
+            assert entity.is_on is False
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("key", "switch_id", "path", "method", "payload"),
+    [
+        (
+            "ALL_DAY_VIDEO",
+            29,
+            "/v3/devices/CAM001/switch?channelNo=1&enable=1&switchType=29",
+            "PUT",
+            None,
+        ),
+        (
+            "HUMAN_INTELLIGENT_DETECTION",
+            200,
+            "/v3/faceservice/cateye/switch",
+            "POST",
+            "deviceSerial=CAM001&channelNo=1&enable=1&type=200",
+        ),
+    ],
+)
+@pytest.mark.parametrize("channels", [(0,), (1,), (0, 1)])
+async def test_camera_switch_special_route(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    switch_id: int,
+    path: str,
+    method: str,
+    payload: str | None,
+    channels: tuple[int, ...],
+) -> None:
+    """Use the app write route even if only device-wide state is reported."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(
+        supportExt={"88": "1", "244": "1"},
+        SWITCH=[
+            {"type": switch_id, "channelNo": channel, "enable": index > 0}
+            for index, channel in enumerate(channels)
+        ],
+    )
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == f"CAM001_{key}")
+        assert isinstance(entity, switch.EzvizSwitch)
+        assert entity.is_on is False
+        await entity.async_turn_on()
+        (request,) = sent
+        assert request.method == method
+        assert request.url.endswith(path)
+        assert request.body == payload
+        assert entity.is_on is False
+    finally:
+        await coordinator.async_close()
+
+
+async def test_osd_enables_with_inventory_only(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OSD on and off use current inventory without hydrating the SDK cache."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(supportExt={"153": "1"}, name="Test Camera")
+    added: list[Entity] = []
+    try:
+        assert not coordinator.ezviz_client._cameras
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == "CAM001_OSD")
+        assert isinstance(entity, switch.EzvizSwitch)
+        await entity.async_turn_on()
+        await entity.async_turn_off()
+        on, off = sent
+        assert on.method == off.method == "PUT"
+        assert on.url == off.url
+        assert on.url.endswith("/CAM001/1/osd")
+        assert on.body == "osd=Test+Camera"
+        assert off.body == "osd="
+    finally:
         await coordinator.async_close()
