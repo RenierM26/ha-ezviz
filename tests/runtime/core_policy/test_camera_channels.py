@@ -338,12 +338,23 @@ async def test_lens_stream_checks_health_under_lock_and_recovers_its_route(
         await release_prefs.wait()
         return prefs
 
-    def run_worker(stream: Stream) -> None:
-        stream._thread_quit.wait()
+    def transport(
+        _source: str,
+        _options: object,
+        _settings: object,
+        _state: object,
+        _converter: object,
+        interrupt: Event,
+    ) -> None:
+        interrupt.wait()
 
     camera_module = import_module(camera.Camera.__module__)
     monkeypatch.setattr(camera_module, "get_dynamic_camera_stream_settings", get_prefs)
-    monkeypatch.setattr(Stream, "_run_worker", run_worker)
+    monkeypatch.setattr(
+        import_module("homeassistant.components.stream.worker"),
+        "stream_worker",
+        transport,
+    )
     monkeypatch.setattr(stream_core, "async_call_later", schedule_idle)
     try:
         async with target._stream_lifecycle_lock:
@@ -420,6 +431,10 @@ async def test_lost_route_stops_core_worker_during_source_restart(
         STREAM_SETTINGS_NON_LL_HLS,
         DynamicStreamSettings(preload_stream=True),
     )
+    if not hasattr(stream, "_thread_quit"):
+        await platform.async_reset()
+        await coordinator.async_close()
+        pytest.skip("Core no longer clears a shared quit signal during source restart")
     target.stream = stream
     output = stream.add_provider(HLS_PROVIDER)
     output.idle_timer.start()

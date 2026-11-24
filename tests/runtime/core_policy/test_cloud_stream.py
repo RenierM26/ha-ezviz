@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
+from importlib import import_module
 from io import BytesIO
 from pathlib import Path
 import socket
@@ -30,7 +31,7 @@ from homeassistant.components.camera.prefs import (
     CameraPreferences,
     DynamicStreamSettings,
 )
-from homeassistant.components.stream import Stream, create_stream
+from homeassistant.components.stream import create_stream
 from homeassistant.components.stream.const import (
     ATTR_SETTINGS,
     ATTR_STREAMS,
@@ -330,10 +331,21 @@ async def test_cold_cloud_recording_expires_and_can_retry(
     hass.data["stream"] = {ATTR_SETTINGS: STREAM_SETTINGS_NON_LL_HLS, ATTR_STREAMS: []}
     monkeypatch.setattr(camera, "CLOUD_RECORDING_STARTUP_TIMEOUT", 0.05)
 
-    def run_worker(stream: Stream) -> None:
-        stream._thread_quit.wait()
+    def transport(
+        _source: str,
+        _options: object,
+        _settings: object,
+        _state: object,
+        _converter: object,
+        interrupt: Event,
+    ) -> None:
+        interrupt.wait()
 
-    monkeypatch.setattr(Stream, "_run_worker", run_worker)
+    monkeypatch.setattr(
+        import_module("homeassistant.components.stream.worker"),
+        "stream_worker",
+        transport,
+    )
     platform = await add(hass, target, "camera")
     try:
         stream = await target.async_create_stream()

@@ -217,14 +217,24 @@ async def test_preloaded_stream_worker_stops_on_entity_removal(
     preferences = stream.dynamic_stream_settings
     worker = MagicMock()
     stream._thread = worker
+    control = None
+    if hasattr(stream, "_worker_control"):
+        control = import_module("homeassistant.components.stream")._WorkerControl()
+        stream._worker_control = control
     data.credentials.commit("CAM001", "rotated")
     cam._handle_coordinator_update()
     assert "rotated@" in stream.source
-    assert stream._thread_quit.is_set()
-    assert stream._fast_restart_once
+    if control is None:
+        assert stream._thread_quit.is_set()
+        assert stream._fast_restart_once
+    else:
+        assert control.interrupt.is_set()
+        assert not control.is_stopped
     await cam.async_will_remove_from_hass()
     worker.join.assert_called_once()
     assert stream._thread is None
+    if control is not None:
+        assert control.is_stopped
     assert not stream.dynamic_stream_settings.preload_stream
     assert preferences.preload_stream
     await data.async_close()
