@@ -1,5 +1,10 @@
 # Change history
 
+## Unreleased
+
+- Fix AI detection switches after the inventory migration, and route Privacy
+  and Flicker light on movement to the camera channels used by the EZVIZ app.
+
 ## 0.4.0
 
 **Minimum versions:** Home Assistant **2026.10.4**, Python **3.14.2**, and

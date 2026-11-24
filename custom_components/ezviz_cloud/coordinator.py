@@ -477,12 +477,14 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.async_update_listeners()
 
 
-def camera_switch_states(data: dict[str, Any]) -> dict[int, bool | None]:
-    """Index legacy device-wide switch observations, never sibling channels."""
+def camera_switch_states(
+    data: dict[str, Any], *, channel_no: int = 0
+) -> dict[int, bool | None]:
+    """Index switch observations on the selected channel, never sibling channels."""
     if "SWITCH" in data:
         return {
             kind: power_state(row.get("enable"))
-            for kind, row in switch_rows(data["SWITCH"], channel_no=0).items()
+            for kind, row in switch_rows(data["SWITCH"], channel_no=channel_no).items()
         }
     switches = data.get("switches")
     return (
