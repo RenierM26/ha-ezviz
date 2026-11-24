@@ -1,11 +1,23 @@
 # Change history
 
-## Unreleased
+## 0.4.1
+
+**Minimum versions:** Home Assistant **2026.10.4**, Python **3.14.2**, and
+published `pyezvizapi` **2.8.0**. Do not run this alongside Home Assistant's
+built-in EZVIZ integration, which pins a conflicting SDK version.
 
 - Fix AI detection switches after the inventory migration, and route Privacy
   and Flicker light on movement to the camera channels used by the EZVIZ app.
 - Restore OSD overlay enable and align other camera switches with the app,
   including all-day recording and People detection.
+
+- Let administrators delete stale devices from Home Assistant after a fresh
+  account inventory confirms they are no longer on the EZVIZ account. Offline
+  devices still on the account and the account alarm are preserved.
+- Keep EZVIZ cloud streams compatible with newer Home Assistant stream
+  shutdown behavior.
+
+See the [upgrade and rollback guide](docs/upgrading.md).
 
 ## 0.4.0
 

@@ -10,11 +10,11 @@ It is separate from Home Assistant's built-in **EZVIZ** integration.
 
 ## Release status
 
-This documentation describes **0.4.0**, which adds opt-in cloud live view,
-multi-lens support, intercom controls, and guided verification during setup
-and reauthentication. For published downloads, use
+This documentation describes **0.4.1**, a patch release that fixes camera
+switch routing and lets you remove stale devices from Home Assistant.
+For published downloads, use
 [GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
-Read the [0.4.0 change notes](CHANGELOG.md#040) and
+Read the [0.4.1 change notes](CHANGELOG.md#041) and
 [upgrade/rollback guide](docs/upgrading.md) before updating. A merge into
 `main` alone does not publish a HACS update.
 
