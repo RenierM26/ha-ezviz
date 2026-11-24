@@ -10,11 +10,11 @@ It is separate from Home Assistant's built-in **EZVIZ** integration.
 
 ## Release status
 
-This documentation describes **0.4.1**, a patch release that fixes camera
-switch routing and lets you remove stale devices from Home Assistant.
+This documentation describes **0.4.2**, a patch release that restores the Privacy
+and Flicker light on movement switches on affected cameras.
 For published downloads, use
 [GitHub Releases](https://github.com/RenierM26/ha-ezviz/releases).
-Read the [0.4.1 change notes](CHANGELOG.md#041) and
+Read the [0.4.2 change notes](CHANGELOG.md#042) and
 [upgrade/rollback guide](docs/upgrading.md) before updating. A merge into
 `main` alone does not publish a HACS update.
 

@@ -1,6 +1,6 @@
 # Upgrading, credential storage and rollback
 
-This describes upgrading to **0.4.1**, including changes from `0.2.0.25`. Read
+This describes upgrading to **0.4.2**, including changes from `0.2.0.25`. Read
 the target tag's release notes and [release status](../README.md#release-status)
 before installing. A PR merge does not publish a HACS update.
 
@@ -11,7 +11,7 @@ before installing. A PR merge does not publish a HACS update.
 2. Keep a restorable HA/configuration backup from **before** the upgrade, including
    hidden private storage, integration files and config-entry options. Treat it
    as private; a component source ZIP alone does not contain credentials/state.
-3. Verify the target's HA baseline and SDK requirements. 0.4.1 requires HA 2026.10.4+
+3. Verify the target's HA baseline and SDK requirements. 0.4.2 requires HA 2026.10.4+
    and SDK 2.8.0+; built-in EZVIZ's conflicting SDK pin is not qualified alongside it.
 4. Upgrade through your chosen installation method and follow its restart prompt.
    Keep the same HA config volume. Confirm polling, push, entity identities and
