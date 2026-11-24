@@ -32,11 +32,12 @@ def validator(*errors):
     return validate
 
 
-def test_expected_conflict_warns_and_keeps_prior_plugin_errors(capsys):
+@pytest.mark.parametrize("message", [CHECK.EXPECTED_ERROR, CHECK.EXPECTED_CORE_DEV_ERROR])
+def test_expected_conflict_warns_and_keeps_prior_plugin_errors(capsys, message):
     prior = error("Invalid manifest", "manifest")
     component = integration(errors=[prior])
     print("Validating requirements...", end="")
-    assert CHECK.validate_with_exception(validator(error()), component, None)
+    assert CHECK.validate_with_exception(validator(error(message)), component, None)
     assert component.errors == [prior]
     assert "\n::warning" in capsys.readouterr().out
 
