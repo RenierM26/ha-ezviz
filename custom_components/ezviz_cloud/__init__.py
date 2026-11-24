@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pyezvizapi.client import EzvizClient
 from pyezvizapi.exceptions import (
@@ -13,7 +13,7 @@ from pyezvizapi.exceptions import (
     PyEzvizError,
 )
 
-from homeassistant.config_entries import SOURCE_IGNORE
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntryState
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_TIMEOUT,
@@ -53,6 +53,9 @@ from .services import async_setup_services
 from .tokens import TokenPersistence
 from .views import ImageProxyView
 from .workers import create_critical_task
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.device_registry import AnyDeviceEntry
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -248,6 +251,26 @@ async def async_unload_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> bo
             await runtime.async_stop()
 
     return unload_ok
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: EzvizConfigEntry, device_entry: AnyDeviceEntry
+) -> bool:
+    """Let Home Assistant delete a device no longer on this EZVIZ account."""
+    if (
+        entry.state is not ConfigEntryState.LOADED
+        or entry.data.get(CONF_TYPE) != ATTR_TYPE_CLOUD
+    ):
+        return False
+
+    serials = {
+        serial for domain, serial in device_entry.identifiers if domain == DOMAIN
+    }
+    # The alarm panel represents the account itself, not a serial in the device list.
+    if not serials or serials.intersection((entry.unique_id, entry.entry_id)):
+        return False
+
+    return await entry.runtime_data.coordinator.async_devices_are_absent(serials)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: EzvizConfigEntry) -> None:

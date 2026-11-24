@@ -8,10 +8,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 import logging
 from secrets import token_urlsafe
+from time import monotonic
 from typing import TYPE_CHECKING, Any, override
 
 from pyezvizapi import DevicePollOptions, DeviceSnapshot
 from pyezvizapi.client import EzvizClient
+from pyezvizapi.cloud.deadline import request_deadline
 from pyezvizapi.constants import DeviceSwitchType
 from pyezvizapi.devices.channels import (
     camera_channel_notification,
@@ -202,6 +204,24 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         return self.ezviz_client.poll_devices(
             DevicePollOptions(timeout=self._api_timeout, include_intercom_events=True)
         )
+
+    async def async_devices_are_absent(self, serials: set[str]) -> bool:
+        """Check account membership without using the cached device state."""
+        deadline = monotonic() + self._api_timeout
+        try:
+            async with asyncio.timeout(self._api_timeout), self._update_lock:
+                return await self.async_execute(
+                    self._devices_are_absent, serials, deadline
+                )
+        except HomeAssistantError, InvalidURL, HTTPError, PyEzvizError, OSError:
+            # An unavailable account is not evidence that a device was removed.
+            return False
+
+    def _devices_are_absent(self, serials: set[str], deadline: float) -> bool:
+        """Require a complete, well-formed SDK inventory before removing devices."""
+        with request_deadline(deadline):
+            devices = self.ezviz_client.get_device(strict=True)
+        return all(device["deviceSerial"] not in serials for device in devices)
 
     def register_image(
         self, serial: str, url: str, channel_key: str | None = None
