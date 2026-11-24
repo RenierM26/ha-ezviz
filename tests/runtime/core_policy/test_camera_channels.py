@@ -2020,12 +2020,12 @@ async def test_camera_light_switch_discovery(
 @pytest.mark.parametrize(
     ("key", "switch_id", "channel", "category", "model"),
     [
-        ("LIGHT", 3, 0, "IPC", "H9c"),
-        ("INFRARED_LIGHT", 10, 0, "IPC", "H9c"),
+        ("LIGHT", 3, 1, "IPC", "H9c"),
+        ("INFRARED_LIGHT", 10, 1, "IPC", "H9c"),
         ("LIGHT_FLICKER", 301, 1, "IPC", "H9c"),
         ("PRIVACY", 7, 1, "IPC", "H9c"),
-        ("ALARM_LIGHT_RELEVANCE", 305, 0, "IPC", "H9c"),
-        ("WIFI_LIGHT", 13, 0, "IGateWay", "W3"),
+        ("ALARM_LIGHT_RELEVANCE", 305, 1, "IPC", "H9c"),
+        ("WIFI_LIGHT", 13, 1, "IGateWay", "W3"),
     ],
 )
 async def test_camera_switch_observes_its_write_channel(
@@ -2078,7 +2078,7 @@ async def test_camera_switch_observes_its_write_channel(
         await entity.async_turn_on()
         assert sent[-1].url.endswith(f"/{channel}/1/{switch_id}/switchStatus")
 
-        data["SWITCH"] = [other, sibling]
+        data["SWITCH"] = [sibling]
         await poll()
         assert entity.is_on is None
         assert hass.states.get(entity.entity_id).state == "unavailable"
@@ -2221,5 +2221,87 @@ async def test_ai_switch_uses_snapshot_without_legacy_camera_cache(
                 for request in sent
             )
             assert entity.is_on is False
+    finally:
+        await coordinator.async_close()
+
+
+@pytest.mark.parametrize(
+    ("key", "switch_id", "path", "method", "payload"),
+    [
+        (
+            "ALL_DAY_VIDEO",
+            29,
+            "/v3/devices/CAM001/switch?channelNo=1&enable=1&switchType=29",
+            "PUT",
+            None,
+        ),
+        (
+            "HUMAN_INTELLIGENT_DETECTION",
+            200,
+            "/v3/faceservice/cateye/switch",
+            "POST",
+            "deviceSerial=CAM001&channelNo=1&enable=1&type=200",
+        ),
+    ],
+)
+@pytest.mark.parametrize("channel", [0, 1])
+async def test_camera_switch_special_route(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    switch_id: int,
+    path: str,
+    method: str,
+    payload: str | None,
+    channel: int,
+) -> None:
+    """Use the app operation unless only a device-wide observation exists."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(
+        supportExt={"88": "1", "244": "1"},
+        SWITCH=[{"type": switch_id, "channelNo": channel, "enable": False}],
+    )
+    added: list[Entity] = []
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == f"CAM001_{key}")
+        assert isinstance(entity, switch.EzvizSwitch)
+        assert entity.is_on is False
+        await entity.async_turn_on()
+        (request,) = sent
+        if channel == 0:
+            assert request.method == "PUT"
+            assert request.url.endswith(f"/CAM001/0/1/{switch_id}/switchStatus")
+        else:
+            assert request.method == method
+            assert request.url.endswith(path)
+            assert request.body == payload
+        assert entity.is_on is False
+    finally:
+        await coordinator.async_close()
+
+
+async def test_osd_enables_with_inventory_only(
+    hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OSD on and off use current inventory without hydrating the SDK cache."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(supportExt={"153": "1"}, name="Test Camera")
+    added: list[Entity] = []
+    try:
+        assert not coordinator.ezviz_client._cameras
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == "CAM001_OSD")
+        assert isinstance(entity, switch.EzvizSwitch)
+        await entity.async_turn_on()
+        await entity.async_turn_off()
+        on, off = sent
+        assert on.method == off.method == "PUT"
+        assert on.url == off.url
+        assert on.url.endswith("/CAM001/1/osd")
+        assert on.body == "osd=Test+Camera"
+        assert off.body == "osd="
     finally:
         await coordinator.async_close()

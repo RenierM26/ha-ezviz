@@ -4,6 +4,8 @@
 
 - Fix AI detection switches after the inventory migration, and route Privacy
   and Flicker light on movement to the camera channels used by the EZVIZ app.
+- Restore OSD overlay enable and align other camera switches with the app,
+  including all-day recording and People detection.
 
 ## 0.4.0
 
