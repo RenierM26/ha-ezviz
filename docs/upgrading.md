@@ -12,7 +12,7 @@ before installing. A PR merge does not publish a HACS update.
    hidden private storage, integration files and config-entry options. Treat it
    as private; a component source ZIP alone does not contain credentials/state.
 3. Verify the target's HA baseline and SDK requirements. 0.4.0 requires HA 2026.10.4+
-   and SDK 2.7.0+; built-in EZVIZ's conflicting SDK pin is not qualified alongside it.
+   and SDK 2.8.0+; built-in EZVIZ's conflicting SDK pin is not qualified alongside it.
 4. Upgrade through your chosen installation method and follow its restart prompt.
    Keep the same HA config volume. Confirm polling, push, entity identities and
    representative functions separately; do not assume cloud or physical success

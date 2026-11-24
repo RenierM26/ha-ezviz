@@ -1,7 +1,7 @@
 # Development and checks
 
 The development and CI profiles use the published
-[`pyezvizapi` 2.7.0 wheel](https://pypi.org/project/pyezvizapi/2.7.0/), pinned in
+[`pyezvizapi` 2.8.0 wheel](https://pypi.org/project/pyezvizapi/2.8.0/), pinned in
 [`requirements/sdk.txt`](../requirements/sdk.txt). See
 [multi-lens qualification](multi-lens.md#qualification-limits).
 

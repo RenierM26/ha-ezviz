@@ -16,6 +16,7 @@ from pyezvizapi.devices.intercom import (
     label_light_value,
     set_label_light,
 )
+from pyezvizapi.devices.observation import camera_switch_states
 from pyezvizapi.devices.snapshot import DeviceState, PlugState
 from pyezvizapi.exceptions import HTTPError, InvalidHost, PyEzvizError
 from pyezvizapi.feature import (
@@ -35,11 +36,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import (
-    EzvizDataUpdateCoordinator,
-    LocalRtspCoordinator,
-    camera_switch_states,
-)
+from .coordinator import EzvizDataUpdateCoordinator, LocalRtspCoordinator
 from .credentials import camera_options
 from .entity import (
     EzvizEntity,
@@ -124,11 +121,16 @@ _SELECTED_CAMERA_SWITCHES = frozenset(
 )
 
 
+_DEVICE_STATE_CAMERA_WRITE_SWITCHES = frozenset(
+    {DeviceSwitchType.ALL_DAY_VIDEO, DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION}
+)
+
+
 def _switch_channel_no(
     camera_data: dict[str, Any], switch_type: DeviceSwitchType
 ) -> int | None:
     """Choose an app route, preserving a reported legacy device-wide route."""
-    if switch_type is DeviceSwitchType.LIGHT_FLICKER:
+    if switch_type in (DeviceSwitchType.LIGHT_FLICKER, DeviceSwitchType.ALL_DAY_VIDEO):
         return 1
     if (
         switch_type in _SELECTED_CAMERA_SWITCHES
@@ -142,12 +144,12 @@ def _switch_channel_no(
         else:
             default = 0 if switch_type is DeviceSwitchType.PRIVACY else 1
             channel = channels[0] if channels else default
-        if switch_type is DeviceSwitchType.PRIVACY:
+        if (
+            switch_type is DeviceSwitchType.PRIVACY
+            or switch_type in _DEVICE_STATE_CAMERA_WRITE_SWITCHES
+        ):
             return channel
-    elif switch_type in (
-        DeviceSwitchType.ALARM_LIGHT_RELEVANCE,
-        DeviceSwitchType.ALL_DAY_VIDEO,
-    ):
+    elif switch_type is DeviceSwitchType.ALARM_LIGHT_RELEVANCE:
         channel = 1
     else:
         return 0
@@ -163,24 +165,6 @@ def _switch_channel_no(
     return channel
 
 
-def _set_people_detection(
-    client: EzvizClient, serial: str, switch_type: int, enable: int, channel: int
-) -> None:
-    """Bridge the app's dedicated route until the SDK exposes a public operation."""
-    response = client._request_json(  # noqa: SLF001
-        "POST",
-        "/v3/faceservice/cateye/switch",
-        data={
-            "deviceSerial": serial,
-            "channelNo": channel,
-            "enable": enable,
-            "type": switch_type,
-        },
-        retry_401=True,
-    )
-    client._ensure_ok(response, "Could not set people detection")  # noqa: SLF001
-
-
 def _channel_switch_states(
     camera_data: dict[str, Any],
     switch_type: DeviceSwitchType,
@@ -190,7 +174,10 @@ def _channel_switch_states(
     channel = _switch_channel_no(camera_data, switch_type)
     if channel is None:
         return {}
-    if channel == 0:
+    if channel == 0 or (
+        switch_type in _DEVICE_STATE_CAMERA_WRITE_SWITCHES
+        and switch_type.value in device_states
+    ):
         return device_states
     return camera_switch_states(camera_data, channel_no=channel)
 
@@ -759,17 +746,18 @@ class EzvizSwitch(EzvizEntity, SwitchEntity):
         if channel is None or not self.available:
             raise HomeAssistantError("EZVIZ switch route is unavailable")
         client = self.coordinator.ezviz_client
-        method: Callable[..., Any]
-        if channel != 0 and switch_type is DeviceSwitchType.ALL_DAY_VIDEO:
-            method = client.switch_status_other
-        elif (
-            channel != 0 and switch_type is DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION
-        ):
-            method = partial(_set_people_detection, client)
-        else:
-            method = client.switch_status
+        if switch_type is DeviceSwitchType.HUMAN_INTELLIGENT_DETECTION:
+            return SettingCommand(
+                partial(client.set_people_detection, channel_no=channel),
+                (self._serial, on),
+            )
+        if switch_type is DeviceSwitchType.ALL_DAY_VIDEO:
+            return SettingCommand(
+                partial(client.set_camera_switch, channel_no=channel),
+                (self._serial, switch_type, on),
+            )
         return SettingCommand(
-            method, (self._serial, switch_type.value, int(on), channel)
+            client.switch_status, (self._serial, switch_type.value, int(on), channel)
         )
 
     def _prepare_osd(self, on: bool) -> SettingCommand:

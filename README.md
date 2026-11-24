@@ -22,7 +22,7 @@ Read the [0.4.0 change notes](CHANGELOG.md#040) and
 | --- | --- |
 | Home Assistant | 2026.10.4 minimum; native CI also tests 2026.11.0 |
 | Python | 3.14.2+; HA manages Python on OS/Container installations |
-| SDK | Published `pyezvizapi>=2.7.0`; CI qualifies exactly 2.7.0 |
+| SDK | Published `pyezvizapi>=2.8.0`; CI qualifies exactly 2.8.0 |
 | Built-in/custom coexistence | **Not supported/qualified:** built-in EZVIZ pins a conflicting SDK version |
 
 Cloud login and initial polling must succeed. Local RTSP requires a model that

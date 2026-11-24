@@ -19,8 +19,7 @@ from pyezvizapi.devices.channels import (
     resolve_camera_channel,
 )
 from pyezvizapi.devices.intercom_events import intercom_event_type
-from pyezvizapi.devices.observation import power_state
-from pyezvizapi.devices.payload import switch_rows
+from pyezvizapi.devices.observation import camera_switch_states
 from pyezvizapi.devices.snapshot import DeviceKind, DeviceState
 from pyezvizapi.exceptions import (
     EzvizAuthTokenExpired,
@@ -475,23 +474,6 @@ class EzvizDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         # last_update_success/last_exception untouched while notifying listeners.
         self.data = snapshot
         self.async_update_listeners()
-
-
-def camera_switch_states(
-    data: dict[str, Any], *, channel_no: int = 0
-) -> dict[int, bool | None]:
-    """Index switch observations on the selected channel, never sibling channels."""
-    if "SWITCH" in data:
-        return {
-            kind: power_state(row.get("enable"))
-            for kind, row in switch_rows(data["SWITCH"], channel_no=channel_no).items()
-        }
-    switches = data.get("switches")
-    return (
-        {kind: power_state(value) for kind, value in switches.items()}
-        if isinstance(switches, Mapping)
-        else {}
-    )
 
 
 def camera_alarm_light_state(data: dict[str, Any]) -> bool | None:

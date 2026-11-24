@@ -2244,7 +2244,7 @@ async def test_ai_switch_uses_snapshot_without_legacy_camera_cache(
         ),
     ],
 )
-@pytest.mark.parametrize("channel", [0, 1])
+@pytest.mark.parametrize("channels", [(0,), (1,), (0, 1)])
 async def test_camera_switch_special_route(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
@@ -2253,14 +2253,17 @@ async def test_camera_switch_special_route(
     path: str,
     method: str,
     payload: str | None,
-    channel: int,
+    channels: tuple[int, ...],
 ) -> None:
-    """Use the app operation unless only a device-wide observation exists."""
+    """Use the app write route even if only device-wide state is reported."""
     coordinator, _, sent = dual(hass, monkeypatch)
     _record_switch_requests(monkeypatch, coordinator, sent)
     coordinator.data["CAM001"].update(
         supportExt={"88": "1", "244": "1"},
-        SWITCH=[{"type": switch_id, "channelNo": channel, "enable": False}],
+        SWITCH=[
+            {"type": switch_id, "channelNo": channel, "enable": index > 0}
+            for index, channel in enumerate(channels)
+        ],
     )
     added: list[Entity] = []
     try:
@@ -2270,13 +2273,9 @@ async def test_camera_switch_special_route(
         assert entity.is_on is False
         await entity.async_turn_on()
         (request,) = sent
-        if channel == 0:
-            assert request.method == "PUT"
-            assert request.url.endswith(f"/CAM001/0/1/{switch_id}/switchStatus")
-        else:
-            assert request.method == method
-            assert request.url.endswith(path)
-            assert request.body == payload
+        assert request.method == method
+        assert request.url.endswith(path)
+        assert request.body == payload
         assert entity.is_on is False
     finally:
         await coordinator.async_close()

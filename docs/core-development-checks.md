@@ -89,7 +89,7 @@ when adopting a new baseline, rather than weakening Core's configuration.
   other cached diagnostics when a getter fails, have local explained Ruff exceptions.
   They are not blanket disabled and are covered by failure/cancellation tests.
 - Stock hassfest's exact built-in/custom SDK conflict remains unresolved:
-  `pyezvizapi>=2.7.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
+  `pyezvizapi>=2.8.0` versus built-in `pyezvizapi==1.0.5.0`. The wrapper visibly
   demotes only that conflict. This is not a claim of unmodified hassfest success,
   built-in/custom coexistence, upstream Core acceptance, or production deployment.
 
