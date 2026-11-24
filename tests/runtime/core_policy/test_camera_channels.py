@@ -2125,6 +2125,42 @@ async def test_camera_switch_observes_its_write_channel(
         await coordinator.async_close()
 
 
+@pytest.mark.parametrize(("key", "switch_id"), [("LIGHT_FLICKER", 301), ("PRIVACY", 7)])
+async def test_camera_switch_can_read_device_state_and_write_to_camera(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+    switch_id: int,
+) -> None:
+    """Discover device-wide state without changing the app's write channel."""
+    coordinator, _, sent = dual(hass, monkeypatch)
+    _record_switch_requests(monkeypatch, coordinator, sent)
+    coordinator.data["CAM001"].update(
+        device_category="IPC",
+        device_sub_category="H9c",
+        supportExt={"40": "1", "96": "2"},
+        SWITCH=[
+            {"type": switch_id, "channelNo": 0, "enable": False},
+            {"type": switch_id, "channelNo": 2, "enable": True},
+        ],
+    )
+    added: list[Entity] = []
+    platform = None
+    try:
+        await switch.async_setup_entry(hass, coordinator.config_entry, added.extend)
+        entity = next(item for item in added if item.unique_id == f"CAM001_{key}")
+        assert isinstance(entity, switch.EzvizSwitch)
+        platform = await add(hass, entity, "switch")
+        assert hass.states.get(entity.entity_id).state == "off"
+        await entity.async_turn_on()
+        assert sent[-1].url.endswith(f"/CAM001/1/1/{switch_id}/switchStatus")
+        assert entity.is_on is False  # ACK is not an observation.
+    finally:
+        if platform is not None:
+            await platform.async_reset()
+        await coordinator.async_close()
+
+
 @pytest.mark.parametrize(
     ("resources", "channel"),
     [

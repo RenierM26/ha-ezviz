@@ -170,7 +170,7 @@ def _channel_switch_states(
     switch_type: DeviceSwitchType,
     device_states: Mapping[int, bool | None],
 ) -> Mapping[int, bool | None]:
-    """Read only the target channel or the SDK's legacy unscoped observation."""
+    """Read the selected switch without using a sibling lens observation."""
     channel = _switch_channel_no(camera_data, switch_type)
     if channel is None:
         return {}
@@ -179,7 +179,15 @@ def _channel_switch_states(
         and switch_type.value in device_states
     ):
         return device_states
-    return camera_switch_states(camera_data, channel_no=channel)
+    channel_states = camera_switch_states(camera_data, channel_no=channel)
+    # These controls can report device-wide state even when the app writes to
+    # a camera channel. Prefer its observation if present, then check channel 0.
+    if (
+        switch_type in (DeviceSwitchType.LIGHT_FLICKER, DeviceSwitchType.PRIVACY)
+        and switch_type.value not in channel_states
+    ):
+        return device_states
+    return channel_states
 
 
 def _intelligent_app_resource_id(camera_data: dict[str, Any]) -> str | None:
