@@ -1,6 +1,6 @@
 # Non-streaming video intercom support
 
-> This branch requires published SDK 2.7.0. See [multi-lens support](multi-lens.md).
+> This branch requires published SDK 2.8.0. See [multi-lens support](multi-lens.md).
 
 The intercom API was introduced in published pyezvizapi 2.5.0 and the independent
 point-PTZ payload correction in published 2.5.1. This branch additionally requires

@@ -485,8 +485,12 @@ class EzvizCamera(EzvizEntity, Camera):
         """Keep Core's quit signal set until its worker joins."""
         # Core's update_source() arms a one-shot restart. The worker may
         # already be past the flag check and about to clear the quit event.
-        stream._fast_restart_once = False  # noqa: SLF001
-        quit_event = stream._thread_quit  # noqa: SLF001
+        quit_event = getattr(stream, "_thread_quit", None)
+        if quit_event is None:
+            # Newer Core owns a permanent stop signal separate from restart.
+            await stream.stop()
+            return
+        setattr(stream, "_fast_restart_once", False)  # noqa: B010 -- legacy Core only
         loop = asyncio.get_running_loop()
         retry: asyncio.TimerHandle
 

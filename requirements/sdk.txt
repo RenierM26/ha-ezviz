@@ -1,2 +1,2 @@
 # Published SDK version used for CI and runtime qualification.
-pyezvizapi==2.7.0
+pyezvizapi==2.8.0
