@@ -1,6 +1,6 @@
 # Installation and setup
 
-These instructions describe **0.4.1**, not the older `0.2.0.25` release.
+These instructions describe **0.4.2**, not the older `0.2.0.25` release.
 Check the [release status](../README.md#release-status) first.
 UI names below match the integration's English strings; HA/app translations can
 vary. No account login or physical-device setup was performed to validate this
@@ -11,7 +11,7 @@ rewrite; flow behavior is covered by the native HA tests.
 - Use an EZVIZ account that can already see the devices in the current EZVIZ app.
   Register/add/manage devices through that app and current vendor guidance. The
   old account-registration/web-login links are not prerequisites.
-- Check your selected release's HA/Python requirements. 0.4.1 requires HA
+- Check your selected release's HA/Python requirements. 0.4.2 requires HA
   2026.10.4+ and Python 3.14.2+. Do not replace HA OS/Container's managed Python.
 - Do not run this alongside built-in EZVIZ: its `pyezvizapi==1.0.5.0` pin conflicts
   with this line's `>=2.8.0` requirement. The narrowly documented CI exception is

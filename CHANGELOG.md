@@ -1,5 +1,14 @@
 # Change history
 
+## 0.4.2
+
+- Restore **Privacy** and **Flicker light on movement** when EZVIZ reports
+  device-wide state rather than state on the camera channel used for commands.
+- List EZVIZ under Cameras in HACS and Home Assistant Marketplace.
+
+Home Assistant, Python, and SDK requirements are unchanged from 0.4.1.
+See the [upgrade and rollback guide](docs/upgrading.md).
+
 ## 0.4.1
 
 **Minimum versions:** Home Assistant **2026.10.4**, Python **3.14.2**, and
