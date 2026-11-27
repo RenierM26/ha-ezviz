@@ -1,2 +1,2 @@
 # Repository YAML/forms validation, separate from HA and tooling environments.
-PyYAML==6.0.3
+PyYAML==6.0.4
